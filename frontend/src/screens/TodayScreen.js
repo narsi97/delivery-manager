@@ -3,6 +3,7 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-nat
 
 import * as api from '../api';
 import { Banner, Button, Card, Empty, Field, Pill, SectionTitle, Stat } from '../components';
+import MapPicker from '../MapPicker';
 import { currentPosition, openNavigation } from '../navigation';
 import { colors, radius, spacing } from '../theme';
 
@@ -17,7 +18,7 @@ export default function TodayScreen({ token, business }) {
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState('');
 
-  const [depot, setDepot] = useState({ lat: '', lng: '' });
+  const [depot, setDepot] = useState({ lat: '', lng: '', name: '' });
 
   const refresh = useCallback(async () => {
     try {
@@ -65,22 +66,26 @@ export default function TodayScreen({ token, business }) {
     setDepot({ lat: String(position.lat.toFixed(6)), lng: String(position.lng.toFixed(6)) });
   };
 
-  const existingRoute = day?.routes?.[0];
+  const routes = day?.routes || [];
 
-  const build = () =>
-    run('route', async () => {
+  // routeId absent = build a NEW route from whatever's still pending and
+  // unrouted (how a day gets split across more than one driver). Passed =
+  // rebuild that specific route in place, absorbing any stops added since
+  // it was last built — either way, a stop already on a DIFFERENT route
+  // is left alone (see selectRoutableOrders on the backend), so building
+  // route two can never steal a stop already handed to route one.
+  const build = (routeId) =>
+    run(routeId ? `rebuild-${routeId}` : 'route', async () => {
       const lat = Number(depot.lat);
       const lng = Number(depot.lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) {
-        throw new Error('Set where the round starts from first — use your location or type the coordinates.');
+        throw new Error('Set where the round starts from first — use your location, drop a pin, or type the coordinates.');
       }
       const result = await api.buildRoute(token, {
         start_lat: lat,
         start_lng: lng,
-        // Rebuild the existing route in place rather than stacking a
-        // second route on the same day; this is what absorbs customers
-        // added after the round was first planned.
-        route_id: existingRoute?.id,
+        name: depot.name.trim() || undefined,
+        route_id: routeId || undefined,
       });
       const skipped = result.skipped_unpinned;
       setNotice(
@@ -109,6 +114,7 @@ export default function TodayScreen({ token, business }) {
           <Stat label="Delivered" value={summary.delivered ?? 0} tone="success" />
           <Stat label="Failed" value={summary.failed ?? 0} tone="error" />
           <Stat label="Skipped" value={summary.skipped ?? 0} />
+          <Stat label="Routes" value={routes.length} />
         </View>
         <Button
           title="Generate today's deliveries"
@@ -128,20 +134,31 @@ export default function TodayScreen({ token, business }) {
       </Card>
 
       <Card>
-        <SectionTitle>Route</SectionTitle>
-        {existingRoute ? (
-          <RouteSummary
-            route={existingRoute}
-            drivers={drivers}
-            token={token}
-            onChanged={refresh}
-            onError={setError}
-          />
-        ) : (
+        <SectionTitle>Routes ({routes.length})</SectionTitle>
+        {routes.length === 0 ? (
           <Empty>No route built yet for today.</Empty>
+        ) : (
+          routes.map((route) => (
+            <RouteSummary
+              key={route.id}
+              route={route}
+              drivers={drivers}
+              token={token}
+              onChanged={refresh}
+              onError={setError}
+              onRebuild={() => build(route.id)}
+              rebuilding={busyAction === `rebuild-${route.id}`}
+            />
+          ))
         )}
 
-        <Text style={styles.label}>Where does the round start?</Text>
+        <Text style={styles.label}>Where does the next round start?</Text>
+        <Field
+          label="Route name (optional)"
+          value={depot.name}
+          onChangeText={(value) => setDepot((prev) => ({ ...prev, name: value }))}
+          placeholder={routes.length > 0 ? `Round ${routes.length + 1}` : 'Morning round'}
+        />
         <View style={styles.depotRow}>
           <Field
             label="Latitude"
@@ -160,16 +177,23 @@ export default function TodayScreen({ token, business }) {
             style={styles.depotInput}
           />
         </View>
+        <MapPicker
+          lat={Number(depot.lat) || 0}
+          lng={Number(depot.lng) || 0}
+          onChange={(lat, lng) => setDepot((prev) => ({ ...prev, lat: lat.toFixed(6), lng: lng.toFixed(6) }))}
+        />
         <Button title="Use my current location" variant="secondary" onPress={useMyLocation} />
         <Button
-          title={existingRoute ? 'Rebuild route' : 'Build optimized route'}
-          onPress={build}
+          title="Build a new route"
+          onPress={() => build()}
           busy={busyAction === 'route'}
           style={styles.spaced}
         />
         <Text style={styles.note}>
-          Stops are ordered nearest-first from the start point. Turn-by-turn navigation happens in the driver&apos;s own
-          map app.
+          Builds a route from every pending stop that isn&apos;t already on one of the routes above — this is how a
+          day gets split across more than one driver. To absorb newly-added customers into an existing route instead,
+          use that route&apos;s own &quot;Rebuild&quot; button. Stops are ordered nearest-first from the start point;
+          turn-by-turn navigation happens in the driver&apos;s own map app.
         </Text>
       </Card>
 
@@ -187,7 +211,7 @@ export default function TodayScreen({ token, business }) {
   );
 }
 
-function RouteSummary({ route, drivers, token, onChanged, onError }) {
+function RouteSummary({ route, drivers, token, onChanged, onError, onRebuild, rebuilding }) {
   const [busy, setBusy] = useState(false);
 
   const assign = async (driverId) => {
@@ -230,6 +254,16 @@ function RouteSummary({ route, drivers, token, onChanged, onError }) {
           <Empty>Add a driver first.</Empty>
         ) : null}
       </View>
+
+      {onRebuild ? (
+        <Button
+          title="Rebuild this route (uses the start point below)"
+          variant="secondary"
+          onPress={onRebuild}
+          busy={rebuilding}
+          style={styles.spaced}
+        />
+      ) : null}
     </View>
   );
 }

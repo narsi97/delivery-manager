@@ -4,6 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import * as api from '../api';
 import { Banner, Button, Card, DeclaredFields, Empty, Field, Pill, SectionTitle } from '../components';
 import { customFieldsFor, labelsFor, lower } from '../labels';
+import MapPicker from '../MapPicker';
 import { currentPosition } from '../navigation';
 import { colors, radius, spacing } from '../theme';
 
@@ -144,10 +145,16 @@ function NewCustomerCard({ token, labels, fieldSpecs, onCreated, onError }) {
         <Field label="Latitude" value={form.lat} onChangeText={set('lat')} placeholder="12.9716" style={styles.half} />
         <Field label="Longitude" value={form.lng} onChangeText={set('lng')} placeholder="77.5946" style={styles.half} />
       </View>
+      <MapPicker
+        lat={Number(form.lat) || 0}
+        lng={Number(form.lng) || 0}
+        onChange={(newLat, newLng) => setForm((prev) => ({ ...prev, lat: newLat.toFixed(6), lng: newLng.toFixed(6) }))}
+      />
       <Button title="Pin my current location" variant="secondary" onPress={pinHere} />
       <Text style={styles.note}>
-        The pin — not the address — is what orders the route. You can leave it blank now and drop it later while
-        standing at the door.
+        Click or drag the pin on the map, use your current location, or type coordinates directly — all three write
+        to the same place. The pin — not the address — is what orders the route. You can leave it blank now and drop
+        it later while standing at the door.
       </Text>
       <Field
         label={`Notes for the ${lower(labels.driver)}`}
@@ -173,11 +180,15 @@ function CustomerCard({ customer, products, subscriptions, token, labels, fieldS
       onError('Could not read your location.');
       return;
     }
+    await savePin(position.lat, position.lng);
+  };
+
+  const savePin = async (newLat, newLng) => {
     setBusy(true);
     try {
       // Only the pin is sent — PATCH is partial, so the name, address and
       // notes already saved are left untouched.
-      await api.updateCustomer(token, customer.id, { lat: position.lat, lng: position.lng });
+      await api.updateCustomer(token, customer.id, { lat: newLat, lng: newLng });
       await onChanged();
     } catch (err) {
       onError(err.message);
@@ -212,6 +223,7 @@ function CustomerCard({ customer, products, subscriptions, token, labels, fieldS
 
       {expanded ? (
         <View style={styles.expanded}>
+          <MapPicker lat={customer.lat} lng={customer.lng} onChange={savePin} />
           <View style={styles.buttonRow}>
             <Button title="Pin at my location" variant="secondary" onPress={pinHere} busy={busy} style={styles.flexButton} />
             <Button
