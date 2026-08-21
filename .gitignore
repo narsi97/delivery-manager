@@ -1,0 +1,17 @@
+node_modules/
+dist/
+dist-web/
+.expo/
+.env.local
+*.log
+.DS_Store
+
+# Go build output
+backend/delivery-manager
+backend/*.exe
+backend/tmp/
+
+# Real secrets (examples are tracked, actual env files are not)
+.env
+env/*.env
+!env/*.env.example

@@ -1,0 +1,16 @@
+# Append to 3vnsystems-infrastructure/.env (and to .env.prod.example, so the
+# next person knows these exist).
+
+# Where this product's repo is checked out, relative to the infra repo root.
+# If you override it with a non-default path, use an ABSOLUTE path — see the
+# comment on PRODUCT_REPO_PATH in .env.prod.example for why.
+DELIVERY_MANAGER_REPO_PATH=../delivery-manager
+
+# Postgres password for the delivery_manager role (created by
+# postgres/init/002-create-delivery-manager-db.sh). Must match the
+# DATABASE_URL in env/delivery-manager.env.
+DELIVERY_MANAGER_POSTGRES_PASSWORD=CHANGE_ME
+
+# Google OAuth 2.0 Web client ID for this product's admin sign-in. Not a
+# secret. Leave blank to build without Google Sign-In — drivers still work.
+DELIVERY_MANAGER_GOOGLE_CLIENT_ID=

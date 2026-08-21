@@ -1,0 +1,22 @@
+{
+  "name": "delivery-manager",
+  "version": "1.0.0",
+  "description": "Expo React Native frontend for Delivery Manager — admin console and driver app.",
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "web": "expo start --web",
+    "web:8104": "EXPO_NO_TELEMETRY=1 npx expo start --web --port 8104",
+    "build:web": "EXPO_NO_TELEMETRY=1 npx expo export --platform web --output-dir dist-web"
+  },
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@expo/metro-runtime": "^56.0.15",
+    "expo": "^56.0.12",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-native": "^0.84.1",
+    "react-native-web": "^0.21.2"
+  }
+}

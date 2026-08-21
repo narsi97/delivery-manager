@@ -1,0 +1,52 @@
+# Append these two services to 3vnsystems-infrastructure's
+# docker/compose.prod.yml, and add both to the `caddy` service's
+# depends_on list. They follow the same shape as the interest-optimizer
+# and resume-optimizer pairs already there: built from a sibling checkout
+# of this product's repo, no registry involved.
+#
+# This fragment is not a compose file you run directly — it is the block
+# to copy. It lives in this repo rather than only in the infra repo so
+# that the deployment shape ships with the code it deploys.
+
+  # --- delivery-manager ---
+  delivery-manager-backend:
+    build:
+      context: ${DELIVERY_MANAGER_REPO_PATH:-../../delivery-manager}/backend
+      dockerfile: cloud/Dockerfile
+    image: delivery-manager-backend:local
+    restart: unless-stopped
+    env_file:
+      - ../env/delivery-manager.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # 127.0.0.1, not localhost — see the interest-optimizer healthcheck
+      # comments in compose.prod.yml for why.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  delivery-manager-frontend:
+    build:
+      context: ${DELIVERY_MANAGER_REPO_PATH:-../../delivery-manager}/frontend
+      dockerfile: cloud/Dockerfile
+      args:
+        # /delivery-manager, WITHOUT /api — the frontend appends
+        # /api/v1/... itself. See frontend/cloud/Dockerfile.
+        EXPO_PUBLIC_API_URL: https://${DOMAIN}/delivery-manager
+        EXPO_PUBLIC_APP_ENV: prod
+        EXPO_WEB_BASE_PATH: /delivery-manager
+        # Admin sign-in only; drivers use phone + PIN. Safe to leave blank
+        # while testing with drivers.
+        EXPO_PUBLIC_GOOGLE_CLIENT_ID: ${DELIVERY_MANAGER_GOOGLE_CLIENT_ID}
+    image: delivery-manager-frontend:local
+    restart: unless-stopped
+    depends_on:
+      - delivery-manager-backend
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6

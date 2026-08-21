@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: delivery-manager-postgres
+    environment:
+      POSTGRES_DB: delivery_manager
+      POSTGRES_USER: delivery_manager
+      POSTGRES_PASSWORD: dev-local-only
+    ports:
+      # 5437 so this can run alongside the other 3VNSYSTEMS products'
+      # local databases (interest-optimizer 5432, resume-optimizer 5433,
+      # expense-tracker 5435).
+      - "${POSTGRES_HOST_PORT:-5437}:5432"
+    volumes:
+      - delivery_manager_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U delivery_manager -d delivery_manager"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  delivery_manager_postgres:

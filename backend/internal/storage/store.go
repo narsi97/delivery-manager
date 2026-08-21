@@ -1,0 +1,121 @@
+package storage
+
+import (
+	"context"
+	"errors"
+
+	"delivery-manager/internal/domain"
+)
+
+var (
+	ErrNotFound = errors.New("not found")
+	// ErrConflict means the write collided with an existing record on a
+	// uniqueness rule — a second admin for an email already in use, a
+	// second driver on the same phone number.
+	ErrConflict = errors.New("conflicts with an existing record")
+)
+
+// Store is implemented by both the in-memory store (local dev without
+// Docker/Postgres running — see USE_DOCKER_POSTGRES in run-local.sh) and
+// the Postgres store (everywhere else).
+//
+// Every method that touches tenant-owned data takes businessID as its
+// first scoping argument and filters on it, rather than trusting the
+// record ID to be unguessable. This product is multi-tenant from day one
+// (see 3vnsystems-infrastructure/PRODUCT-PLANNING.md) and the whole point
+// of that decision is that one business can never read or write another's
+// customers — enforcing it at the storage boundary means no handler can
+// forget to.
+type Store interface {
+	// CreateBusiness creates the business and its first admin together.
+	// A business with no admin is unusable and an admin with no business
+	// has nothing to administer, so they are created in one call (one
+	// transaction, in Postgres) rather than leaving a window where
+	// either can exist alone. Returns ErrConflict if the admin's email
+	// already belongs to an account.
+	CreateBusiness(ctx context.Context, b domain.Business, admin domain.User) (domain.Business, domain.User, error)
+	GetBusiness(ctx context.Context, id string) (domain.Business, error)
+	// UpdateBusinessConfig replaces a tenant's configuration wholesale —
+	// vocabulary, custom field declarations, stop captures. Replacement
+	// rather than a merge because the config is edited as one document by
+	// one admin at a time, and a partial-update API for a nested
+	// structure like this invites exactly the ambiguity ("does an absent
+	// list mean 'unchanged' or 'empty'?") that makes it unsafe to reason
+	// about. Callers validate before calling (domain.BusinessConfig.Validate).
+	UpdateBusinessConfig(ctx context.Context, businessID string, config domain.BusinessConfig) (domain.Business, error)
+
+	// GetAdminByEmail looks an admin up across all tenants, because at
+	// Google sign-in time we only have an email and don't yet know which
+	// business it belongs to. Email is therefore globally unique among
+	// admins — one Google account administers at most one business in
+	// V1. (A person who genuinely runs two dairies needs two accounts;
+	// multi-business membership is a real feature, not a free side
+	// effect, and isn't in this slice.)
+	GetAdminByEmail(ctx context.Context, email string) (domain.User, error)
+	// GetDriverByPhone likewise looks up across tenants — a driver
+	// signing in has typed a phone number and a PIN and nothing else. It
+	// returns the stored PIN hash alongside the user because the hash is
+	// never part of domain.User: keeping it out of the struct means it
+	// can't be accidentally serialized into an API response.
+	GetDriverByPhone(ctx context.Context, phone string) (domain.User, string, error)
+
+	// CreateUser adds a driver (or a second admin) to an existing
+	// business. pinHash may be empty for admins, who authenticate with
+	// Google instead. Returns ErrConflict on a duplicate email or phone.
+	CreateUser(ctx context.Context, u domain.User, pinHash string) (domain.User, error)
+	GetUserByID(ctx context.Context, businessID string, id string) (domain.User, error)
+	ListUsers(ctx context.Context, businessID string) ([]domain.User, error)
+	// SetUserActive is how a lost handset is dealt with: deactivating a
+	// driver makes their existing token stop working at the next request
+	// (see httpapi's auth middleware, which reloads the user), without
+	// needing token revocation infrastructure.
+	SetUserActive(ctx context.Context, businessID string, id string, active bool) (domain.User, error)
+	// SetUserPIN replaces a driver's PIN — the "driver forgot their PIN"
+	// path, which an admin performs.
+	SetUserPIN(ctx context.Context, businessID string, id string, pinHash string) error
+
+	CreateCustomer(ctx context.Context, c domain.Customer) (domain.Customer, error)
+	UpdateCustomer(ctx context.Context, c domain.Customer) (domain.Customer, error)
+	GetCustomer(ctx context.Context, businessID string, id string) (domain.Customer, error)
+	ListCustomers(ctx context.Context, businessID string) ([]domain.Customer, error)
+
+	CreateProduct(ctx context.Context, p domain.Product) (domain.Product, error)
+	ListProducts(ctx context.Context, businessID string) ([]domain.Product, error)
+
+	CreateRecurringOrder(ctx context.Context, r domain.RecurringOrder) (domain.RecurringOrder, error)
+	ListRecurringOrders(ctx context.Context, businessID string) ([]domain.RecurringOrder, error)
+	SetRecurringOrderActive(ctx context.Context, businessID string, id string, active bool) (domain.RecurringOrder, error)
+
+	// EnsureDailyOrder is the idempotent generation primitive: given the
+	// daily order a subscription implies for a date, create it, or return
+	// the one that already exists untouched. The second return value
+	// reports whether a row was created.
+	//
+	// "Untouched" is the important part. Generation is triggered by an
+	// admin pressing a button and may be run repeatedly during a morning
+	// — after adding a late customer, say. If regeneration overwrote
+	// existing rows it would silently wipe the overrides ("no milk this
+	// week") and the driver's completions that had already happened,
+	// which is the single most damaging bug this feature could have.
+	EnsureDailyOrder(ctx context.Context, o domain.DailyOrder) (domain.DailyOrder, bool, error)
+	CreateDailyOrder(ctx context.Context, o domain.DailyOrder) (domain.DailyOrder, error)
+	ListDailyOrders(ctx context.Context, businessID string, date string) ([]domain.DailyOrder, error)
+	GetDailyOrder(ctx context.Context, businessID string, id string) (domain.DailyOrder, error)
+	UpdateDailyOrder(ctx context.Context, o domain.DailyOrder) (domain.DailyOrder, error)
+
+	CreateRoute(ctx context.Context, r domain.Route) (domain.Route, error)
+	GetRoute(ctx context.Context, businessID string, id string) (domain.Route, error)
+	ListRoutes(ctx context.Context, businessID string, date string) ([]domain.Route, error)
+	UpdateRoute(ctx context.Context, r domain.Route) (domain.Route, error)
+	// AssignStops sets the route and 1-based sequence for exactly the
+	// given daily orders, in the given order, and detaches any other stop
+	// previously on that route. Rebuilding a route is therefore a single
+	// atomic replacement rather than a detach-then-attach sequence that
+	// could leave stops orphaned halfway through.
+	AssignStops(ctx context.Context, businessID string, routeID string, orderedDailyOrderIDs []string) error
+
+	AppendDeliveryEvent(ctx context.Context, e domain.DeliveryEvent) error
+	ListDeliveryEvents(ctx context.Context, businessID string, dailyOrderID string) ([]domain.DeliveryEvent, error)
+
+	Close()
+}

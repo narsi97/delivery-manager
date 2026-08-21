@@ -1,0 +1,33 @@
+# Add inside the `{$DOMAIN} { ... }` site block in
+# 3vnsystems-infrastructure/caddy/Caddyfile, alongside the existing
+# product blocks and BEFORE the catch-all `handle { reverse_proxy
+# homepage:80 }` at the end — Caddy matches handle blocks in order, and
+# the catch-all would otherwise swallow these.
+
+	# --- delivery-manager ---
+	# Public API path is /delivery-manager/api/v1/... . The backend's Go
+	# routes are hardcoded to /api/v1/... (see
+	# backend/internal/httpapi/server.go), so strip exactly
+	# "/delivery-manager" and forward the rest unchanged.
+	@deliveryManagerApi path /delivery-manager/api/*
+	handle @deliveryManagerApi {
+		uri strip_prefix /delivery-manager
+		reverse_proxy delivery-manager-backend:8080
+	}
+
+	# Static app. Forwarded with the prefix intact, because the frontend
+	# image is built with EXPO_WEB_BASE_PATH=/delivery-manager so its
+	# HTML/JS already reference assets under that prefix, and its
+	# nginx.conf serves from that same location.
+	handle /delivery-manager/* {
+		reverse_proxy delivery-manager-frontend:80
+	}
+
+	redir /delivery-manager /delivery-manager/ permanent
+
+# NOTE on the shared Content-Security-Policy in that Caddyfile's `header`
+# block: this product needs no additions to it. Its only third-party
+# origin is accounts.google.com for admin Google Sign-In, which the
+# existing policy already allows (script-src/style-src/frame-src/
+# connect-src). Map deep links open in a new tab via a plain link rather
+# than an embedded frame, so no frame-src change is needed for navigation.

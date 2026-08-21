@@ -1,0 +1,49 @@
+# Dedicated-host reverse proxy: one product, served at the domain root.
+#
+# The security headers below are copied from the shared 3VNSYSTEMS Caddy
+# config so both deployment shapes get the same protections. If you change
+# one, change the other — a header that exists on the shared host and not
+# here is exactly the kind of difference nobody notices until a pen test.
+{
+	email {$ACME_EMAIL}
+	# HTTP/3 (QUIC, UDP 443) is Caddy's default, but some mobile carrier
+	# networks silently drop or mangle it, which surfaces to the browser as
+	# an unexplained fetch failure rather than a clean fallback. That
+	# matters more here than for most products: the primary client is a
+	# driver's phone on a mobile network. h1/h2 only.
+	servers {
+		protocols h1 h2
+	}
+}
+
+{$DOMAIN} {
+	encode gzip
+	log {
+		output stdout
+		format console
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# accounts.google.com is needed for admin Google Sign-In only.
+		# Drivers sign in with phone + PIN and load nothing third-party.
+		Content-Security-Policy "default-src 'self'; script-src 'self' https://accounts.google.com https://apis.google.com; style-src 'self' 'unsafe-inline' https://accounts.google.com; img-src 'self' data: https:; font-src 'self' data:; frame-src https://accounts.google.com; connect-src 'self' https://accounts.google.com; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		-Server
+	}
+
+	# The Go routes are /api/v1/... — no prefix to strip on a root deploy.
+	handle /api/* {
+		reverse_proxy backend:8080
+	}
+
+	handle /healthz {
+		reverse_proxy backend:8080
+	}
+
+	handle {
+		reverse_proxy frontend:80
+	}
+}

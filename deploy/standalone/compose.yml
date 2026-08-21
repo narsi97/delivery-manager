@@ -1,0 +1,109 @@
+# Self-contained stack for a host where this product is the only thing
+# running: its own Caddy, its own Postgres, its own domain.
+#
+# This is the second supported deployment shape. The first is a pair of
+# services inside 3VNSYSTEMS' shared stack (see ../shared-vps/) — same
+# images, same Dockerfiles, different front door. Nothing in the
+# application distinguishes them: the backend takes DATABASE_URL and
+# ALLOWED_ORIGIN from the environment, and the frontend takes its base
+# path at build time, so "shared subpath" vs "own domain" is entirely a
+# packaging decision.
+#
+# Run from this directory:
+#   cp .env.example .env && $EDITOR .env
+#   docker compose up -d --build
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: "${DOMAIN}"
+      ACME_EMAIL: "${ACME_EMAIL}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: delivery_manager
+      POSTGRES_USER: delivery_manager
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U delivery_manager -d delivery_manager"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    # Deliberately not published to the host — only reachable by other
+    # containers on this compose network. This database holds customers'
+    # names, phone numbers and home coordinates; there is no reason for it
+    # to be dialable from the internet.
+
+  backend:
+    build:
+      context: ../../backend
+      dockerfile: cloud/Dockerfile
+    image: delivery-manager-backend:local
+    restart: unless-stopped
+    environment:
+      APP_ENV: prod
+      ADDR: ":8080"
+      DATABASE_URL: "postgres://delivery_manager:${POSTGRES_PASSWORD}@postgres:5432/delivery_manager?sslmode=disable"
+      JWT_SECRET: "${JWT_SECRET}"
+      TOKEN_TTL_HOURS: "${TOKEN_TTL_HOURS:-336}"
+      DEFAULT_TIMEZONE: "${DEFAULT_TIMEZONE:-Asia/Kolkata}"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID}"
+      # On a dedicated host the app is served from the domain root, so the
+      # one legitimate browser origin is the domain itself. Pinning it
+      # (rather than "*") is what stops a bearer token leaked from a
+      # driver's phone being replayed from an arbitrary site.
+      ALLOWED_ORIGIN: "https://${DOMAIN}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # 127.0.0.1, not localhost: a container's /etc/hosts resolves
+      # "localhost" to ::1 first, which makes wget fail with
+      # connection-refused against an IPv4-only listener.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: cloud/Dockerfile
+      args:
+        # Root deployment: no product path, and no base path. These two
+        # must agree with NGINX_CONF below or the app requests assets from
+        # a path nginx doesn't serve.
+        EXPO_PUBLIC_API_URL: "https://${DOMAIN}"
+        EXPO_PUBLIC_APP_ENV: prod
+        EXPO_WEB_BASE_PATH: ""
+        NGINX_CONF: nginx.root.conf
+        EXPO_PUBLIC_GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID}"
+    image: delivery-manager-frontend:local
+    restart: unless-stopped
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+volumes:
+  caddy_data:
+  caddy_config:
+  postgres_data:
