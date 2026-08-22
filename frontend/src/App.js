@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, SafeAreaView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, SafeAreaView, StatusBar, StyleSheet, Text, View } from 'react-native';
 
 import * as api from './api';
 import { clearSession, loadSession, saveSession } from './session';
@@ -29,6 +29,11 @@ export default function App() {
   // two jobs, so this is a view toggle rather than a second account.
   const [driving, setDriving] = useState(false);
   const [restoring, setRestoring] = useState(true);
+  // Section nav lives in a burger menu, not a tab row — Today is glanced
+  // at constantly through a shift, Customers and Drivers are setup screens
+  // visited far less often, so they don't need to compete for width on
+  // every screen the way three permanent tabs would.
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Restore a stored token on load, but only after the server confirms it
   // is still good — a token whose account has since been deactivated must
@@ -105,12 +110,25 @@ export default function App() {
       <StatusBar barStyle="dark-content" />
 
       <View style={styles.topBar}>
+        {!showDriverView ? (
+          <Pressable
+            onPress={() => setMenuOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Open menu"
+            style={styles.burger}
+          >
+            <View style={styles.burgerLine} />
+            <View style={styles.burgerLine} />
+            <View style={styles.burgerLine} />
+          </Pressable>
+        ) : null}
         <View style={styles.topBarText}>
           <Text style={styles.businessName} numberOfLines={1}>
             {business.name}
           </Text>
           <Text style={styles.userName} numberOfLines={1}>
             {user.name} · {showDriverView ? lowerRole(labels) : 'admin'}
+            {showDriverView ? '' : ` · ${currentSectionLabel(labels, tab)}`}
           </Text>
         </View>
         <Pressable onPress={signOut} accessibilityRole="button">
@@ -126,20 +144,16 @@ export default function App() {
         </Pressable>
       ) : null}
 
-      {showDriverView ? null : (
-        <View style={styles.tabs}>
-          {adminTabs(labels).map((item) => (
-            <Pressable
-              key={item.key}
-              onPress={() => setTab(item.key)}
-              style={[styles.tab, tab === item.key && styles.tabActive]}
-              accessibilityRole="tab"
-            >
-              <Text style={[styles.tabText, tab === item.key && styles.tabTextActive]}>{item.label}</Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
+      <NavMenu
+        visible={menuOpen && !showDriverView}
+        onClose={() => setMenuOpen(false)}
+        activeTab={tab}
+        onSelect={(key) => {
+          setTab(key);
+          setMenuOpen(false);
+        }}
+        labels={labels}
+      />
 
       <View style={styles.body}>
         {showDriverView ? (
@@ -160,6 +174,39 @@ function lowerRole(labels) {
   return lower(labels.driver);
 }
 
+function currentSectionLabel(labels, tab) {
+  return adminTabs(labels).find((item) => item.key === tab)?.label || '';
+}
+
+// Slide-in drawer from the left, behind a tap-anywhere-to-close backdrop.
+// A real RN Modal rather than an absolutely-positioned sibling View — it
+// renders outside the normal layout tree, which sidesteps the
+// position:'fixed'-inside-a-scrolling-ancestor bug the other 3VNSYSTEMS
+// apps have hit before (see resume-optimizer's WebPortal.web.js) without
+// needing a portal component of our own.
+function NavMenu({ visible, onClose, activeTab, onSelect, labels }) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close menu" />
+      <View style={styles.drawer}>
+        <Text style={styles.drawerTitle}>Menu</Text>
+        {adminTabs(labels).map((item) => (
+          <Pressable
+            key={item.key}
+            onPress={() => onSelect(item.key)}
+            style={[styles.drawerItem, activeTab === item.key && styles.drawerItemActive]}
+            accessibilityRole="button"
+          >
+            <Text style={[styles.drawerItemText, activeTab === item.key && styles.drawerItemTextActive]}>
+              {item.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    </Modal>
+  );
+}
+
 const styles = StyleSheet.create({
   app: { flex: 1, backgroundColor: colors.background },
   loader: { marginTop: spacing.xl * 2 },
@@ -173,6 +220,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
+  burger: { padding: spacing.xs, marginRight: spacing.md, gap: 4 },
+  burgerLine: { width: 20, height: 2, borderRadius: 1, backgroundColor: colors.text },
   topBarText: { flex: 1, paddingRight: spacing.md },
   businessName: { fontSize: 16, fontWeight: '800', color: colors.text },
   userName: { fontSize: 12, color: colors.subtitle, marginTop: 1 },
@@ -185,15 +234,35 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   roleToggleText: { fontSize: 13, fontWeight: '600', color: colors.link },
-  tabs: {
-    flexDirection: 'row',
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  tab: { flex: 1, paddingVertical: spacing.md, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent' },
-  tabActive: { borderBottomColor: colors.accent },
-  tabText: { fontSize: 14, fontWeight: '600', color: colors.subtitle },
-  tabTextActive: { color: colors.accent },
   body: { flex: 1 },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(15, 23, 42, 0.4)' },
+  drawer: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    width: 260,
+    maxWidth: '80%',
+    backgroundColor: colors.surface,
+    paddingTop: spacing.xl,
+    paddingHorizontal: spacing.md,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    shadowOffset: { width: 2, height: 0 },
+    elevation: 8,
+  },
+  drawerTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.hint,
+    textTransform: 'uppercase',
+    letterSpacing: 0.06,
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.sm,
+  },
+  drawerItem: { paddingVertical: spacing.md, paddingHorizontal: spacing.sm, borderRadius: 8 },
+  drawerItemActive: { backgroundColor: colors.surfaceAlt },
+  drawerItemText: { fontSize: 16, fontWeight: '600', color: colors.label },
+  drawerItemTextActive: { color: colors.accent },
 });
