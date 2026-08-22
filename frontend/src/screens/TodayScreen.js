@@ -239,21 +239,30 @@ function RouteSummary({ route, drivers, token, onChanged, onError, onRebuild, re
       </Text>
 
       <Text style={styles.label}>Assign to</Text>
-      <View style={styles.chipRow}>
-        {drivers.filter((driver) => driver.active).map((driver) => (
-          <Button
-            key={driver.id}
-            title={driver.name}
-            variant={driver.id === route.driver_id ? 'primary' : 'secondary'}
-            onPress={() => assign(driver.id === route.driver_id ? '' : driver.id)}
-            busy={busy}
-            style={styles.driverChip}
-          />
-        ))}
-        {drivers.filter((driver) => driver.active).length === 0 ? (
-          <Empty>Add a driver first.</Empty>
-        ) : null}
-      </View>
+      {drivers.filter((driver) => driver.active).length === 0 ? (
+        <Empty>Add a driver first.</Empty>
+      ) : (
+        // A real <select>, not a styled button row — same reasoning as
+        // resume-optimizer's status dropdown (see that repo's App.js): it
+        // sidesteps custom-dropdown-menu positioning bugs entirely, and a
+        // list of drivers that only grows over time belongs in a picker,
+        // not a chip row that has to reflow around it.
+        <select
+          value={route.driver_id || ''}
+          disabled={busy}
+          onChange={(event) => assign(event.target.value)}
+          style={selectStyle}
+        >
+          <option value="">No driver assigned</option>
+          {drivers
+            .filter((driver) => driver.active)
+            .map((driver) => (
+              <option key={driver.id} value={driver.id}>
+                {driver.name}
+              </option>
+            ))}
+        </select>
+      )}
 
       {onRebuild ? (
         <Button
@@ -381,6 +390,24 @@ function formatDate(date) {
   });
 }
 
+// A raw DOM element, not an RN primitive — StyleSheet.create's output is
+// meant for View/Text/etc. and doesn't apply to <select> the same way, so
+// this is a plain CSS-in-JS object matching Field's input styling instead.
+const selectStyle = {
+  width: '100%',
+  borderWidth: 1,
+  borderColor: colors.border,
+  borderRadius: radius.md,
+  paddingTop: spacing.sm,
+  paddingBottom: spacing.sm,
+  paddingLeft: spacing.md,
+  paddingRight: spacing.md,
+  fontSize: 15,
+  color: colors.text,
+  backgroundColor: colors.surface,
+  fontFamily: 'inherit',
+};
+
 const styles = StyleSheet.create({
   page: { padding: spacing.lg, maxWidth: 720, width: '100%', alignSelf: 'center' },
   loader: { marginTop: spacing.xl * 2 },
@@ -399,8 +426,6 @@ const styles = StyleSheet.create({
   routeHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   routeName: { fontSize: 15, fontWeight: '700', color: colors.text },
   routeMeta: { fontSize: 13, color: colors.subtitle, marginTop: spacing.xs },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  driverChip: { paddingVertical: spacing.sm, paddingHorizontal: spacing.md, minHeight: 38 },
   stopHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   stopHeaderText: { flex: 1, paddingRight: spacing.sm },
   stopName: { fontSize: 16, fontWeight: '700', color: colors.text },
