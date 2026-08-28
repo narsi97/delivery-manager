@@ -80,7 +80,18 @@ export default function MapPicker({ lat, lng, onChange, height = 260, home = nul
     const hasPin = Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0);
     const center = hasPin ? [lat, lng] : DEFAULT_CENTER;
 
-    const map = L.map(containerRef.current, { center, zoom: hasPin ? 15 : 5 });
+    const map = L.map(containerRef.current, {
+      center,
+      zoom: hasPin ? 15 : 5,
+      // Leaflet's default wheel zoom steps a whole zoom level per tick,
+      // which on a trackpad means one flick crosses four or five levels
+      // and the map is suddenly showing a different state. Smaller steps
+      // and a little debounce make it land where you meant.
+      wheelPxPerZoomLevel: 240,
+      wheelDebounceTime: 60,
+      zoomSnap: 0.5,
+      zoomDelta: 0.5,
+    });
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors',
       maxZoom: 19,

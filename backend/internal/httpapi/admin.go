@@ -835,6 +835,13 @@ type buildRouteRequest struct {
 	StartLat float64  `json:"start_lat"`
 	StartLng float64  `json:"start_lng"`
 	OrderIDs []string `json:"order_ids"`
+	// AllowEmpty creates the round even with nothing to put on it. That
+	// is a real thing to want now that stops can be moved between rounds
+	// from the map: an admin adds "Evening round", then drags the three
+	// late customers onto it. Without this, creating a round is only
+	// possible while unrouted work happens to exist, which is exactly
+	// when you least need a new one.
+	AllowEmpty bool `json:"allow_empty"`
 }
 
 func (s *Server) handleBuildRoute(w http.ResponseWriter, r *http.Request) {
@@ -889,7 +896,7 @@ func (s *Server) handleBuildRoute(w http.ResponseWriter, r *http.Request) {
 
 	existingRouteID := strings.TrimSpace(req.RouteID)
 	candidates, skippedUnpinned := selectRoutableOrders(orders, customersByID, req.OrderIDs, existingRouteID)
-	if len(candidates) == 0 {
+	if len(candidates) == 0 && !req.AllowEmpty {
 		writeError(w, http.StatusBadRequest, "there are no pinned, pending deliveries to put on a route", "no_stops")
 		return
 	}

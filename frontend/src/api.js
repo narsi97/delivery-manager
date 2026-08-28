@@ -13,7 +13,32 @@ async function request(path, options = {}) {
   });
 
   const text = await response.text();
-  const body = text ? JSON.parse(text) : {};
+
+  // The API answers in JSON, but the things in front of it don't always:
+  // Go's mux 404s with plain "404 page not found", a proxy can return an
+  // HTML error page, and a dropped connection returns nothing at all.
+  // Parsing those as JSON produced the genuinely unhelpful "Unexpected
+  // non-whitespace character after JSON at position 4" — an error about
+  // our parser, shown to someone trying to move a delivery. Fall back to
+  // saying what actually happened instead.
+  let body = {};
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch (err) {
+      if (response.ok) {
+        throw new Error('The server sent a response this app could not read.');
+      }
+      const failure = new Error(
+        response.status === 404
+          ? 'That action is not available on this server — it may be running an older version.'
+          : `The server returned an error (${response.status}).`
+      );
+      failure.status = response.status;
+      throw failure;
+    }
+  }
+
   if (!response.ok) {
     const error = new Error(body.error || 'Request failed');
     error.status = response.status;
@@ -164,6 +189,16 @@ export function createAdHocOrder(token, order) {
 // the drive back to the start point, which changes the order chosen.
 export function planRounds(token, options) {
   return request('/api/v1/routes/plan', { method: 'POST', token, body: JSON.stringify(options) });
+}
+
+// Moves one delivery onto a different round, or off every round with an
+// empty route_id. Both affected rounds are re-ordered server-side.
+export function moveStopToRoute(token, orderId, routeId) {
+  return request(`/api/v1/orders/${orderId}/route`, {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify({ route_id: routeId || '' }),
+  });
 }
 
 // Pass route_id to rebuild an existing route in place (absorbing any

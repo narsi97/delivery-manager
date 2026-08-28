@@ -2,26 +2,28 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import * as api from '../api';
-import { Banner, Button, Card, Disclosure, Empty, Field, FieldRow, SectionTitle, Stepper } from '../components';
+import { Banner, Button, Card, Disclosure, Empty, Field, FieldRow, Pill, SectionTitle, Stepper } from '../components';
 import DateNav from '../DateNav';
 import MapPicker from '../MapPicker';
 import { currentPosition } from '../navigation';
-import { RouteSummary } from '../routeCards';
+import RouteMap from '../RouteMap';
+import { RouteSummary, selectStyle } from '../routeCards';
 import { nearestAreaFor } from '../serviceAreas';
-import { colors, spacing } from '../theme';
+import { colors, radius, spacing } from '../theme';
 
-// The "manage rounds" home for a day.
+// Where a day's rounds are made and checked.
 //
-// Rounds are not built by hand any more. The backend derives one round
-// per service area that has deliveries in it, every day, and puts each
-// stop on the round that serves its area (see ensureDayRounds in
-// httpapi/admin.go). So the way to get a new round is to add a service
-// area on the Business tab — not to fill in a depot form here.
+// Three ways to get a round, in the order an admin reaches for them:
+// the backend prepares one per service area on its own (see
+// ensureDayRounds), "Create rounds" makes them deliberately — either one
+// named round, or several at once cut from the day's stops — and the map
+// below is where the result gets checked and corrected by hand.
 //
-// What's left for this screen is what genuinely still needs a human:
-// seeing the day's rounds, assigning drivers, and dealing with the
-// stragglers — customers whose pin falls outside every service area, who
-// deliberately are *not* auto-absorbed onto a round they don't belong to.
+// The map matters more than it sounds. A split that reads fine as
+// numbers ("6, 6, 6, 4") can be obviously wrong on a map: two rounds
+// interleaved down one street, or a stop stranded the wrong side of a
+// level crossing. Seeing the colours is how an admin catches that, and
+// tapping a pin is how they fix it.
 export default function RoutesScreen({ token, business }) {
   const [day, setDay] = useState(null);
   const [drivers, setDrivers] = useState([]);
@@ -98,6 +100,11 @@ export default function RoutesScreen({ token, business }) {
   // ensureDayRounds has run, the only stops left here are ones whose pin
   // falls outside every service area — so this list is exactly "customers
   // you deliver to but haven't drawn a zone around yet".
+  // Every stop with a pin, routed or not — the map is for verifying the
+  // whole day's assignment, so an unrouted stop has to be visible on it
+  // too (that is often the thing being looked for).
+  const mappableStops = (day?.stops || []).filter((stop) => stop.lat || stop.lng);
+
   const strays = (day?.stops || []).filter(
     (stop) => stop.status === 'pending' && !stop.route_id && (stop.lat || stop.lng)
   );
@@ -139,12 +146,22 @@ export default function RoutesScreen({ token, business }) {
         </View>
       </Card>
 
-      <PlanRoundsCard
+      {mappableStops.length > 0 ? (
+        <RoundMapCard
+          token={token}
+          stops={mappableStops}
+          routes={routes}
+          home={home}
+          onChanged={refresh}
+        />
+      ) : null}
+
+      <CreateRoundsCard
         token={token}
         date={selectedDate}
         stopCount={(day?.stops || []).filter((stop) => stop.status === 'pending' && (stop.lat || stop.lng)).length}
         currentRounds={routes.length}
-        hasHome={!!home}
+        home={home}
         onDone={async (message) => {
           setNotice(message);
           await refresh();
@@ -168,17 +185,251 @@ export default function RoutesScreen({ token, business }) {
   );
 }
 
-// Splitting the day across however many drivers are actually out.
+// The day's drop points, coloured by round, with a tap-to-move control.
 //
-// The automatic rounds answer "where do we deliver" — one per service
-// area, every day, no thought required. This answers a question areas
-// can't: a business with two areas and four vans, or four vans and a
-// driver off sick, needs the same work cut a different number of ways.
-// So this is a deliberate act with a button, not something that happens
-// on its own, and it says plainly that it replaces the current plan.
-function PlanRoundsCard({ token, date, stopCount, currentRounds, hasHome, onDone }) {
+// Selection lives here rather than inside the map: the map's job is
+// geography, and "which round should this go on" is a picker like every
+// other picker in this app. Keeping them apart means the map never has
+// to grow a popup form, and the control below can say what it's about to
+// do in plain words.
+function RoundMapCard({ token, stops, routes, home, onChanged }) {
   const [expanded, setExpanded] = useState(false);
-  const [count, setCount] = useState(Math.max(1, currentRounds || 1));
+  const [selected, setSelected] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  // The selected stop is re-read from the freshly loaded list on every
+  // render, so after a move it shows its new round rather than the stale
+  // copy captured when it was tapped.
+  const selectedStop = selected ? stops.find((stop) => stop.id === selected) || null : null;
+  const currentRound = selectedStop ? routes.find((route) => route.id === selectedStop.route_id) : null;
+
+  const move = async (routeId) => {
+    setBusy(true);
+    setError('');
+    try {
+      await api.moveStopToRoute(token, selectedStop.id, routeId);
+      await onChanged();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const unroutedCount = stops.filter((stop) => !stop.route_id).length;
+
+  return (
+    <Card>
+      <Disclosure
+        open={expanded}
+        onToggle={() => setExpanded((prev) => !prev)}
+        right={unroutedCount > 0 ? <Pill label={`${unroutedCount} unassigned`} tone="warning" /> : null}
+      >
+        Check the round map
+      </Disclosure>
+
+      {expanded ? (
+        <View>
+          <Banner message={error} />
+          <Text style={styles.note}>
+            Every drop point for this day, coloured by the round it&apos;s on. Tap a pin to move it to a different
+            round — both rounds are re-ordered afterwards so they still make sense to drive.
+          </Text>
+
+          <RouteMap
+            stops={stops}
+            routes={routes}
+            home={home}
+            selectedStopId={selectedStop?.id || null}
+            onSelect={(stop) => setSelected(stop.id)}
+          />
+
+          {selectedStop ? (
+            <View style={styles.selectedBox}>
+              <Text style={styles.selectedName}>{selectedStop.customer_name}</Text>
+              <Text style={styles.selectedMeta}>
+                {selectedStop.quantity} × {selectedStop.product_name}
+                {selectedStop.customer_address ? ` · ${selectedStop.customer_address}` : ''}
+              </Text>
+              <Text style={styles.selectedMeta}>
+                Currently on: {currentRound ? currentRound.name : 'no round'}
+              </Text>
+
+              <Text style={styles.moveLabel}>Move to</Text>
+              <select
+                value={selectedStop.route_id || ''}
+                disabled={busy}
+                onChange={(event) => move(event.target.value)}
+                style={moveSelectStyle}
+              >
+                <option value="">Take off every round</option>
+                {routes.map((route) => (
+                  <option key={route.id} value={route.id}>
+                    {route.name}
+                  </option>
+                ))}
+              </select>
+
+              <Button
+                title="Done"
+                variant="secondary"
+                onPress={() => setSelected(null)}
+                style={styles.spaced}
+              />
+            </View>
+          ) : (
+            <Text style={styles.note}>Tap any pin to see who it is and move it.</Text>
+          )}
+        </View>
+      ) : null}
+    </Card>
+  );
+}
+
+// Sized to content like every other picker in this app — a round name is
+// a few words, not a paragraph. See routeCards.js's compactSelectStyle.
+const moveSelectStyle = { ...selectStyle, width: 'auto', minWidth: 180, maxWidth: 300, flexGrow: 0 };
+
+// Creating rounds.
+//
+// Two ways, because there are genuinely two situations. "One round" is
+// the deliberate one — name it, say where it starts, and it can be empty
+// to begin with, because stops get moved onto it from the map above.
+// "Several at once" cuts the day's stops geographically across however
+// many drivers are actually out, which is the thing you cannot express
+// by adding service areas: a business with two areas and four vans, or
+// four vans and a driver off sick, is the same map and a different plan.
+//
+// Both live here rather than being spread around, because both answer
+// the same question an admin arrives at this tab with — "how do I get
+// the rounds I want for today".
+function CreateRoundsCard({ token, date, stopCount, currentRounds, home, onDone }) {
+  const [expanded, setExpanded] = useState(false);
+  const [mode, setMode] = useState('one');
+
+  return (
+    <Card>
+      <Disclosure open={expanded} onToggle={() => setExpanded((prev) => !prev)}>
+        Create rounds
+      </Disclosure>
+
+      {expanded ? (
+        <View>
+          <View style={styles.modeRow}>
+            <Button
+              title="One round"
+              variant={mode === 'one' ? 'primary' : 'secondary'}
+              onPress={() => setMode('one')}
+              style={styles.modeButton}
+            />
+            <Button
+              title="Several at once"
+              variant={mode === 'many' ? 'primary' : 'secondary'}
+              onPress={() => setMode('many')}
+              style={styles.modeButton}
+            />
+          </View>
+
+          {mode === 'one' ? (
+            <NewRoundForm token={token} date={date} home={home} onDone={onDone} />
+          ) : (
+            <SplitAcrossDriversForm
+              token={token}
+              date={date}
+              stopCount={stopCount}
+              currentRounds={currentRounds}
+              home={home}
+              onDone={onDone}
+            />
+          )}
+        </View>
+      ) : null}
+    </Card>
+  );
+}
+
+// One named round. Starts empty unless there is unrouted work to pick up,
+// which is deliberate: an admin who wants "Evening round" wants the round
+// to exist so they can move the late customers onto it, and refusing to
+// make one because everything currently happens to be assigned is exactly
+// backwards.
+function NewRoundForm({ token, date, home, onDone }) {
+  const [name, setName] = useState('');
+  const [depot, setDepot] = useState(() =>
+    home ? { lat: String(home.lat), lng: String(home.lng) } : { lat: '', lng: '' }
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const create = async () => {
+    const lat = Number(depot.lat);
+    const lng = Number(depot.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) {
+      setError('Set where this round starts from — drop the pin, or type the coordinates.');
+      return;
+    }
+    if (!name.trim()) {
+      setError('Give the round a name so a driver knows which one it is.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      await api.buildRoute(token, {
+        name: name.trim(),
+        start_lat: lat,
+        start_lng: lng,
+        date: date || undefined,
+        allow_empty: true,
+      });
+      await onDone(`${name.trim()} created.`);
+      setName('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View>
+      <Banner message={error} />
+      <Field label="Round name" size="md" value={name} onChangeText={setName} placeholder="Evening round" />
+      <FieldRow>
+        <Field
+          label="Starts at latitude"
+          size="sm"
+          value={depot.lat}
+          onChangeText={(value) => setDepot((prev) => ({ ...prev, lat: value }))}
+          placeholder="16.8713"
+        />
+        <Field
+          label="Longitude"
+          size="sm"
+          value={depot.lng}
+          onChangeText={(value) => setDepot((prev) => ({ ...prev, lng: value }))}
+          placeholder="79.5611"
+        />
+      </FieldRow>
+      <MapPicker
+        lat={Number(depot.lat) || 0}
+        lng={Number(depot.lng) || 0}
+        onChange={(lat, lng) => setDepot({ lat: lat.toFixed(6), lng: lng.toFixed(6) })}
+        home={home}
+      />
+      <Button title="Create round" onPress={create} busy={busy} style={styles.spaced} />
+      <Text style={styles.note}>
+        Picks up any deliveries not yet on a round. If there aren&apos;t any, the round is created empty — move
+        stops onto it from the map above.
+      </Text>
+    </View>
+  );
+}
+
+// Several rounds at once, cut geographically from the day's stops.
+function SplitAcrossDriversForm({ token, date, stopCount, currentRounds, home, onDone }) {
+  const [count, setCount] = useState(Math.max(2, currentRounds || 2));
   const [returnHome, setReturnHome] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -188,8 +439,7 @@ function PlanRoundsCard({ token, date, stopCount, currentRounds, hasHome, onDone
     setError('');
     try {
       await api.planRounds(token, { count, return_home: returnHome, date: date || undefined });
-      await onDone(`Split ${stopCount} deliveries across ${count} round${count === 1 ? '' : 's'}.`);
-      setExpanded(false);
+      await onDone(`Split ${stopCount} deliveries across ${count} rounds.`);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -198,55 +448,46 @@ function PlanRoundsCard({ token, date, stopCount, currentRounds, hasHome, onDone
   };
 
   return (
-    <Card>
-      <Disclosure open={expanded} onToggle={() => setExpanded((prev) => !prev)}>
-        Split the day across drivers
-      </Disclosure>
-
-      {expanded ? (
-        <View>
-          <Banner message={error} />
-          {hasHome ? null : (
-            <Banner
-              tone="info"
-              message="Set your home location on the Business tab first — rounds have to start somewhere."
-            />
-          )}
-          <Stepper
-            label="How many rounds"
-            value={count}
-            onChange={setCount}
-            min={1}
-            max={10}
-            hint={`${stopCount} deliveries to share out. One round per driver going out today.`}
-          />
-          <Pressable
-            onPress={() => setReturnHome((prev) => !prev)}
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: returnHome }}
-            style={styles.toggleRow}
-          >
-            <Text style={styles.toggleBox}>{returnHome ? '☑' : '☐'}</Text>
-            <Text style={styles.toggleLabel}>Driver finishes back at the start</Text>
-          </Pressable>
-          <Text style={styles.note}>
-            With this on, the drive home counts as part of the round — which changes the order stops are visited
-            in, not just the distance shown.
-          </Text>
-          <Button
-            title={`Plan ${count} round${count === 1 ? '' : 's'}`}
-            onPress={plan}
-            busy={busy}
-            disabled={!hasHome || stopCount === 0}
-            style={styles.spaced}
-          />
-          <Text style={styles.note}>
-            Replaces this day&apos;s current rounds. Deliveries already completed keep the round they were made
-            on.
-          </Text>
-        </View>
-      ) : null}
-    </Card>
+    <View>
+      <Banner message={error} />
+      {home ? null : (
+        <Banner
+          tone="info"
+          message="Set your home location on the Business tab first — rounds have to start somewhere."
+        />
+      )}
+      <Stepper
+        label="How many rounds"
+        value={count}
+        onChange={setCount}
+        min={1}
+        max={10}
+        hint={`${stopCount} deliveries to share out. One round per driver going out today.`}
+      />
+      <Pressable
+        onPress={() => setReturnHome((prev) => !prev)}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: returnHome }}
+        style={styles.toggleRow}
+      >
+        <Text style={styles.toggleBox}>{returnHome ? '☑' : '☐'}</Text>
+        <Text style={styles.toggleLabel}>Driver finishes back at the start</Text>
+      </Pressable>
+      <Text style={styles.note}>
+        With this on, the drive home counts as part of the round — which changes the order stops are visited in,
+        not just the distance shown.
+      </Text>
+      <Button
+        title={`Create ${count} rounds`}
+        onPress={plan}
+        busy={busy}
+        disabled={!home || stopCount === 0}
+        style={styles.spaced}
+      />
+      <Text style={styles.note}>
+        Replaces this day&apos;s current rounds. Deliveries already completed keep the round they were made on.
+      </Text>
+    </View>
   );
 }
 
@@ -372,4 +613,15 @@ const styles = StyleSheet.create({
   toggleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
   toggleBox: { fontSize: 20, color: colors.link },
   toggleLabel: { fontSize: 15, color: colors.text, fontWeight: '600' },
+  selectedBox: {
+    marginTop: spacing.sm,
+    padding: spacing.md,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.md,
+  },
+  selectedName: { fontSize: 16, fontWeight: '700', color: colors.text },
+  selectedMeta: { fontSize: 13, color: colors.subtitle, marginTop: 2 },
+  moveLabel: { fontSize: 13, fontWeight: '600', color: colors.label, marginTop: spacing.md, marginBottom: spacing.xs },
+  modeRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
+  modeButton: { flex: 1, minWidth: 130 },
 });
