@@ -56,7 +56,7 @@ export default function TodayScreen({ token, business }) {
   // Re-optimizes from the route's own stored start point (set whenever
   // it was first built) and keeps its existing name — a "rebuild" should
   // pick up newly-eligible stops and reorder, not silently rename or
-  // relocate the round. That's what makes this safe to offer here with
+  // relocate the route. That's what makes this safe to offer here with
   // no route-building form on this page at all.
   const rebuild = async (route) => {
     setBusyAction(`rebuild-${route.id}`);

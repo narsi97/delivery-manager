@@ -5,23 +5,23 @@ import 'leaflet/dist/leaflet.css';
 
 import { colors, radius, spacing } from './theme';
 
-// Every drop point for a day on one map, coloured by which round it is
+// Every drop point for a day on one map, coloured by which route it is
 // on, so an admin can see the split rather than read it as a list of
 // names. A partition that looks sensible in numbers ("6, 6, 6, 4") can
-// still be obviously wrong on a map — two rounds interleaved down the
+// still be obviously wrong on a map — two routes interleaved down the
 // same street, or one stop stranded across a river — and that is the
 // thing this view exists to catch.
 //
-// Tap a pin to select it; the caller renders the "move to another round"
+// Tap a pin to select it; the caller renders the "move to another route"
 // control (see RouteMap's onSelect and the picker in RoutesScreen), which
 // keeps the map about geography and leaves the acting-on-it to normal
 // form controls that already match the rest of the app.
 
-// Ten colours, one per possible round (see maxPlannedRounds in the
+// Ten colours, one per possible route (see maxPlannedRoutes in the
 // backend). Chosen to stay distinguishable next to each other on a pale
-// map — the whole point is telling two adjacent rounds apart at a glance.
+// map — the whole point is telling two adjacent routes apart at a glance.
 // Unrouted stops deliberately get none of these: they are grey, which
-// reads as "not assigned" rather than as an eleventh round.
+// reads as "not assigned" rather than as an eleventh route.
 const ROUTE_COLORS = [
   '#2f6f4e', // green
   '#1f5f8b', // blue
@@ -46,7 +46,7 @@ export function colorForRoute(routeId, routeIds) {
 
 // A numbered dot rather than a teardrop pin: at 40-odd stops the pins
 // overlap into a wall of shapes, while dots stay readable and the number
-// carries the stop's position in its round — which is what makes "why is
+// carries the stop's position in its route — which is what makes "why is
 // 12 way over there?" answerable from the map alone.
 function markerIcon(color, label, selected) {
   const size = selected ? 30 : 24;
@@ -142,8 +142,8 @@ export default function RouteMap({ stops, routes, home, selectedStopId, onSelect
         // Selected marker on top, so it can't hide under a neighbour.
         zIndexOffset: stop.id === selectedStopId ? 1000 : 0,
       });
-      const roundName = routes.find((route) => route.id === stop.route_id)?.name || 'Not on a round';
-      marker.bindTooltip(`${stop.customer_name} — ${roundName}`, { direction: 'top' });
+      const routeName = routes.find((route) => route.id === stop.route_id)?.name || 'Not on a route';
+      marker.bindTooltip(`${stop.customer_name} — ${routeName}`, { direction: 'top' });
       marker.on('click', () => onSelectRef.current(stop));
       marker.addTo(layer);
     }
@@ -179,7 +179,7 @@ export default function RouteMap({ stops, routes, home, selectedStopId, onSelect
         {hasUnrouted ? (
           <View style={styles.legendItem}>
             <View style={[styles.swatch, { backgroundColor: UNROUTED_COLOR }]} />
-            <Text style={styles.legendLabel}>Not on a round</Text>
+            <Text style={styles.legendLabel}>Not on a route</Text>
           </View>
         ) : null}
       </View>

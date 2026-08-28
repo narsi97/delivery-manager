@@ -43,7 +43,7 @@ const compactSelectStyle = { ...selectStyle, width: 'auto', minWidth: 110, maxWi
 // than a form on this screen, so this card is fully self-contained and
 // doesn't depend on whatever's in the "build a new route" form over on
 // the Routes screen.
-export function RouteSummary({ route, drivers, stops, products, token, onChanged, onError, onRebuild, rebuilding }) {
+export function RouteSummary({ route, drivers, stops, products, token, onChanged, onError, onRebuild, rebuilding, onDelete, deleting }) {
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const routeStops = stops.filter((stop) => stop.route_id === route.id);
@@ -96,10 +96,22 @@ export function RouteSummary({ route, drivers, stops, products, token, onChanged
             onPress={onRebuild}
             disabled={rebuilding}
             accessibilityRole="button"
-            accessibilityLabel="Re-optimize the order of this round"
+            accessibilityLabel="Re-optimize the order of this route"
             style={styles.rebuildButton}
           >
             <Text style={styles.rebuildIcon}>{rebuilding ? '…' : '↻'}</Text>
+          </Pressable>
+        ) : null}
+
+        {onDelete ? (
+          <Pressable
+            onPress={onDelete}
+            disabled={deleting}
+            accessibilityRole="button"
+            accessibilityLabel={`Delete ${route.name}`}
+            style={styles.deleteButton}
+          >
+            <Text style={styles.deleteIcon}>{deleting ? '…' : '🗑'}</Text>
           </Pressable>
         ) : null}
       </View>
@@ -374,6 +386,18 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   rebuildIcon: { fontSize: 18, color: colors.link, fontWeight: '700' },
+  deleteButton: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  deleteIcon: { fontSize: 16, color: colors.error },
   routeStops: { marginTop: spacing.sm },
   stopHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   stopHeaderText: { flex: 1, paddingRight: spacing.sm },

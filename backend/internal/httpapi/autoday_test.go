@@ -86,7 +86,7 @@ func TestRoundsArePreparedPerServiceAreaOnRead(t *testing.T) {
 		rt, _ := raw.(map[string]any)
 		names[str(rt, "name")] = true
 	}
-	for _, want := range []string{"Northtown round", "Southtown round"} {
+	for _, want := range []string{"Northtown route", "Southtown route"} {
 		if !names[want] {
 			t.Fatalf("no round named %q; got %v", want, names)
 		}

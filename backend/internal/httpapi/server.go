@@ -120,6 +120,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/routes", s.withAdmin(s.handleBuildRoute))
 	s.mux.HandleFunc("POST /api/v1/routes/plan", s.withAdmin(s.handlePlanRounds))
 	s.mux.HandleFunc("PATCH /api/v1/orders/{id}/route", s.withAdmin(s.handleMoveStop))
+	s.mux.HandleFunc("DELETE /api/v1/routes/{id}", s.withAdmin(s.handleDeleteRoute))
+	s.mux.HandleFunc("POST /api/v1/routes/reset", s.withAdmin(s.handleResetRoutes))
 	s.mux.HandleFunc("POST /api/v1/routes/{id}/assign", s.withAdmin(s.handleAssignRoute))
 
 	s.mux.HandleFunc("GET /api/v1/driver/today", s.withDriver(s.handleDriverToday))

@@ -1039,7 +1039,7 @@ func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date
 			ID:         domain.NewID(),
 			BusinessID: business.ID,
 			RouteDate:  date,
-			Name:       area.Name + " round",
+			Name:       area.Name + " route",
 			DriverID:   driverID,
 			Status:     status,
 			StartLat:   area.Lat,
@@ -1055,7 +1055,7 @@ func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date
 				return listErr
 			}
 			for _, rt := range refreshed {
-				if rt.Name == area.Name+" round" {
+				if rt.Name == area.Name+" route" {
 					routeForArea[area.ID] = rt
 					break
 				}

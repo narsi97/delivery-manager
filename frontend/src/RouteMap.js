@@ -14,7 +14,7 @@ export function colorForRoute() {
 export default function RouteMap() {
   return (
     <View style={styles.box}>
-      <Text style={styles.text}>The round map is available in the web admin console.</Text>
+      <Text style={styles.text}>The route map is available in the web admin console.</Text>
     </View>
   );
 }

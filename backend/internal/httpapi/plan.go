@@ -138,7 +138,7 @@ func (s *Server) handlePlanRounds(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Names have to dodge the rounds being kept: a round holding
-	// completed work stays put, and it is very likely called "Round 1"
+	// completed work stays put, and it is very likely called "Route 1"
 	// already (one round per name per day is a database constraint, not a
 	// preference). Numbering skips whatever is taken.
 	taken := map[string]bool{}
@@ -149,7 +149,7 @@ func (s *Server) handlePlanRounds(w http.ResponseWriter, r *http.Request) {
 	}
 	nextName := func() string {
 		for n := 1; ; n++ {
-			candidate := fmt.Sprintf("Round %d", n)
+			candidate := fmt.Sprintf("Route %d", n)
 			if !taken[candidate] {
 				taken[candidate] = true
 				return candidate

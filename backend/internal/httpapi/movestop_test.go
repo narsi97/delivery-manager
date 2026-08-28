@@ -193,7 +193,7 @@ func TestMoveUnroutedStopOntoARound(t *testing.T) {
 }
 
 // Creating an empty round is the other half of moving stops from the map:
-// an admin adds "Evening round", then moves the late customers onto it.
+// an admin adds "Evening route", then moves the late customers onto it.
 // Without allow_empty a new round can only be made while unrouted work
 // happens to exist, which is exactly when you least need one.
 func TestCreateEmptyRoundThenMoveStopsOntoIt(t *testing.T) {
@@ -203,14 +203,14 @@ func TestCreateEmptyRoundThenMoveStopsOntoIt(t *testing.T) {
 
 	// Everything is routed, so this would be a 400 without allow_empty.
 	admin.mustDo(http.MethodPost, "/api/v1/routes", map[string]any{
-		"name": "Evening round", "start_lat": 12.9700, "start_lng": 77.5946, "allow_empty": true,
+		"name": "Evening route", "start_lat": 12.9700, "start_lng": 77.5946, "allow_empty": true,
 	}, http.StatusOK)
 
 	after := admin.mustDo(http.MethodGet, "/api/v1/day", nil, http.StatusOK)
 	var evening string
 	for _, raw := range after["routes"].([]any) {
 		rt := raw.(map[string]any)
-		if str(rt, "name") == "Evening round" {
+		if str(rt, "name") == "Evening route" {
 			evening = str(rt, "id")
 		}
 	}

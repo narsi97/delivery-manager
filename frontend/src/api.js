@@ -201,6 +201,19 @@ export function moveStopToRoute(token, orderId, routeId) {
   });
 }
 
+// Deletes one route. Its deliveries survive and go back to unrouted.
+// Refused if the route carries deliveries already completed on it.
+export function deleteRoute(token, id) {
+  return request(`/api/v1/routes/${id}`, { method: 'DELETE', token });
+}
+
+// Clears a day's routes and starts over. With service areas set up the
+// next read prepares the per-area routes again, so this is "back to what
+// we'd have had without planning by hand" rather than "no routes".
+export function resetRoutes(token, date) {
+  return request(`/api/v1/routes/reset${date ? `?date=${date}` : ''}`, { method: 'POST', token });
+}
+
 // Pass route_id to rebuild an existing route in place (absorbing any
 // newly-added stops) instead of creating a second one for the same day.
 export function buildRoute(token, options) {
