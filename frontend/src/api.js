@@ -69,6 +69,26 @@ export function getMe(token) {
 
 // ---------- admin ----------
 
+// Edits the business record itself — name and/or home location (the
+// depot). Partial like the customer PATCH: send only what's changing.
+// home_lat/home_lng must travel together — the server rejects one sent
+// without the other rather than silently moving the pin to a broken spot.
+export function updateBusiness(token, changes) {
+  return request('/api/v1/business', { method: 'PATCH', token, body: JSON.stringify(changes) });
+}
+
+export function listServiceAreas(token) {
+  return request('/api/v1/service-areas', { method: 'GET', token });
+}
+
+export function createServiceArea(token, area) {
+  return request('/api/v1/service-areas', { method: 'POST', token, body: JSON.stringify(area) });
+}
+
+export function updateServiceArea(token, id, changes) {
+  return request(`/api/v1/service-areas/${id}`, { method: 'PATCH', token, body: JSON.stringify(changes) });
+}
+
 export function listCustomers(token) {
   return request('/api/v1/customers', { method: 'GET', token });
 }

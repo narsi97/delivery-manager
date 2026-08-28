@@ -16,10 +16,56 @@ export function SectionTitle({ children, right }) {
   );
 }
 
-export function Field({ label, hint, ...inputProps }) {
+// The one way anything in this app opens and closes. Before this there
+// were five different expand affordances — a 13px grey chevron on
+// customer groups, "+ Add" link text on the creation forms, "Show
+// deliveries (N)" on a route, and two headers that were pressable with
+// no visual cue at all. Same thing, five looks, none of them big enough
+// to hit confidently on a phone.
+//
+// One shape now: the whole row is the target (44px minimum, the standard
+// touch size), the title is on the left, anything the caller wants to
+// show while collapsed sits in `right`, and a chevron on the far right
+// says which way it goes. `compact` is for a disclosure nested inside
+// something that already has its own heading — a route's stop list — so
+// it reads as subordinate to the card's title rather than competing.
+export function Disclosure({ children, open, onToggle, right, compact }) {
   return (
-    <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
+    <Pressable
+      onPress={onToggle}
+      accessibilityRole="button"
+      accessibilityState={{ expanded: !!open }}
+      style={({ pressed }) => [styles.disclosure, pressed && styles.disclosurePressed]}
+    >
+      <Text style={[styles.disclosureTitle, compact && styles.disclosureTitleCompact]}>{children}</Text>
+      {right ? <View style={styles.disclosureRight}>{right}</View> : null}
+      <Text style={[styles.disclosureChevron, compact && styles.disclosureChevronCompact]}>{open ? '▾' : '▸'}</Text>
+    </Pressable>
+  );
+}
+
+// A field is as wide as what goes in it. Stretching every input to the
+// full card width is the single thing that made this app's forms look
+// like a database admin panel: a quantity of "2" got the same 640px as a
+// street address. `size` caps the width by what the value actually is —
+// the caps are deliberately generous (they're maximums, not fixed
+// widths) so a long product name or a two-line address still fits, and
+// everything still collapses to full width on a narrow phone.
+//
+// Default is 'full' so multiline notes and addresses keep the whole row;
+// everything shorter should say so.
+const FIELD_WIDTHS = {
+  xs: 90, // a number: quantity, price, radius, a PIN
+  sm: 170, // a phone number, a unit, a coordinate
+  md: 300, // a person's name, a search box
+  full: undefined,
+};
+
+export function Field({ label, hint, size = 'full', ...inputProps }) {
+  const maxWidth = FIELD_WIDTHS[size];
+  return (
+    <View style={[styles.field, maxWidth ? { maxWidth, width: '100%' } : null]}>
+      {label ? <Text style={styles.label}>{label}</Text> : null}
       <TextInput
         placeholderTextColor={colors.hint}
         {...inputProps}
@@ -28,6 +74,54 @@ export function Field({ label, hint, ...inputProps }) {
       {hint ? <Text style={styles.hint}>{hint}</Text> : null}
     </View>
   );
+}
+
+// A quantity is picked, not typed. "How many today?" on a milk round is
+// almost always one tap away from what it already is, and a text box
+// asks the least technical user in this app — an admin on a phone,
+// mid-morning — to select, delete, and retype a digit to say "one more".
+// Two big targets and a number between them say the same thing with no
+// keyboard at all.
+//
+// Still a real number underneath: `min` guards the bottom (0 means
+// "nothing today", which is what Skip records), and the caller owns the
+// value so this stays a controlled input like Field.
+export function Stepper({ label, value, onChange, min = 0, max = 99, hint }) {
+  const step = (delta) => onChange(Math.min(max, Math.max(min, value + delta)));
+  return (
+    <View style={styles.field}>
+      {label ? <Text style={styles.label}>{label}</Text> : null}
+      <View style={styles.stepper}>
+        <Pressable
+          onPress={() => step(-1)}
+          disabled={value <= min}
+          accessibilityRole="button"
+          accessibilityLabel="One fewer"
+          style={({ pressed }) => [styles.stepperButton, value <= min && styles.stepperButtonDisabled, pressed && styles.stepperPressed]}
+        >
+          <Text style={styles.stepperSymbol}>−</Text>
+        </Pressable>
+        <Text style={styles.stepperValue}>{value}</Text>
+        <Pressable
+          onPress={() => step(1)}
+          disabled={value >= max}
+          accessibilityRole="button"
+          accessibilityLabel="One more"
+          style={({ pressed }) => [styles.stepperButton, value >= max && styles.stepperButtonDisabled, pressed && styles.stepperPressed]}
+        >
+          <Text style={styles.stepperSymbol}>+</Text>
+        </Pressable>
+      </View>
+      {hint ? <Text style={styles.hint}>{hint}</Text> : null}
+    </View>
+  );
+}
+
+// Lays fields side by side instead of stacking them one per row — two
+// short inputs (lat/lng, unit/price) belong on one line, and wrapping
+// means the same markup still stacks on a phone.
+export function FieldRow({ children }) {
+  return <View style={styles.fieldRow}>{children}</View>;
 }
 
 export function Button({ title, onPress, variant = 'primary', disabled, busy, style }) {
@@ -193,7 +287,36 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   sectionTitle: { fontSize: 17, fontWeight: '700', color: colors.text },
+  disclosure: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    minHeight: 44,
+    marginBottom: spacing.sm,
+  },
+  disclosurePressed: { opacity: 0.6 },
+  stepper: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' },
+  stepperButton: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepperButtonDisabled: { opacity: 0.35 },
+  stepperPressed: { opacity: 0.6 },
+  stepperSymbol: { fontSize: 22, fontWeight: '700', color: colors.link, lineHeight: 26 },
+  stepperValue: { minWidth: 52, textAlign: 'center', fontSize: 18, fontWeight: '700', color: colors.text },
+  disclosureTitle: { flex: 1, fontSize: 17, fontWeight: '700', color: colors.text },
+  disclosureTitleCompact: { fontSize: 15, color: colors.link },
+  disclosureRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  disclosureChevron: { fontSize: 20, fontWeight: '700', color: colors.link, width: 20, textAlign: 'center' },
+  disclosureChevronCompact: { fontSize: 16, width: 16 },
   field: { marginBottom: spacing.md },
+  fieldRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, alignItems: 'flex-end' },
   label: { fontSize: 13, fontWeight: '600', color: colors.label, marginBottom: spacing.xs },
   input: {
     borderWidth: 1,

@@ -1,0 +1,38 @@
+// Pure geometry for grouping customers/stops by which service area they
+// fall in. Mirrors backend/internal/route.DistanceMeters (haversine) —
+// there's no shared code between the Go backend and this frontend today,
+// same as MapPicker.web.js's pin icon being its own self-contained thing.
+const EARTH_RADIUS_METERS = 6371000;
+
+export function distanceMeters(aLat, aLng, bLat, bLng) {
+  const lat1 = (aLat * Math.PI) / 180;
+  const lat2 = (bLat * Math.PI) / 180;
+  const dLat = ((bLat - aLat) * Math.PI) / 180;
+  const dLng = ((bLng - aLng) * Math.PI) / 180;
+
+  const h =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return 2 * EARTH_RADIUS_METERS * Math.asin(Math.sqrt(Math.min(1, h)));
+}
+
+// nearestAreaFor returns the active service area whose circle contains
+// (lat, lng), nearest-center-wins on overlap, or null if the point falls
+// outside every circle (or there are no areas at all). Ties break on list
+// order — the API returns areas sorted by name, same "earlier index wins"
+// determinism route.Optimize's nearestNeighbour uses for co-located pins.
+export function nearestAreaFor(lat, lng, areas) {
+  let best = null;
+  let bestDist = Infinity;
+  for (const area of areas || []) {
+    if (!area.active) {
+      continue;
+    }
+    const d = distanceMeters(lat, lng, area.lat, area.lng);
+    if (d <= area.radius_meters && d < bestDist) {
+      best = area;
+      bestDist = d;
+    }
+  }
+  return best;
+}
