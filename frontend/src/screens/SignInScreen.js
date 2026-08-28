@@ -5,34 +5,46 @@ import * as api from '../api';
 import { Banner, Button, Card, Field } from '../components';
 import { getFrontendConfig } from '../config/environments';
 import GoogleSignInButton from '../GoogleSignInButton';
+import { useLanguage } from '../i18n';
+import LanguageSwitcher from '../LanguageSwitcher';
 import { colors, radius, spacing } from '../theme';
 
-const BUSINESS_TYPES = [
-  { value: 'dairy', label: 'Dairy / milk' },
-  { value: 'school', label: 'School transport' },
-  { value: 'grocery', label: 'Grocery' },
-  { value: 'water', label: 'Water' },
-  { value: 'other', label: 'Other' },
-];
+function businessTypes(t) {
+  return [
+    { value: 'dairy', label: t('business_type_dairy') },
+    { value: 'school', label: t('business_type_school') },
+    { value: 'grocery', label: t('business_type_grocery') },
+    { value: 'water', label: t('business_type_water') },
+    { value: 'other', label: t('business_type_other') },
+  ];
+}
 
 // Two audiences, one screen. The admin half is a Google sign-in; the
 // driver half is a phone number and a PIN, because a delivery driver is
 // staff created by their employer, not a self-service signup. Which half
 // you land on defaults to admin, since a driver signs in once and then
 // stays signed in for a fortnight (see the prod TOKEN_TTL_HOURS).
+//
+// The language switcher lives here too, not only inside the signed-in
+// app — a driver should be able to put the screen into Telugu before
+// they've typed anything, not after.
 export default function SignInScreen({ onSession }) {
   const [mode, setMode] = useState('admin');
+  const { t } = useLanguage();
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
       <View style={styles.header}>
-        <Text style={styles.title}>Delivery Manager</Text>
-        <Text style={styles.subtitle}>Recurring deliveries, optimized rounds, one app.</Text>
+        <View style={styles.headerRow}>
+          <Text style={styles.title}>{t('app_title')}</Text>
+          <LanguageSwitcher />
+        </View>
+        <Text style={styles.subtitle}>{t('app_subtitle')}</Text>
       </View>
 
       <View style={styles.tabs}>
-        <Tab label="Business admin" active={mode === 'admin'} onPress={() => setMode('admin')} />
-        <Tab label="Driver" active={mode === 'driver'} onPress={() => setMode('driver')} />
+        <Tab label={t('tab_business_admin')} active={mode === 'admin'} onPress={() => setMode('admin')} />
+        <Tab label={t('tab_driver')} active={mode === 'driver'} onPress={() => setMode('driver')} />
       </View>
 
       {mode === 'admin' ? <AdminSignIn onSession={onSession} /> : <DriverSignIn onSession={onSession} />}
@@ -50,6 +62,7 @@ function Tab({ label, active, onPress }) {
 
 function AdminSignIn({ onSession }) {
   const { googleClientId, environment } = getFrontendConfig();
+  const { t } = useLanguage();
   const [creating, setCreating] = useState(false);
   const [businessName, setBusinessName] = useState('');
   const [businessType, setBusinessType] = useState('dairy');
@@ -71,7 +84,7 @@ function AdminSignIn({ onSession }) {
       onSession(session);
     } catch (err) {
       if (err.code === 'signup_required') {
-        setError('No business is registered to that Google account yet. Switch to "Create a business" below.');
+        setError(t('signup_required_error'));
         setCreating(true);
       } else {
         setError(err.message);
@@ -99,24 +112,24 @@ function AdminSignIn({ onSession }) {
 
       <View style={styles.switchRow}>
         <Pressable onPress={() => setCreating(false)} style={[styles.switch, !creating && styles.switchActive]}>
-          <Text style={[styles.switchText, !creating && styles.switchTextActive]}>Sign in</Text>
+          <Text style={[styles.switchText, !creating && styles.switchTextActive]}>{t('sign_in')}</Text>
         </Pressable>
         <Pressable onPress={() => setCreating(true)} style={[styles.switch, creating && styles.switchActive]}>
-          <Text style={[styles.switchText, creating && styles.switchTextActive]}>Create a business</Text>
+          <Text style={[styles.switchText, creating && styles.switchTextActive]}>{t('create_business')}</Text>
         </Pressable>
       </View>
 
       {creating ? (
         <View>
           <Field
-            label="Business name"
+            label={t('business_name_label')}
             value={businessName}
             onChangeText={setBusinessName}
             placeholder="Sri Lakshmi Dairy"
           />
-          <Text style={styles.label}>What do you deliver?</Text>
+          <Text style={styles.label}>{t('what_do_you_deliver')}</Text>
           <View style={styles.chipRow}>
-            {BUSINESS_TYPES.map((type) => (
+            {businessTypes(t).map((type) => (
               <Pressable
                 key={type.value}
                 onPress={() => setBusinessType(type.value)}
@@ -129,11 +142,11 @@ function AdminSignIn({ onSession }) {
             ))}
           </View>
           <Field
-            label="Timezone"
+            label={t('timezone_label')}
             value={timezone}
             onChangeText={setTimezone}
             autoCapitalize="none"
-            hint="Delivery days roll over on this clock, not your phone's."
+            hint={t('timezone_hint')}
           />
         </View>
       ) : null}
@@ -143,15 +156,12 @@ function AdminSignIn({ onSession }) {
           <GoogleSignInButton onCredential={handleCredential} />
         </View>
       ) : (
-        <Text style={styles.note}>
-          Google Sign-In isn&apos;t configured on this server. Set EXPO_PUBLIC_GOOGLE_CLIENT_ID (frontend) and
-          GOOGLE_CLIENT_ID (backend) to enable admin accounts.
-        </Text>
+        <Text style={styles.note}>{t('google_not_configured')}</Text>
       )}
 
       {environment !== 'prod' ? (
         <Button
-          title="Continue as local dev admin"
+          title={t('continue_as_dev_admin')}
           variant="secondary"
           onPress={handleDevLogin}
           busy={busy}
@@ -163,6 +173,7 @@ function AdminSignIn({ onSession }) {
 }
 
 function DriverSignIn({ onSession }) {
+  const { t } = useLanguage();
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
@@ -184,7 +195,7 @@ function DriverSignIn({ onSession }) {
     <Card>
       <Banner message={error} />
       <Field
-        label="Phone number"
+        label={t('phone_number_label')}
         value={phone}
         onChangeText={setPhone}
         placeholder="98765 43210"
@@ -192,16 +203,16 @@ function DriverSignIn({ onSession }) {
         autoComplete="tel"
       />
       <Field
-        label="PIN"
+        label={t('pin_label')}
         value={pin}
         onChangeText={setPin}
-        placeholder="6 digits"
+        placeholder={t('pin_placeholder_digits')}
         keyboardType="number-pad"
         secureTextEntry
         maxLength={6}
       />
-      <Button title="Start my round" onPress={submit} busy={busy} disabled={!phone || pin.length < 6} />
-      <Text style={styles.note}>Your PIN comes from whoever manages your deliveries. Ask them to reset it if you forget.</Text>
+      <Button title={t('start_my_round')} onPress={submit} busy={busy} disabled={!phone || pin.length < 6} />
+      <Text style={styles.note}>{t('pin_hint')}</Text>
     </Card>
   );
 }
@@ -220,6 +231,7 @@ function guessTimezone() {
 const styles = StyleSheet.create({
   page: { padding: spacing.lg, maxWidth: 520, width: '100%', alignSelf: 'center' },
   header: { marginTop: spacing.xl, marginBottom: spacing.lg },
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { fontSize: 28, fontWeight: '800', color: colors.text },
   subtitle: { fontSize: 15, color: colors.subtitle, marginTop: spacing.xs },
   tabs: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },

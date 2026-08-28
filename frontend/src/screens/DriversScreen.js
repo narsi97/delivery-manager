@@ -1,25 +1,20 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import * as api from '../api';
-import { Banner, Button, Card, Empty, Field, Pill, SectionTitle } from '../components';
+import { Banner, Button, Card, Disclosure, Empty, Field, Pill, SectionTitle } from '../components';
 import { colors, spacing } from '../theme';
 
 export default function DriversScreen({ token, currentUserId }) {
   const [drivers, setDrivers] = useState([]);
-  const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
   const refresh = useCallback(async () => {
     try {
-      const [driverResponse, productResponse] = await Promise.all([
-        api.listDrivers(token),
-        api.listProducts(token),
-      ]);
+      const driverResponse = await api.listDrivers(token);
       setDrivers(driverResponse.drivers || []);
-      setProducts(productResponse.products || []);
       setError('');
     } catch (err) {
       setError(err.message);
@@ -68,13 +63,16 @@ export default function DriversScreen({ token, currentUserId }) {
           />
         ))
       )}
-
-      <NewProductCard token={token} products={products} onChanged={refresh} onError={setError} />
     </ScrollView>
   );
 }
 
+// Collapsed by default — same expand-on-tap shape as Customers'
+// "Add a customer": an admin adds a driver rarely compared to how often
+// they glance at the roster below, so the form shouldn't be the first
+// thing on screen every visit.
 function NewDriverCard({ token, onCreated, onError }) {
+  const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
@@ -88,6 +86,7 @@ function NewDriverCard({ token, onCreated, onError }) {
       setName('');
       setPhone('');
       setPin('');
+      setExpanded(false);
       await onCreated(created.name, created.pin);
     } catch (err) {
       onError(err.message);
@@ -98,22 +97,29 @@ function NewDriverCard({ token, onCreated, onError }) {
 
   return (
     <Card>
-      <SectionTitle>Add a driver</SectionTitle>
-      <Field label="Name" value={name} onChangeText={setName} placeholder="Ravi Kumar" />
-      <Field label="Phone number" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="98765 43210" />
-      <Field
-        label="PIN"
-        value={pin}
-        onChangeText={setPin}
-        keyboardType="number-pad"
-        maxLength={6}
-        placeholder="6 digits"
-        hint="Not all the same digit, and not a run like 123456. Tell the driver this PIN — you won't be able to read it back."
-      />
-      <Button title="Add driver" onPress={submit} busy={busy} disabled={!name.trim() || !phone.trim() || pin.length !== 6} />
-      <Text style={styles.note}>
-        Drivers sign in with their phone number and this PIN — no Google account and no email needed.
-      </Text>
+      <Disclosure open={expanded} onToggle={() => setExpanded((prev) => !prev)}>
+        Add a driver
+      </Disclosure>
+
+      {expanded ? (
+        <View>
+          <Field label="Name" size="md" value={name} onChangeText={setName} placeholder="Ravi Kumar" />
+          <Field label="Phone number" size="sm" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="98765 43210" />
+          <Field
+            label="PIN"
+            value={pin}
+            onChangeText={setPin}
+            keyboardType="number-pad"
+            maxLength={6}
+            placeholder="6 digits"
+            hint="Not all the same digit, and not a run like 123456. Tell the driver this PIN — you won't be able to read it back."
+          />
+          <Button title="Add driver" onPress={submit} busy={busy} disabled={!name.trim() || !phone.trim() || pin.length !== 6} />
+          <Text style={styles.note}>
+            Drivers sign in with their phone number and this PIN — no Google account and no email needed.
+          </Text>
+        </View>
+      ) : null}
     </Card>
   );
 }
@@ -150,7 +156,7 @@ function DriverCard({ driver, token, isSelf, onChanged, onError, onNotice }) {
 
       {resetting ? (
         <View style={styles.resetBox}>
-          <Field label="New PIN" value={newPin} onChangeText={setNewPin} keyboardType="number-pad" maxLength={6} />
+          <Field label="New PIN" size="xs" value={newPin} onChangeText={setNewPin} keyboardType="number-pad" maxLength={6} />
           <View style={styles.buttonRow}>
             <Button
               title="Set PIN"
@@ -195,36 +201,6 @@ function DriverCard({ driver, token, isSelf, onChanged, onError, onNotice }) {
   );
 }
 
-function NewProductCard({ token, products, onChanged, onError }) {
-  const [name, setName] = useState('');
-  const [unit, setUnit] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const submit = async () => {
-    setBusy(true);
-    try {
-      await api.createProduct(token, { name, unit });
-      setName('');
-      setUnit('');
-      await onChanged();
-    } catch (err) {
-      onError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Card>
-      <SectionTitle>What you deliver</SectionTitle>
-      <Text style={styles.productList}>{products.map((product) => product.name).join(' · ') || 'Nothing yet'}</Text>
-      <Field label="Name" value={name} onChangeText={setName} placeholder="Milk 2L" />
-      <Field label="Unit" value={unit} onChangeText={setUnit} placeholder="packet / can / trip" />
-      <Button title="Add" onPress={submit} busy={busy} disabled={!name.trim()} />
-    </Card>
-  );
-}
-
 const styles = StyleSheet.create({
   page: { padding: spacing.lg, maxWidth: 720, width: '100%', alignSelf: 'center' },
   loader: { marginTop: spacing.xl * 2 },
@@ -236,5 +212,4 @@ const styles = StyleSheet.create({
   resetBox: { marginTop: spacing.md },
   buttonRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md, flexWrap: 'wrap' },
   flexButton: { flex: 1, minWidth: 130 },
-  productList: { fontSize: 13, color: colors.subtitle, marginBottom: spacing.md },
 });

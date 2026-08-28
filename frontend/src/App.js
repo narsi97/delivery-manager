@@ -1,27 +1,49 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, SafeAreaView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Animated, ActivityIndicator, Modal, Pressable, SafeAreaView, StatusBar, StyleSheet, Text, View } from 'react-native';
+
+const DRAWER_WIDTH = 260;
 
 import * as api from './api';
 import { clearSession, loadSession, saveSession } from './session';
 import { labelsFor, lower } from './labels';
+import { LanguageProvider, useLanguage } from './i18n';
+import LanguageSwitcher from './LanguageSwitcher';
+import BusinessScreen from './screens/BusinessScreen';
 import CustomersScreen from './screens/CustomersScreen';
 import DriverScreen from './screens/DriverScreen';
 import DriversScreen from './screens/DriversScreen';
+import RoutesScreen from './screens/RoutesScreen';
 import SignInScreen from './screens/SignInScreen';
 import TodayScreen from './screens/TodayScreen';
 import { colors, spacing } from './theme';
 
 // Tab labels come from the business's own vocabulary, so a school
 // operator sees "Students" and "Drivers" rather than a dairy's nouns.
-function adminTabs(labels) {
+// "Business" has no terminology entry — it's a genuinely new noun outside
+// the customer/product/driver vocabulary system, same as "Today" — both
+// go through t() instead, since they're app chrome, not business-owned.
+function adminTabs(labels, t) {
   return [
-    { key: 'today', label: 'Today' },
+    { key: 'today', label: t('nav_today') },
+    { key: 'routes', label: `${labels.route}s` },
     { key: 'customers', label: labels.customer_plural },
     { key: 'team', label: labels.driver + 's' },
+    { key: 'business', label: t('nav_business') },
   ];
 }
 
+// LanguageProvider wraps the whole app so useLanguage() is available
+// from the sign-in screen (a driver should be able to switch language
+// before they've even signed in) all the way through the driver app.
 export default function App() {
+  return (
+    <LanguageProvider>
+      <AppShell />
+    </LanguageProvider>
+  );
+}
+
+function AppShell() {
   const [session, setSession] = useState(null);
   const [tab, setTab] = useState('today');
   // 'driving' lets an owner who is both admin and driver switch to the
@@ -34,6 +56,7 @@ export default function App() {
   // visited far less often, so they don't need to compete for width on
   // every screen the way three permanent tabs would.
   const [menuOpen, setMenuOpen] = useState(false);
+  const { t } = useLanguage();
 
   // Restore a stored token on load, but only after the server confirms it
   // is still good — a token whose account has since been deactivated must
@@ -114,7 +137,7 @@ export default function App() {
           <Pressable
             onPress={() => setMenuOpen(true)}
             accessibilityRole="button"
-            accessibilityLabel="Open menu"
+            accessibilityLabel={t('open_menu')}
             style={styles.burger}
           >
             <View style={styles.burgerLine} />
@@ -127,19 +150,22 @@ export default function App() {
             {business.name}
           </Text>
           <Text style={styles.userName} numberOfLines={1}>
-            {user.name} · {showDriverView ? lowerRole(labels) : 'admin'}
-            {showDriverView ? '' : ` · ${currentSectionLabel(labels, tab)}`}
+            {user.name} · {showDriverView ? lowerRole(labels) : t('role_admin')}
+            {showDriverView ? '' : ` · ${currentSectionLabel(labels, tab, t)}`}
           </Text>
         </View>
-        <Pressable onPress={signOut} accessibilityRole="button">
-          <Text style={styles.signOut}>Sign out</Text>
-        </Pressable>
+        <View style={styles.topBarActions}>
+          <LanguageSwitcher />
+          <Pressable onPress={signOut} accessibilityRole="button">
+            <Text style={styles.signOut}>{t('sign_out')}</Text>
+          </Pressable>
+        </View>
       </View>
 
       {isAdmin && canDrive ? (
         <Pressable onPress={() => setDriving((prev) => !prev)} style={styles.roleToggle}>
           <Text style={styles.roleToggleText}>
-            {showDriverView ? 'Switch to admin console' : `Switch to my ${lower(labels.route)}`}
+            {showDriverView ? t('switch_to_admin_console') : t('switch_to_my_route', { route: lower(labels.route) })}
           </Text>
         </Pressable>
       ) : null}
@@ -153,6 +179,7 @@ export default function App() {
           setMenuOpen(false);
         }}
         labels={labels}
+        t={t}
       />
 
       <View style={styles.body}>
@@ -160,10 +187,18 @@ export default function App() {
           <DriverScreen token={token} business={business} />
         ) : tab === 'today' ? (
           <TodayScreen token={token} business={business} />
+        ) : tab === 'routes' ? (
+          <RoutesScreen token={token} business={business} />
         ) : tab === 'customers' ? (
           <CustomersScreen token={token} business={business} />
-        ) : (
+        ) : tab === 'team' ? (
           <DriversScreen token={token} business={business} currentUserId={user.id} />
+        ) : (
+          <BusinessScreen
+            token={token}
+            business={business}
+            onBusinessUpdated={(updated) => setSession((prev) => ({ ...prev, business: updated }))}
+          />
         )}
       </View>
     </SafeAreaView>
@@ -174,8 +209,8 @@ function lowerRole(labels) {
   return lower(labels.driver);
 }
 
-function currentSectionLabel(labels, tab) {
-  return adminTabs(labels).find((item) => item.key === tab)?.label || '';
+function currentSectionLabel(labels, tab, t) {
+  return adminTabs(labels, t).find((item) => item.key === tab)?.label || '';
 }
 
 // Slide-in drawer from the left, behind a tap-anywhere-to-close backdrop.
@@ -184,13 +219,41 @@ function currentSectionLabel(labels, tab) {
 // position:'fixed'-inside-a-scrolling-ancestor bug the other 3VNSYSTEMS
 // apps have hit before (see resume-optimizer's WebPortal.web.js) without
 // needing a portal component of our own.
-function NavMenu({ visible, onClose, activeTab, onSelect, labels }) {
+//
+// The slide itself is a manual Animated.timing on translateX rather than
+// Modal's own animationType — Modal's built-in "slide" animates the
+// whole overlay (backdrop included) as one block, and its direction is
+// mobile-platform-specific (bottom-associated), not the left-edge drawer
+// this needs. Driving translateX directly also means the drawer can stay
+// mounted for its own ~200ms close animation instead of being yanked out
+// the instant `visible` flips — Modal unmounts its children immediately
+// otherwise, which is why `mounted` is tracked separately from `visible`.
+function NavMenu({ visible, onClose, activeTab, onSelect, labels, t }) {
+  const [mounted, setMounted] = useState(visible);
+  const translateX = useRef(new Animated.Value(visible ? 0 : -DRAWER_WIDTH)).current;
+
+  useEffect(() => {
+    if (visible) {
+      setMounted(true);
+      Animated.timing(translateX, { toValue: 0, duration: 220, useNativeDriver: false }).start();
+    } else if (mounted) {
+      Animated.timing(translateX, { toValue: -DRAWER_WIDTH, duration: 180, useNativeDriver: false }).start(() => {
+        setMounted(false);
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
+  if (!mounted) {
+    return null;
+  }
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close menu" />
-      <View style={styles.drawer}>
-        <Text style={styles.drawerTitle}>Menu</Text>
-        {adminTabs(labels).map((item) => (
+    <Modal visible transparent animationType="none" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose} accessibilityRole="button" accessibilityLabel={t('close_menu')} />
+      <Animated.View style={[styles.drawer, { transform: [{ translateX }] }]}>
+        <Text style={styles.drawerTitle}>{t('menu_heading')}</Text>
+        {adminTabs(labels, t).map((item) => (
           <Pressable
             key={item.key}
             onPress={() => onSelect(item.key)}
@@ -202,7 +265,7 @@ function NavMenu({ visible, onClose, activeTab, onSelect, labels }) {
             </Text>
           </Pressable>
         ))}
-      </View>
+      </Animated.View>
     </Modal>
   );
 }
@@ -225,6 +288,7 @@ const styles = StyleSheet.create({
   topBarText: { flex: 1, paddingRight: spacing.md },
   businessName: { fontSize: 16, fontWeight: '800', color: colors.text },
   userName: { fontSize: 12, color: colors.subtitle, marginTop: 1 },
+  topBarActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   signOut: { fontSize: 14, fontWeight: '600', color: colors.link },
   roleToggle: {
     paddingVertical: spacing.sm,
@@ -241,7 +305,7 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     left: 0,
-    width: 260,
+    width: DRAWER_WIDTH,
     maxWidth: '80%',
     backgroundColor: colors.surface,
     paddingTop: spacing.xl,
