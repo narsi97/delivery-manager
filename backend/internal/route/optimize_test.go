@@ -163,7 +163,7 @@ func TestOptimizeNeverWorseThanNearestNeighbour(t *testing.T) {
 	}
 
 	greedy := nearestNeighbour(start, stops)
-	greedyLen := pathLength(start, greedy)
+	greedyLen := pathLength(start, greedy, nil)
 
 	_, optimizedLen := Optimize(start, stops)
 

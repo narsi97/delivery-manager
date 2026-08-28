@@ -467,6 +467,28 @@ func (s *MemoryStore) CreateRoute(ctx context.Context, r domain.Route) (domain.R
 	return r, nil
 }
 
+func (s *MemoryStore) DeleteRoute(ctx context.Context, businessID string, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existing, ok := s.routes[id]
+	if !ok || existing.BusinessID != businessID {
+		return ErrNotFound
+	}
+	delete(s.routes, id)
+
+	// Mirrors the ON DELETE SET NULL on daily_orders.route_id: the
+	// deliveries survive, they just aren't on a round any more.
+	for orderID, order := range s.daily {
+		if order.RouteID != nil && *order.RouteID == id {
+			order.RouteID = nil
+			order.Sequence = 0
+			s.daily[orderID] = order
+		}
+	}
+	return nil
+}
+
 func (s *MemoryStore) GetRoute(ctx context.Context, businessID string, id string) (domain.Route, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

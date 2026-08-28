@@ -128,6 +128,14 @@ type Store interface {
 	// could leave stops orphaned halfway through.
 	AssignStops(ctx context.Context, businessID string, routeID string, orderedDailyOrderIDs []string) error
 
+	// DeleteRoute removes a route and detaches its stops (the daily_orders
+	// FK is ON DELETE SET NULL), leaving the deliveries themselves alone.
+	// Planning a day's rounds replaces whatever plan was there before, and
+	// without this a re-plan would pile new rounds on top of the old ones.
+	// The only destructive call in this interface, and deliberately narrow:
+	// it takes a route, never a date or a business.
+	DeleteRoute(ctx context.Context, businessID string, id string) error
+
 	AppendDeliveryEvent(ctx context.Context, e domain.DeliveryEvent) error
 	ListDeliveryEvents(ctx context.Context, businessID string, dailyOrderID string) ([]domain.DeliveryEvent, error)
 

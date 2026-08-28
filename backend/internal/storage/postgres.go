@@ -532,6 +532,25 @@ func (s *PostgresStore) CreateRoute(ctx context.Context, r domain.Route) (domain
 
 const routeColumns = `id, business_id, route_date, name, driver_id, status, start_lat, start_lng, estimated_meters, created_at`
 
+func (s *PostgresStore) DeleteRoute(ctx context.Context, businessID string, id string) error {
+	// The business_id predicate is the tenant guard: a route id from
+	// another business must come back as not-found, never delete.
+	tag, err := s.pool.Exec(ctx, `delete from routes where business_id = $1 and id = $2`, businessID, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	// daily_orders.route_id is ON DELETE SET NULL (see schema.go), so the
+	// stops detach on their own; the sequence numbers are stale once a
+	// stop is off a route, so clear them too.
+	_, err = s.pool.Exec(ctx,
+		`update daily_orders set stop_sequence = 0 where business_id = $1 and route_id is null and stop_sequence <> 0`,
+		businessID)
+	return err
+}
+
 func (s *PostgresStore) GetRoute(ctx context.Context, businessID string, id string) (domain.Route, error) {
 	row := s.pool.QueryRow(ctx, `select `+routeColumns+` from routes where id=$1 and business_id=$2`, id, businessID)
 	return scanRoute(row)

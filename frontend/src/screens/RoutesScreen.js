@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import * as api from '../api';
-import { Banner, Button, Card, Disclosure, Empty, Field, FieldRow, SectionTitle } from '../components';
+import { Banner, Button, Card, Disclosure, Empty, Field, FieldRow, SectionTitle, Stepper } from '../components';
 import DateNav from '../DateNav';
 import MapPicker from '../MapPicker';
 import { currentPosition } from '../navigation';
@@ -139,6 +139,18 @@ export default function RoutesScreen({ token, business }) {
         </View>
       </Card>
 
+      <PlanRoundsCard
+        token={token}
+        date={selectedDate}
+        stopCount={(day?.stops || []).filter((stop) => stop.status === 'pending' && (stop.lat || stop.lng)).length}
+        currentRounds={routes.length}
+        hasHome={!!home}
+        onDone={async (message) => {
+          setNotice(message);
+          await refresh();
+        }}
+      />
+
       {strays.length > 0 ? (
         <StrayStopsCard
           token={token}
@@ -153,6 +165,88 @@ export default function RoutesScreen({ token, business }) {
         />
       ) : null}
     </ScrollView>
+  );
+}
+
+// Splitting the day across however many drivers are actually out.
+//
+// The automatic rounds answer "where do we deliver" — one per service
+// area, every day, no thought required. This answers a question areas
+// can't: a business with two areas and four vans, or four vans and a
+// driver off sick, needs the same work cut a different number of ways.
+// So this is a deliberate act with a button, not something that happens
+// on its own, and it says plainly that it replaces the current plan.
+function PlanRoundsCard({ token, date, stopCount, currentRounds, hasHome, onDone }) {
+  const [expanded, setExpanded] = useState(false);
+  const [count, setCount] = useState(Math.max(1, currentRounds || 1));
+  const [returnHome, setReturnHome] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const plan = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await api.planRounds(token, { count, return_home: returnHome, date: date || undefined });
+      await onDone(`Split ${stopCount} deliveries across ${count} round${count === 1 ? '' : 's'}.`);
+      setExpanded(false);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card>
+      <Disclosure open={expanded} onToggle={() => setExpanded((prev) => !prev)}>
+        Split the day across drivers
+      </Disclosure>
+
+      {expanded ? (
+        <View>
+          <Banner message={error} />
+          {hasHome ? null : (
+            <Banner
+              tone="info"
+              message="Set your home location on the Business tab first — rounds have to start somewhere."
+            />
+          )}
+          <Stepper
+            label="How many rounds"
+            value={count}
+            onChange={setCount}
+            min={1}
+            max={10}
+            hint={`${stopCount} deliveries to share out. One round per driver going out today.`}
+          />
+          <Pressable
+            onPress={() => setReturnHome((prev) => !prev)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: returnHome }}
+            style={styles.toggleRow}
+          >
+            <Text style={styles.toggleBox}>{returnHome ? '☑' : '☐'}</Text>
+            <Text style={styles.toggleLabel}>Driver finishes back at the start</Text>
+          </Pressable>
+          <Text style={styles.note}>
+            With this on, the drive home counts as part of the round — which changes the order stops are visited
+            in, not just the distance shown.
+          </Text>
+          <Button
+            title={`Plan ${count} round${count === 1 ? '' : 's'}`}
+            onPress={plan}
+            busy={busy}
+            disabled={!hasHome || stopCount === 0}
+            style={styles.spaced}
+          />
+          <Text style={styles.note}>
+            Replaces this day&apos;s current rounds. Deliveries already completed keep the round they were made
+            on.
+          </Text>
+        </View>
+      ) : null}
+    </Card>
   );
 }
 
@@ -275,4 +369,7 @@ const styles = StyleSheet.create({
   routesSection: { marginTop: spacing.lg, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.lg },
   spaced: { marginTop: spacing.sm },
   strayLine: { fontSize: 13, color: colors.label, marginTop: spacing.xs },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
+  toggleBox: { fontSize: 20, color: colors.link },
+  toggleLabel: { fontSize: 15, color: colors.text, fontWeight: '600' },
 });

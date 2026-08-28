@@ -66,13 +66,30 @@ func DistanceMeters(aLat, aLng, bLat, bLng float64) float64 {
 // so an admin who rebuilds a route without changing anything doesn't get
 // a reshuffled list and lose their place.
 func Optimize(start Point, stops []Point) ([]Point, float64) {
+	return optimize(start, stops, nil)
+}
+
+// OptimizeReturning is Optimize for a round that finishes somewhere
+// specific — pass the depot to send the driver home at the end.
+//
+// This is a different problem, not a cosmetic addition: an open path is
+// free to strand its last stop anywhere, because getting home afterwards
+// costs it nothing. Once the drive home counts, the best order changes,
+// and the tour that was cheapest as a one-way path is often not the
+// cheapest loop. So the closing leg is part of what 2-opt is minimising
+// here, rather than something added to the total afterwards.
+func OptimizeReturning(start Point, stops []Point, end Point) ([]Point, float64) {
+	return optimize(start, stops, &end)
+}
+
+func optimize(start Point, stops []Point, end *Point) ([]Point, float64) {
 	if len(stops) == 0 {
 		return []Point{}, 0
 	}
 
 	ordered := nearestNeighbour(start, stops)
-	ordered = twoOpt(start, ordered)
-	return ordered, pathLength(start, ordered)
+	ordered = twoOpt(start, ordered, end)
+	return ordered, pathLength(start, ordered, end)
 }
 
 // nearestNeighbour repeatedly hops to the closest not-yet-visited stop.
@@ -107,7 +124,7 @@ func nearestNeighbour(start Point, stops []Point) []Point {
 // which is exactly the move that removes a crossing. It runs to a local
 // optimum (a full pass with no improvement) rather than for a fixed number
 // of rounds, bounded by maxPasses so a pathological input can't spin.
-func twoOpt(start Point, ordered []Point) []Point {
+func twoOpt(start Point, ordered []Point, end *Point) []Point {
 	const maxPasses = 40
 	// Below 4 stops there is no crossing to remove: any 2-opt move on 3
 	// or fewer points either is a no-op or just reverses the whole path.
@@ -125,8 +142,8 @@ func twoOpt(start Point, ordered []Point) []Point {
 				// Reversing route[i:j+1] changes only the two edges at
 				// the boundary, so the delta can be evaluated in O(1)
 				// instead of re-measuring the whole path.
-				before := edgeInto(start, route, i) + edgeOutOf(route, j)
-				after := distance(pointBefore(start, route, i), route[j]) + edgeOutOfReversed(route, i, j)
+				before := edgeInto(start, route, i) + edgeOutOf(route, j, end)
+				after := distance(pointBefore(start, route, i), route[j]) + edgeOutOfReversed(route, i, j, end)
 				if after+1e-9 < before {
 					reverse(route, i, j)
 					improved = true
@@ -153,10 +170,14 @@ func edgeInto(start Point, route []Point, i int) float64 {
 	return distance(pointBefore(start, route, i), route[i])
 }
 
-// edgeOutOf is the leg leaving index j. The final stop has no outgoing
-// leg (the route simply ends), so it contributes nothing.
-func edgeOutOf(route []Point, j int) float64 {
+// edgeOutOf is the leg leaving index j. On an open round the final stop
+// has no outgoing leg and contributes nothing; on a returning round it
+// is the drive home.
+func edgeOutOf(route []Point, j int, end *Point) float64 {
 	if j+1 >= len(route) {
+		if end != nil {
+			return distance(route[j], *end)
+		}
 		return 0
 	}
 	return distance(route[j], route[j+1])
@@ -164,8 +185,11 @@ func edgeOutOf(route []Point, j int) float64 {
 
 // edgeOutOfReversed is edgeOutOf as it would be *after* reversing i..j,
 // where route[i] has become the segment's last point.
-func edgeOutOfReversed(route []Point, i, j int) float64 {
+func edgeOutOfReversed(route []Point, i, j int, end *Point) float64 {
 	if j+1 >= len(route) {
+		if end != nil {
+			return distance(route[i], *end)
+		}
 		return 0
 	}
 	return distance(route[i], route[j+1])
@@ -185,13 +209,16 @@ func reverse(route []Point, i, j int) {
 
 // pathLength totals the legs actually driven: depot to first stop, then
 // stop to stop.
-func pathLength(start Point, ordered []Point) float64 {
+func pathLength(start Point, ordered []Point, end *Point) float64 {
 	if len(ordered) == 0 {
 		return 0
 	}
 	total := distance(start, ordered[0])
 	for i := 0; i < len(ordered)-1; i++ {
 		total += distance(ordered[i], ordered[i+1])
+	}
+	if end != nil {
+		total += distance(ordered[len(ordered)-1], *end)
 	}
 	return total
 }
