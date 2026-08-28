@@ -55,7 +55,20 @@ type Business struct {
 	// the session so the frontend can render the right labels and forms
 	// without a second request.
 	Config BusinessConfig `json:"config"`
+	// HomeLat/HomeLng is where the business itself is based — the depot,
+	// the shop, the dairy. Distinct from a ServiceArea: this is one point
+	// a business always has, used to pre-fill "where does the round
+	// start" and to scope every map's default view instead of opening on
+	// an India-wide view. Zero value means unset, same convention as
+	// Customer.Lat/Lng — see HasHome.
+	HomeLat float64 `json:"home_lat"`
+	HomeLng float64 `json:"home_lng"`
 }
+
+// HasHome reports whether this business has set its own location. Mirrors
+// Customer.HasPin — the exact 0,0 pair is treated as "unset" rather than a
+// real location (Null Island, Gulf of Guinea, never a real depot).
+func (b Business) HasHome() bool { return b.HomeLat != 0 || b.HomeLng != 0 }
 
 // Today returns the current date in the business's own timezone as
 // YYYY-MM-DD. Falls back to UTC if the zone name doesn't resolve, rather
@@ -144,6 +157,28 @@ type Customer struct {
 // the door yet) — they just get skipped by route building instead of
 // being routed to 0,0 in the Gulf of Guinea.
 func (c Customer) HasPin() bool { return c.Lat != 0 || c.Lng != 0 }
+
+// ServiceArea is a named delivery zone a business declares — a city or
+// locality it delivers to, as a center pin and a radius. It exists so
+// every map in the app can default to a sane zoomed-in view instead of an
+// India-wide one, and so customers and today's stops can be grouped by
+// which zone they fall in for one-click route building. Circle+radius,
+// not a polygon — the same "the pin is the address" simplicity Customer
+// already uses, not a shape editor nobody asked for.
+//
+// Only ever created and edited through the admin HTTP API, so — like
+// Customer — it has no Validate() of its own; validation lives at the one
+// write path in internal/httpapi.
+type ServiceArea struct {
+	ID           string    `json:"id"`
+	BusinessID   string    `json:"business_id"`
+	Name         string    `json:"name"`
+	Lat          float64   `json:"lat"`
+	Lng          float64   `json:"lng"`
+	RadiusMeters float64   `json:"radius_meters"`
+	Active       bool      `json:"active"`
+	CreatedAt    time.Time `json:"created_at"`
+}
 
 type Product struct {
 	ID         string `json:"id"`

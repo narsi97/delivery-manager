@@ -104,6 +104,15 @@ func TestHasPinTreatsNullIslandAsUnset(t *testing.T) {
 	}
 }
 
+func TestHasHomeTreatsNullIslandAsUnset(t *testing.T) {
+	if (Business{}).HasHome() {
+		t.Fatal("a business with no coordinates should not count as having a home location")
+	}
+	if !(Business{HomeLat: 12.98, HomeLng: 77.59}).HasHome() {
+		t.Fatal("a business with coordinates should count as having a home location")
+	}
+}
+
 func TestIsOverriddenDetectsQuantityAndSkip(t *testing.T) {
 	unchanged := DailyOrder{Quantity: 2, BaseQuantity: 2, Status: StatusPending}
 	if unchanged.IsOverridden() {

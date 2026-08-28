@@ -21,6 +21,11 @@ create table if not exists businesses (
 		config jsonb not null default '{}'::jsonb
 	);
 
+-- Where the business itself is based — the depot, the shop, the dairy.
+alter table businesses add column if not exists home_lat double precision not null default 0;
+
+alter table businesses add column if not exists home_lng double precision not null default 0;
+
 create table if not exists users (
 		id text primary key,
 		business_id text not null references businesses(id) on delete cascade,
@@ -58,6 +63,22 @@ create table if not exists customers (
 	);
 
 create index if not exists customers_business_idx on customers(business_id);
+
+create table if not exists service_areas (
+		id text primary key,
+		business_id text not null references businesses(id) on delete cascade,
+		name text not null,
+		lat double precision not null default 0,
+		lng double precision not null default 0,
+		-- The perimeter around lat/lng this zone covers. Circle+radius
+		-- rather than a polygon — same "the pin is the address"
+		-- simplicity as a customer's own pin.
+		radius_meters double precision not null default 0,
+		active boolean not null default true,
+		created_at timestamptz not null default now()
+	);
+
+create index if not exists service_areas_business_idx on service_areas(business_id);
 
 create table if not exists products (
 		id text primary key,
@@ -99,6 +120,13 @@ create table if not exists routes (
 	);
 
 create index if not exists routes_business_date_idx on routes(business_id, route_date);
+-- One round per name per day. Rounds are derived automatically now (see
+-- ensureDayRounds in httpapi/admin.go), and two admins reading the same
+-- day at the same moment would otherwise each create the "Kodad round"
+-- that neither had seen yet — leaving the day with two of them and its
+-- stops split across both. The database is the only place that race can
+-- actually be settled.
+create unique index if not exists routes_business_date_name_idx on routes(business_id, route_date, name);
 
 create table if not exists daily_orders (
 		id text primary key,

@@ -75,8 +75,9 @@ func (s *PostgresStore) CreateBusiness(ctx context.Context, b domain.Business, a
 		return domain.Business{}, domain.User{}, err
 	}
 	if _, err := tx.Exec(ctx,
-		`insert into businesses (id, name, business_type, timezone, created_at, config) values ($1,$2,$3,$4,$5,$6)`,
-		b.ID, b.Name, string(b.Type), b.Timezone, b.CreatedAt, configJSON); err != nil {
+		`insert into businesses (id, name, business_type, timezone, created_at, config, home_lat, home_lng)
+		 values ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		b.ID, b.Name, string(b.Type), b.Timezone, b.CreatedAt, configJSON, b.HomeLat, b.HomeLng); err != nil {
 		return domain.Business{}, domain.User{}, err
 	}
 
@@ -102,7 +103,19 @@ func (s *PostgresStore) CreateBusiness(ctx context.Context, b domain.Business, a
 
 func (s *PostgresStore) GetBusiness(ctx context.Context, id string) (domain.Business, error) {
 	row := s.pool.QueryRow(ctx,
-		`select id, name, business_type, timezone, created_at, config from businesses where id = $1`, id)
+		`select `+businessColumns+` from businesses where id = $1`, id)
+	return scanBusiness(row)
+}
+
+// UpdateBusiness persists the plain scalar fields an admin edits directly
+// (name, home location). Config has its own replace-the-document path
+// below, UpdateBusinessConfig, kept separate because a nested JSON blob
+// has merge ambiguity that two scalars and a name don't.
+func (s *PostgresStore) UpdateBusiness(ctx context.Context, b domain.Business) (domain.Business, error) {
+	row := s.pool.QueryRow(ctx,
+		`update businesses set name=$2, home_lat=$3, home_lng=$4 where id=$1
+		 returning `+businessColumns,
+		b.ID, b.Name, b.HomeLat, b.HomeLng)
 	return scanBusiness(row)
 }
 
@@ -113,7 +126,7 @@ func (s *PostgresStore) UpdateBusinessConfig(ctx context.Context, businessID str
 	}
 	row := s.pool.QueryRow(ctx,
 		`update businesses set config=$2 where id=$1
-		 returning id, name, business_type, timezone, created_at, config`, businessID, configJSON)
+		 returning `+businessColumns, businessID, configJSON)
 	return scanBusiness(row)
 }
 
@@ -266,6 +279,51 @@ func (s *PostgresStore) ListCustomers(ctx context.Context, businessID string) ([
 	return out, rows.Err()
 }
 
+func (s *PostgresStore) CreateServiceArea(ctx context.Context, sa domain.ServiceArea) (domain.ServiceArea, error) {
+	sa.CreatedAt = time.Now().UTC()
+	_, err := s.pool.Exec(ctx,
+		`insert into service_areas (`+serviceAreaColumns+`) values ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		sa.ID, sa.BusinessID, sa.Name, sa.Lat, sa.Lng, sa.RadiusMeters, sa.Active, sa.CreatedAt)
+	if err != nil {
+		return domain.ServiceArea{}, err
+	}
+	return sa, nil
+}
+
+func (s *PostgresStore) GetServiceArea(ctx context.Context, businessID string, id string) (domain.ServiceArea, error) {
+	row := s.pool.QueryRow(ctx,
+		`select `+serviceAreaColumns+` from service_areas where id=$1 and business_id=$2`, id, businessID)
+	return scanServiceArea(row)
+}
+
+func (s *PostgresStore) ListServiceAreas(ctx context.Context, businessID string) ([]domain.ServiceArea, error) {
+	rows, err := s.pool.Query(ctx,
+		`select `+serviceAreaColumns+` from service_areas where business_id=$1 order by name`, businessID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []domain.ServiceArea{}
+	for rows.Next() {
+		sa, err := scanServiceArea(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sa)
+	}
+	return out, rows.Err()
+}
+
+func (s *PostgresStore) UpdateServiceArea(ctx context.Context, sa domain.ServiceArea) (domain.ServiceArea, error) {
+	row := s.pool.QueryRow(ctx,
+		`update service_areas set name=$3, lat=$4, lng=$5, radius_meters=$6, active=$7
+		 where id=$1 and business_id=$2
+		 returning `+serviceAreaColumns,
+		sa.ID, sa.BusinessID, sa.Name, sa.Lat, sa.Lng, sa.RadiusMeters, sa.Active)
+	return scanServiceArea(row)
+}
+
 func (s *PostgresStore) CreateProduct(ctx context.Context, p domain.Product) (domain.Product, error) {
 	_, err := s.pool.Exec(ctx,
 		`insert into products (id, business_id, name, unit, price_cents, active) values ($1,$2,$3,$4,$5,$6)`,
@@ -338,7 +396,11 @@ func (s *PostgresStore) SetRecurringOrderActive(ctx context.Context, businessID 
 // Column lists are named constants so that a select, an insert and a
 // `returning` clause can never drift apart — a mismatch there is a scan
 // error at runtime rather than a compile error.
+const businessColumns = `id, name, business_type, timezone, created_at, config, home_lat, home_lng`
+
 const customerColumns = `id, business_id, name, phone, address, lat, lng, notes, account_id, active, created_at, custom_fields`
+
+const serviceAreaColumns = `id, business_id, name, lat, lng, radius_meters, active, created_at`
 
 const dailyOrderColumns = `id, business_id, customer_id, product_id, recurring_order_id, delivery_date,
 	quantity, base_quantity, status, override_reason, note, route_id, stop_sequence, completed_at, created_at, updated_at,
@@ -594,7 +656,7 @@ func noRows(err error) error {
 func scanBusiness(row scanner) (domain.Business, error) {
 	var b domain.Business
 	var configJSON []byte
-	if err := row.Scan(&b.ID, &b.Name, &b.Type, &b.Timezone, &b.CreatedAt, &configJSON); err != nil {
+	if err := row.Scan(&b.ID, &b.Name, &b.Type, &b.Timezone, &b.CreatedAt, &configJSON, &b.HomeLat, &b.HomeLng); err != nil {
 		return domain.Business{}, noRows(err)
 	}
 	config, err := unmarshalConfig(configJSON)
@@ -603,6 +665,14 @@ func scanBusiness(row scanner) (domain.Business, error) {
 	}
 	b.Config = config
 	return b, nil
+}
+
+func scanServiceArea(row scanner) (domain.ServiceArea, error) {
+	var sa domain.ServiceArea
+	if err := row.Scan(&sa.ID, &sa.BusinessID, &sa.Name, &sa.Lat, &sa.Lng, &sa.RadiusMeters, &sa.Active, &sa.CreatedAt); err != nil {
+		return domain.ServiceArea{}, noRows(err)
+	}
+	return sa, nil
 }
 
 func scanUser(row scanner) (domain.User, error) {

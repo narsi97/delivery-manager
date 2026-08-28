@@ -21,27 +21,29 @@ import (
 type MemoryStore struct {
 	mu sync.RWMutex
 
-	businesses map[string]domain.Business
-	users      map[string]domain.User
-	pinHashes  map[string]string
-	customers  map[string]domain.Customer
-	products   map[string]domain.Product
-	recurring  map[string]domain.RecurringOrder
-	daily      map[string]domain.DailyOrder
-	routes     map[string]domain.Route
-	events     []domain.DeliveryEvent
+	businesses   map[string]domain.Business
+	users        map[string]domain.User
+	pinHashes    map[string]string
+	customers    map[string]domain.Customer
+	serviceAreas map[string]domain.ServiceArea
+	products     map[string]domain.Product
+	recurring    map[string]domain.RecurringOrder
+	daily        map[string]domain.DailyOrder
+	routes       map[string]domain.Route
+	events       []domain.DeliveryEvent
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		businesses: map[string]domain.Business{},
-		users:      map[string]domain.User{},
-		pinHashes:  map[string]string{},
-		customers:  map[string]domain.Customer{},
-		products:   map[string]domain.Product{},
-		recurring:  map[string]domain.RecurringOrder{},
-		daily:      map[string]domain.DailyOrder{},
-		routes:     map[string]domain.Route{},
+		businesses:   map[string]domain.Business{},
+		users:        map[string]domain.User{},
+		pinHashes:    map[string]string{},
+		customers:    map[string]domain.Customer{},
+		serviceAreas: map[string]domain.ServiceArea{},
+		products:     map[string]domain.Product{},
+		recurring:    map[string]domain.RecurringOrder{},
+		daily:        map[string]domain.DailyOrder{},
+		routes:       map[string]domain.Route{},
 	}
 }
 
@@ -79,6 +81,24 @@ func (s *MemoryStore) GetBusiness(ctx context.Context, id string) (domain.Busine
 		return domain.Business{}, ErrNotFound
 	}
 	return b, nil
+}
+
+// UpdateBusiness persists the plain scalar fields an admin edits directly
+// (name, home location) — see the Store interface comment for why this is
+// separate from UpdateBusinessConfig.
+func (s *MemoryStore) UpdateBusiness(ctx context.Context, b domain.Business) (domain.Business, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existing, ok := s.businesses[b.ID]
+	if !ok {
+		return domain.Business{}, ErrNotFound
+	}
+	existing.Name = b.Name
+	existing.HomeLat = b.HomeLat
+	existing.HomeLng = b.HomeLng
+	s.businesses[b.ID] = existing
+	return existing, nil
 }
 
 func (s *MemoryStore) UpdateBusinessConfig(ctx context.Context, businessID string, config domain.BusinessConfig) (domain.Business, error) {
@@ -246,6 +266,53 @@ func (s *MemoryStore) ListCustomers(ctx context.Context, businessID string) ([]d
 	return out, nil
 }
 
+func (s *MemoryStore) CreateServiceArea(ctx context.Context, sa domain.ServiceArea) (domain.ServiceArea, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	sa.CreatedAt = time.Now().UTC()
+	s.serviceAreas[sa.ID] = sa
+	return sa, nil
+}
+
+func (s *MemoryStore) GetServiceArea(ctx context.Context, businessID string, id string) (domain.ServiceArea, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	sa, ok := s.serviceAreas[id]
+	if !ok || sa.BusinessID != businessID {
+		return domain.ServiceArea{}, ErrNotFound
+	}
+	return sa, nil
+}
+
+func (s *MemoryStore) ListServiceAreas(ctx context.Context, businessID string) ([]domain.ServiceArea, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := []domain.ServiceArea{}
+	for _, sa := range s.serviceAreas {
+		if sa.BusinessID == businessID {
+			out = append(out, sa)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+func (s *MemoryStore) UpdateServiceArea(ctx context.Context, sa domain.ServiceArea) (domain.ServiceArea, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existing, ok := s.serviceAreas[sa.ID]
+	if !ok || existing.BusinessID != sa.BusinessID {
+		return domain.ServiceArea{}, ErrNotFound
+	}
+	sa.CreatedAt = existing.CreatedAt
+	s.serviceAreas[sa.ID] = sa
+	return sa, nil
+}
+
 func (s *MemoryStore) CreateProduct(ctx context.Context, p domain.Product) (domain.Product, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -385,6 +452,15 @@ func (s *MemoryStore) UpdateDailyOrder(ctx context.Context, o domain.DailyOrder)
 func (s *MemoryStore) CreateRoute(ctx context.Context, r domain.Route) (domain.Route, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Mirrors routes_business_date_name_idx in the Postgres schema — one
+	// round per name per day. Kept here too so the in-memory store an
+	// admin runs locally behaves like the one their business runs on.
+	for _, existing := range s.routes {
+		if existing.BusinessID == r.BusinessID && existing.RouteDate == r.RouteDate && existing.Name == r.Name {
+			return domain.Route{}, ErrConflict
+		}
+	}
 
 	r.CreatedAt = time.Now().UTC()
 	s.routes[r.ID] = r

@@ -3,6 +3,7 @@ package httpapi
 import (
 	"errors"
 	"log"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -13,6 +14,47 @@ import (
 	"delivery-manager/internal/route"
 	"delivery-manager/internal/storage"
 )
+
+// ---------- business ----------
+
+// handleUpdateBusiness edits the small set of plain scalar fields on the
+// business record itself — name and home location. Config (vocabulary,
+// custom fields, captures) has its own endpoint (handleUpdateConfig)
+// because it replaces one whole document; this is PATCH-partial like
+// handleUpdateCustomer instead, since name and location are independent.
+func (s *Server) handleUpdateBusiness(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r.Context())
+
+	var req struct {
+		Name    string   `json:"name"`
+		HomeLat *float64 `json:"home_lat"`
+		HomeLng *float64 `json:"home_lng"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	existing := sess.Business
+	if strings.TrimSpace(req.Name) != "" {
+		existing.Name = strings.TrimSpace(req.Name)
+	}
+	// Both or neither — a lone lat with no lng would silently move the
+	// pin to a broken location.
+	if req.HomeLat != nil && req.HomeLng != nil {
+		if !validCoordinates(*req.HomeLat, *req.HomeLng) {
+			writeError(w, http.StatusBadRequest, "home_lat must be between -90 and 90 and home_lng between -180 and 180", "invalid_location")
+			return
+		}
+		existing.HomeLat, existing.HomeLng = *req.HomeLat, *req.HomeLng
+	}
+
+	updated, err := s.store.UpdateBusiness(r.Context(), existing)
+	if err != nil {
+		writeStoreError(w, err, "business")
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
 
 // ---------- customers ----------
 
@@ -478,14 +520,39 @@ func (s *Server) handleGetDay(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "date must be YYYY-MM-DD", "invalid_date")
 		return
 	}
+
+	// Reading a day materializes it. A delivery business has deliveries
+	// every day by definition — making an admin press a button to conjure
+	// them was an artifact of how generation was built, not something the
+	// work actually needs. Generation is idempotent (see
+	// EnsureDailyOrder), so doing it on read costs one pass over the
+	// subscriptions and can never disturb an override or a completed
+	// delivery.
+	//
+	// Past dates are deliberately excluded: a day that has already gone by
+	// is a record of what happened, and materializing it now would invent
+	// deliveries that were never made. Whatever exists for a past date is
+	// what that day actually was.
+	if date >= sess.Business.Today() {
+		if err := s.generateDay(w, r, sess.Business, date); err != nil {
+			return // generateDay has already written the error response
+		}
+		if err := s.ensureDayRounds(r, sess.Business, date); err != nil {
+			// A round that couldn't be prepared is not a reason to refuse
+			// to show the day — the stops simply stay in "not yet on a
+			// route", which is exactly where an admin would look for them.
+			log.Printf("prepare rounds for business %s on %s: %v", sess.Business.ID, date, err)
+		}
+	}
+
 	s.respondWithDay(w, r, date)
 }
 
-// handleGenerateDay materializes the day's tasks from the standing
-// subscriptions. It is safe to run repeatedly — EnsureDailyOrder leaves
-// existing rows (and therefore existing overrides and completed
-// deliveries) untouched — which is what lets an admin add a customer
-// mid-morning and press Generate again.
+// handleGenerateDay is the explicit form of the materialization
+// handleGetDay now does on its own. Kept as an endpoint because it is the
+// one way to force a *past* date to generate — an admin reconstructing a
+// day the business was offline for — which the automatic path
+// deliberately refuses to do.
 func (s *Server) handleGenerateDay(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r.Context())
 
@@ -495,15 +562,30 @@ func (s *Server) handleGenerateDay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	subscriptions, err := s.store.ListRecurringOrders(r.Context(), sess.Business.ID)
+	if err := s.generateDay(w, r, sess.Business, date); err != nil {
+		return // generateDay has already written the error response
+	}
+	s.respondWithDay(w, r, date)
+}
+
+// generateDay materializes one date's tasks from the standing
+// subscriptions. It is safe to run repeatedly — EnsureDailyOrder leaves
+// existing rows (and therefore existing overrides and completed
+// deliveries) untouched — which is what lets a customer added mid-morning
+// show up on the next read of the day.
+//
+// Writes its own error response and returns non-nil when it fails, so
+// both callers can simply return.
+func (s *Server) generateDay(w http.ResponseWriter, r *http.Request, business domain.Business, date string) error {
+	subscriptions, err := s.store.ListRecurringOrders(r.Context(), business.ID)
 	if err != nil {
 		writeStoreError(w, err, "subscriptions")
-		return
+		return err
 	}
-	customers, err := s.store.ListCustomers(r.Context(), sess.Business.ID)
+	customers, err := s.store.ListCustomers(r.Context(), business.ID)
 	if err != nil {
 		writeStoreError(w, err, "customers")
-		return
+		return err
 	}
 	customersByID := map[string]domain.Customer{}
 	for _, c := range customers {
@@ -513,10 +595,10 @@ func (s *Server) handleGenerateDay(w http.ResponseWriter, r *http.Request) {
 	// Resolved once for the whole run, not per subscription. Empty for
 	// every business that hasn't opted into a bespoke rule, which is all
 	// of them by default.
-	enabled := extensions.Resolve(sess.Business.Config.Extensions)
+	enabled := extensions.Resolve(business.Config.Extensions)
 	if len(enabled.Unknown) > 0 {
 		log.Printf("business %s names extensions this build doesn't have: %s",
-			sess.Business.ID, strings.Join(enabled.Unknown, ", "))
+			business.ID, strings.Join(enabled.Unknown, ", "))
 	}
 
 	created := 0
@@ -533,7 +615,7 @@ func (s *Server) handleGenerateDay(w http.ResponseWriter, r *http.Request) {
 		recurringID := sub.ID
 		order := domain.DailyOrder{
 			ID:               domain.NewID(),
-			BusinessID:       sess.Business.ID,
+			BusinessID:       business.ID,
 			CustomerID:       sub.CustomerID,
 			ProductID:        sub.ProductID,
 			RecurringOrderID: &recurringID,
@@ -545,7 +627,7 @@ func (s *Server) handleGenerateDay(w http.ResponseWriter, r *http.Request) {
 
 		if !enabled.Empty() {
 			keep, err := enabled.AdjustGeneratedOrder(r.Context(), extensions.OrderContext{
-				Business:     sess.Business,
+				Business:     business,
 				Customer:     customer,
 				Subscription: sub,
 				Date:         date,
@@ -554,9 +636,9 @@ func (s *Server) handleGenerateDay(w http.ResponseWriter, r *http.Request) {
 				// A bespoke rule that can't decide must stop the run
 				// rather than produce a partial day — see
 				// extensions.Set.AdjustGeneratedOrder.
-				log.Printf("generate day for business %s: %v", sess.Business.ID, err)
+				log.Printf("generate day for business %s: %v", business.ID, err)
 				writeError(w, http.StatusInternalServerError, err.Error(), "extension_failed")
-				return
+				return err
 			}
 			if !keep {
 				continue
@@ -566,15 +648,17 @@ func (s *Server) handleGenerateDay(w http.ResponseWriter, r *http.Request) {
 		_, wasCreated, err := s.store.EnsureDailyOrder(r.Context(), order)
 		if err != nil {
 			writeStoreError(w, err, "deliveries")
-			return
+			return err
 		}
 		if wasCreated {
 			created++
 		}
 	}
 
-	log.Printf("generated %d deliveries for business %s on %s", created, sess.Business.ID, date)
-	s.respondWithDay(w, r, date)
+	if created > 0 {
+		log.Printf("generated %d deliveries for business %s on %s", created, business.ID, date)
+	}
+	return nil
 }
 
 func (s *Server) handleCreateAdHocOrder(w http.ResponseWriter, r *http.Request) {
@@ -839,6 +923,226 @@ func (s *Server) handleBuildRoute(w http.ResponseWriter, r *http.Request) {
 		"stops":            stops,
 		"skipped_unpinned": skippedUnpinned,
 	})
+}
+
+// ensureDayRounds makes the day's rounds exist and puts every pending,
+// pinned delivery on the one that covers its part of the map.
+//
+// This is the other half of "a delivery business has deliveries every
+// day". A dairy that runs a Miryalguda round and a Kodad round runs them
+// *every* day — having to hand-build both for each date was the same
+// busywork the Generate button used to be. So rounds are derived from
+// the service areas the same way deliveries are derived from
+// subscriptions: one round per active area that has work in it, named
+// after the area, starting at its centre.
+//
+// Anchoring to service areas rather than to "nearest existing round" is
+// load-bearing. Nearest-wins put every Kodad customer on the Miryalguda
+// round on any day where the Kodad round didn't happen to exist yet —
+// 60km away, but the only round there was, so it won. A stop now joins a
+// round only when both sit in the *same* service area, and a stop that
+// belongs to no area stays visible as unrouted for a human to place.
+func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date string) error {
+	areas, err := s.store.ListServiceAreas(r.Context(), business.ID)
+	if err != nil {
+		return err
+	}
+	orders, err := s.store.ListDailyOrders(r.Context(), business.ID, date)
+	if err != nil {
+		return err
+	}
+	customers, err := s.store.ListCustomers(r.Context(), business.ID)
+	if err != nil {
+		return err
+	}
+	customersByID := map[string]domain.Customer{}
+	for _, c := range customers {
+		customersByID[c.ID] = c
+	}
+
+	// Which area each unrouted stop belongs to. Built first so a round is
+	// only ever created for an area that actually has work in it — an
+	// admin who set up six localities and delivers to two today should
+	// see two rounds, not six empty ones.
+	needsRound := map[string]bool{}
+	areaOfOrder := map[string]string{}
+	for _, o := range orders {
+		if o.RouteID != nil || o.Status != domain.StatusPending {
+			continue
+		}
+		customer, known := customersByID[o.CustomerID]
+		if !known || !customer.HasPin() {
+			continue // unpinned stays unrouted, and is counted in the day summary
+		}
+		if area, ok := areaContaining(customer.Lat, customer.Lng, areas); ok {
+			areaOfOrder[o.ID] = area.ID
+			needsRound[area.ID] = true
+		}
+	}
+
+	routes, err := s.store.ListRoutes(r.Context(), business.ID, date)
+	if err != nil {
+		return err
+	}
+
+	// Which area each existing round serves, so a round an admin built by
+	// hand near an area's centre is recognised as that area's round
+	// rather than being duplicated beside it.
+	routeForArea := map[string]domain.Route{}
+	for _, rt := range routes {
+		if area, ok := areaContaining(rt.StartLat, rt.StartLng, areas); ok {
+			if _, taken := routeForArea[area.ID]; !taken {
+				routeForArea[area.ID] = rt
+			}
+		}
+	}
+
+	// Yesterday's rounds, to carry the driver forward: the same person
+	// drives the same round day after day on a milk route, and making an
+	// admin re-pick them every morning is exactly the kind of daily
+	// busywork this pass is removing. Only ever used to fill an
+	// assignment in, never to override one.
+	previousDriverFor := map[string]*string{}
+	if yesterday, err := shiftDate(date, -1); err == nil {
+		if priorRoutes, err := s.store.ListRoutes(r.Context(), business.ID, yesterday); err == nil {
+			for _, rt := range priorRoutes {
+				if rt.DriverID == nil {
+					continue
+				}
+				if area, ok := areaContaining(rt.StartLat, rt.StartLng, areas); ok {
+					previousDriverFor[area.ID] = rt.DriverID
+				}
+			}
+		}
+	}
+
+	for _, area := range areas {
+		if !area.Active || !needsRound[area.ID] {
+			continue
+		}
+		if _, exists := routeForArea[area.ID]; exists {
+			continue
+		}
+		status := domain.RouteDraft
+		driverID := previousDriverFor[area.ID]
+		if driverID != nil {
+			status = domain.RouteAssigned
+		}
+		created, err := s.store.CreateRoute(r.Context(), domain.Route{
+			ID:         domain.NewID(),
+			BusinessID: business.ID,
+			RouteDate:  date,
+			Name:       area.Name + " round",
+			DriverID:   driverID,
+			Status:     status,
+			StartLat:   area.Lat,
+			StartLng:   area.Lng,
+		})
+		if errors.Is(err, storage.ErrConflict) {
+			// Someone else's read got here first — the round now exists,
+			// it just isn't in the list we loaded a moment ago. Adopt
+			// theirs rather than failing: both requests wanted the same
+			// thing, and one of them achieving it is success for both.
+			refreshed, listErr := s.store.ListRoutes(r.Context(), business.ID, date)
+			if listErr != nil {
+				return listErr
+			}
+			for _, rt := range refreshed {
+				if rt.Name == area.Name+" round" {
+					routeForArea[area.ID] = rt
+					break
+				}
+			}
+			if _, adopted := routeForArea[area.ID]; !adopted {
+				return err
+			}
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		routeForArea[area.ID] = created
+		log.Printf("prepared %s for business %s on %s", created.Name, business.ID, date)
+	}
+
+	// Now attach. Only rounds that actually gained a stop get
+	// re-optimized; on the common read (nothing new since last time) this
+	// loop does no writes at all.
+	gained := map[string]bool{}
+	assignedTo := map[string]string{}
+	for orderID, areaID := range areaOfOrder {
+		rt, ok := routeForArea[areaID]
+		if !ok {
+			continue
+		}
+		assignedTo[orderID] = rt.ID
+		gained[rt.ID] = true
+	}
+	if len(gained) == 0 {
+		return nil
+	}
+
+	for _, rt := range routeForArea {
+		if !gained[rt.ID] {
+			continue
+		}
+		points := make([]route.Point, 0)
+		for _, o := range orders {
+			onThisRoute := (o.RouteID != nil && *o.RouteID == rt.ID) || assignedTo[o.ID] == rt.ID
+			if !onThisRoute {
+				continue
+			}
+			c := customersByID[o.CustomerID]
+			points = append(points, route.Point{ID: o.ID, Lat: c.Lat, Lng: c.Lng})
+		}
+
+		ordered, meters := route.Optimize(route.Point{Lat: rt.StartLat, Lng: rt.StartLng}, points)
+		orderedIDs := make([]string, 0, len(ordered))
+		for _, p := range ordered {
+			orderedIDs = append(orderedIDs, p.ID)
+		}
+		if err := s.store.AssignStops(r.Context(), business.ID, rt.ID, orderedIDs); err != nil {
+			return err
+		}
+		rt.EstimatedMeters = meters
+		if _, err := s.store.UpdateRoute(r.Context(), rt); err != nil {
+			return err
+		}
+		log.Printf("%s now has %d stops", rt.Name, len(orderedIDs))
+	}
+	return nil
+}
+
+// areaContaining returns the active service area whose circle contains
+// the point, nearest-centre-wins on overlap. Mirrors nearestAreaFor in
+// frontend/src/serviceAreas.js exactly — the two must agree, or the
+// grouping an admin sees on the Customers screen won't match the round a
+// stop actually lands on.
+func areaContaining(lat, lng float64, areas []domain.ServiceArea) (domain.ServiceArea, bool) {
+	var best domain.ServiceArea
+	bestDist := math.Inf(1)
+	found := false
+	for _, area := range areas {
+		if !area.Active {
+			continue
+		}
+		d := route.DistanceMeters(lat, lng, area.Lat, area.Lng)
+		if d <= area.RadiusMeters && d < bestDist {
+			best, bestDist, found = area, d, true
+		}
+	}
+	return best, found
+}
+
+// shiftDate moves a YYYY-MM-DD string by whole days, staying on the
+// calendar rather than going through an instant — same reasoning as
+// domain.DateLayout being a string in the first place.
+func shiftDate(date string, days int) (string, error) {
+	parsed, err := time.Parse(domain.DateLayout, date)
+	if err != nil {
+		return "", err
+	}
+	return parsed.AddDate(0, 0, days).Format(domain.DateLayout), nil
 }
 
 // persistRoute creates or updates the route record and attaches the

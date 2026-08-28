@@ -35,6 +35,12 @@ type Store interface {
 	// already belongs to an account.
 	CreateBusiness(ctx context.Context, b domain.Business, admin domain.User) (domain.Business, domain.User, error)
 	GetBusiness(ctx context.Context, id string) (domain.Business, error)
+	// UpdateBusiness persists the whole record — used for the small set
+	// of plain scalar fields an admin can edit directly (name, home
+	// location). Business.Config has its own replace-the-document path
+	// (UpdateBusinessConfig, below); this is for everything else on the
+	// struct.
+	UpdateBusiness(ctx context.Context, b domain.Business) (domain.Business, error)
 	// UpdateBusinessConfig replaces a tenant's configuration wholesale —
 	// vocabulary, custom field declarations, stop captures. Replacement
 	// rather than a merge because the config is edited as one document by
@@ -81,6 +87,14 @@ type Store interface {
 
 	CreateProduct(ctx context.Context, p domain.Product) (domain.Product, error)
 	ListProducts(ctx context.Context, businessID string) ([]domain.Product, error)
+
+	// ServiceArea has no Delete — like Customer, RecurringOrder and User,
+	// it is soft-deactivated (see domain.ServiceArea.Active) rather than
+	// destroyed, folded into UpdateServiceArea.
+	CreateServiceArea(ctx context.Context, sa domain.ServiceArea) (domain.ServiceArea, error)
+	GetServiceArea(ctx context.Context, businessID string, id string) (domain.ServiceArea, error)
+	ListServiceAreas(ctx context.Context, businessID string) ([]domain.ServiceArea, error)
+	UpdateServiceArea(ctx context.Context, sa domain.ServiceArea) (domain.ServiceArea, error)
 
 	CreateRecurringOrder(ctx context.Context, r domain.RecurringOrder) (domain.RecurringOrder, error)
 	ListRecurringOrders(ctx context.Context, businessID string) ([]domain.RecurringOrder, error)
