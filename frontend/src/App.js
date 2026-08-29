@@ -10,7 +10,6 @@ import BusinessScreen from './screens/BusinessScreen';
 import CustomersScreen from './screens/CustomersScreen';
 import DriverScreen from './screens/DriverScreen';
 import DriversScreen from './screens/DriversScreen';
-import RoutesScreen from './screens/RoutesScreen';
 import SignInScreen from './screens/SignInScreen';
 import TodayScreen from './screens/TodayScreen';
 import { colors, spacing } from './theme';
@@ -20,10 +19,16 @@ import { colors, spacing } from './theme';
 // "Business" has no terminology entry — it's a genuinely new noun outside
 // the customer/product/driver vocabulary system, same as "Today" — both
 // go through t() instead, since they're app chrome, not business-owned.
+//
+// There is no Routes tab. Rounds are prepared automatically for every
+// service area that has work (see ensureDayRounds), so "create a route"
+// was never a job an admin had; a whole tab devoted to it argued
+// otherwise, and duplicated most of Today to do it. What was genuinely
+// only there — the stops outside every area, and the rare destructive
+// actions — moved onto Today, where the day already lives.
 function adminTabs(labels, t) {
   return [
     { key: 'today', label: t('nav_today') },
-    { key: 'routes', label: `${labels.route}s` },
     { key: 'customers', label: labels.customer_plural },
     { key: 'team', label: labels.driver + 's' },
     { key: 'business', label: t('nav_business') },
@@ -167,8 +172,6 @@ function AppShell() {
           <DriverScreen token={token} business={business} />
         ) : tab === 'today' ? (
           <TodayScreen token={token} business={business} />
-        ) : tab === 'routes' ? (
-          <RoutesScreen token={token} business={business} />
         ) : tab === 'customers' ? (
           <CustomersScreen token={token} business={business} />
         ) : tab === 'team' ? (
