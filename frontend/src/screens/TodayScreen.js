@@ -3,13 +3,12 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-nat
 
 import * as api from '../api';
 import AreaRoundsCard, { LooseRoundCard } from '../AreaRoundsCard';
-import { Banner, Card, Empty, SectionTitle } from '../components';
+import { Banner, Card, Empty, SectionTitle, ViewToggle } from '../components';
 import DateNav from '../DateNav';
-import DayRouteMapCard from '../DayRouteMapCard';
+import DayRouteMapPanel from '../DayRouteMapPanel';
 import DonutChart from '../DonutChart';
-import { UnassignedDeliveries } from '../routeCards';
 import { nearestAreaFor } from '../serviceAreas';
-import StrayStopsCard from '../StrayStopsCard';
+import NotGoingOut from '../NotGoingOut';
 import { colors, spacing } from '../theme';
 
 // The admin's whole day, on one screen.
@@ -19,8 +18,8 @@ import { colors, spacing } from '../theme';
 // ensureDayRounds), so the only decision left is who is driving — which
 // is what AreaRoundsCard asks, and what the split falls out of. What the
 // Routes tab uniquely had beyond that was the stops outside every area
-// (StrayStopsCard, below) and a handful of rare destructive actions,
-// which now live behind each round's options button.
+// (NotGoingOut, below) and a handful of rare destructive actions, which
+// now live behind each round's options button.
 export default function TodayScreen({ token, business }) {
   const [day, setDay] = useState(null);
   const [drivers, setDrivers] = useState([]);
@@ -30,6 +29,8 @@ export default function TodayScreen({ token, business }) {
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState('');
+  // The same day's rounds, as cards or on a map — see ViewToggle.
+  const [view, setView] = useState('list');
 
   // Empty means "the business's own today" — resolved server-side (see
   // resolveDate in httpapi/server.go) so a driver's phone or an admin's
@@ -141,28 +142,34 @@ export default function TodayScreen({ token, business }) {
   const workingAreas = areas.filter((area) => (roundsByArea.get(area.id) || []).length > 0);
 
   // Deliveries with a pin that no service area covers — the one case the
-  // automatic preparation deliberately refuses to guess at.
+  // automatic preparation deliberately refuses to guess at. Same test
+  // NotGoingOut groups by, so the count in the banner and the count in
+  // the card can never disagree.
   const strays = allStops.filter(
-    (stop) => stop.status === 'pending' && !stop.route_id && (stop.lat || stop.lng)
+    (stop) =>
+      stop.status === 'pending' &&
+      !stop.route_id &&
+      (stop.lat || stop.lng) &&
+      !nearestAreaFor(stop.lat, stop.lng, areas),
   );
 
   // What actually needs the admin this morning, in the order it matters.
   // Everything else on this screen is reassurance; this is the only part
   // that is a task.
   const needsDriver = workingAreas.filter((area) =>
-    (roundsByArea.get(area.id) || []).some((route) => !route.driver_id)
+    (roundsByArea.get(area.id) || []).some((route) => !route.driver_id),
   );
   const exceptions = [];
   if (needsDriver.length > 0) {
     exceptions.push(
       needsDriver.length === 1
         ? `${needsDriver[0].name} has nobody driving it yet.`
-        : `${needsDriver.length} rounds have nobody driving them yet.`
+        : `${needsDriver.length} rounds have nobody driving them yet.`,
     );
   }
   if (strays.length > 0) {
     exceptions.push(
-      `${strays.length} ${strays.length === 1 ? 'delivery is' : 'deliveries are'} outside every service area.`
+      `${strays.length} ${strays.length === 1 ? 'delivery is' : 'deliveries are'} outside every service area.`,
     );
   }
   if (summary.unpinned > 0) {
@@ -170,7 +177,7 @@ export default function TodayScreen({ token, business }) {
   }
   // Every stop with a pin, routed or not — the map is for verifying the
   // whole day's assignment, so an unrouted stop has to be visible on it
-  // too. See DayRouteMapCard.
+  // too. See DayRouteMapPanel.
   const mappableStops = allStops.filter((stop) => stop.lat || stop.lng);
 
   return (
@@ -201,8 +208,32 @@ export default function TodayScreen({ token, business }) {
         )}
 
         <View style={styles.routesSection}>
-          <SectionTitle>Rounds ({routes.length})</SectionTitle>
-          {routes.length === 0 ? (
+          <SectionTitle
+            right={
+              mappableStops.length > 0 ? (
+                <ViewToggle
+                  value={view}
+                  onChange={setView}
+                  options={[
+                    { value: 'list', label: 'List' },
+                    { value: 'map', label: 'Map' },
+                  ]}
+                />
+              ) : null
+            }
+          >
+            Rounds ({routes.length})
+          </SectionTitle>
+          {view === 'map' ? (
+            <DayRouteMapPanel
+              token={token}
+              stops={mappableStops}
+              routes={routes}
+              drivers={drivers}
+              home={home}
+              onChanged={refresh}
+            />
+          ) : routes.length === 0 ? (
             <Empty>
               {areas.length === 0
                 ? 'A round is prepared for each place you deliver to, and you have not set one up yet — start on the Business tab.'
@@ -244,45 +275,29 @@ export default function TodayScreen({ token, business }) {
               ))}
             </View>
           )}
-          <Text style={styles.note}>
-            One round per service area, prepared for every day automatically. Tell it who is driving and it
-            splits itself between them.
-          </Text>
+          {view === 'list' ? (
+            <Text style={styles.note}>
+              One round per service area, prepared for every day automatically. Tell it who is driving and it splits
+              itself between them.
+            </Text>
+          ) : null}
         </View>
-
-        <UnassignedDeliveries
-          stops={allStops.filter((stop) => !stop.route_id)}
-          products={products}
-          token={token}
-          onChanged={refresh}
-          onError={setError}
-        />
       </Card>
 
-      {strays.length > 0 ? (
-        <StrayStopsCard
-          token={token}
-          stops={strays}
-          areas={areas}
-          home={home}
-          date={selectedDate}
-          onDone={async (message) => {
-            setNotice(message);
-            await refresh();
-          }}
-        />
-      ) : null}
-
-      {mappableStops.length > 0 ? (
-        <DayRouteMapCard
-          token={token}
-          stops={mappableStops}
-          routes={routes}
-          drivers={drivers}
-          home={home}
-          onChanged={refresh}
-        />
-      ) : null}
+      <NotGoingOut
+        token={token}
+        stops={allStops}
+        areas={areas}
+        home={home}
+        date={selectedDate}
+        products={products}
+        onChanged={refresh}
+        onError={setError}
+        onNotice={async (message) => {
+          setNotice(message);
+          await refresh();
+        }}
+      />
     </ScrollView>
   );
 }

@@ -6,11 +6,9 @@ import { Banner, Button, Card, Disclosure, Empty, Field, Pill, Stepper } from '.
 import { openNavigation } from './navigation';
 import { colors, radius, spacing } from './theme';
 
-// Shared by TodayScreen (which shows and manages the day's existing
-// routes) and RoutesScreen (which builds new ones) — both need to render
-// a route's stops the same way, and both need the same driver <select>.
-// Keeping this in one place means "how a stop looks" and "how a driver
-// is picked" can't drift between the two screens.
+// How a single delivery is drawn, wherever it appears — inside a round,
+// or in the "not going out yet" card. Kept in one place so a stop looks
+// and behaves the same everywhere it turns up.
 
 // A raw DOM element, not an RN primitive — StyleSheet.create's output is
 // meant for View/Text/etc. and doesn't apply to <select> the same way, so
@@ -36,36 +34,6 @@ export const selectStyle = {
 // rather than pure auto-width so a one-character name doesn't shrink to
 // nothing and a long one doesn't blow the row out.
 const compactSelectStyle = { ...selectStyle, width: 'auto', minWidth: 110, maxWidth: 200, flexGrow: 0 };
-
-// Deliveries live under whichever round they're on — see
-// AreaRoundsCard — not in one long list. This is the one place left for a stop
-// that isn't on any route yet: still useful (an admin may want to skip
-// or change one before it's ever routed), but collapsed by default so it
-// isn't the first thing competing for attention.
-//
-// No Card of its own — this is meant to sit inside whatever card the
-// caller is already using for "this day's status" (see TodayScreen.js),
-// not stand apart as its own box.
-export function UnassignedDeliveries({ stops, products, token, onChanged, onError }) {
-  const [expanded, setExpanded] = useState(false);
-
-  if (stops.length === 0) {
-    return null;
-  }
-
-  return (
-    <View style={styles.unassignedSection}>
-      <Disclosure open={expanded} onToggle={() => setExpanded((prev) => !prev)} right={<Pill label={String(stops.length)} tone="neutral" />}>
-        Not yet on a route
-      </Disclosure>
-      {expanded
-        ? stops.map((stop) => (
-            <StopCard key={stop.id} stop={stop} products={products} token={token} onChanged={onChanged} onError={onError} />
-          ))
-        : null}
-    </View>
-  );
-}
 
 // One delivery on one date. Two different things happen here and they
 // are deliberately kept apart:
@@ -268,7 +236,6 @@ const productSelectStyle = { ...selectStyle, width: 'auto', minWidth: 160, maxWi
 
 const styles = StyleSheet.create({
   note: { fontSize: 12, color: colors.hint, marginTop: spacing.sm, lineHeight: 17 },
-  unassignedSection: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md },
   label: { fontSize: 13, fontWeight: '600', color: colors.label, marginTop: spacing.md, marginBottom: spacing.xs },
   addItemSection: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs },
   routeBox: {

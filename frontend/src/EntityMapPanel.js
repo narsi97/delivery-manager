@@ -18,7 +18,7 @@ import { colors, radius, spacing } from './theme';
 //
 // Shared between Customers and Drivers so the two can't quietly drift
 // apart the way api.planRoutes and its call site once did (see
-// DayRouteMapCard's own comment for the same reasoning). editableKind
+// DayRouteMapPanel's own comment for the same reasoning). editableKind
 // picks which pins are interactive; the rest render muted with a
 // read-only card on tap (see EntityMap.js / EntityCard.js). The Business
 // tab's own map does the equivalent inline, since it's the one place both
