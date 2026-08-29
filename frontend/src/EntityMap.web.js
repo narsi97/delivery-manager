@@ -50,6 +50,19 @@ export default function EntityMap({
       zoomSnap: 0.5,
       zoomDelta: 0.5,
     });
+    // Leaflet 1.9 puts its own credit — and, since 1.9.0, a Ukrainian flag
+    // — in the attribution bar by default. Neither belongs in a product a
+    // dairy shows its own staff: it is someone else's branding and
+    // someone else's politics appearing inside their business's app, and
+    // the "Leaflet" link is a live external navigation sitting on top of
+    // a map people are meant to tap.
+    //
+    // The OpenStreetMap credit below stays, and must: the map data is
+    // ODbL, which requires crediting the contributors. Leaflet's own
+    // credit is BSD-licensed and carries no such requirement, so dropping
+    // the prefix is a choice about our own UI, not a licence question.
+    map.attributionControl.setPrefix(false);
+
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors',
       maxZoom: 19,

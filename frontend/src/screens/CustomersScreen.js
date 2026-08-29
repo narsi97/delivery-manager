@@ -37,6 +37,7 @@ export default function CustomersScreen({ token, business }) {
   // the day fetch below now carries) slot in later as more modes without
   // reshaping this screen again.
   const [groupBy, setGroupBy] = useState('city');
+  const [adding, setAdding] = useState(false);
 
   // Scopes every map below to the business's own operating area instead
   // of an India-wide default view — see MapPicker.web.js.
@@ -103,20 +104,37 @@ export default function CustomersScreen({ token, business }) {
       <Banner message={error} />
       <Banner message={notice} tone="success" />
 
-      <NewCustomerCard
-        token={token}
-        labels={labels}
-        fieldSpecs={fieldSpecs}
-        home={home}
-        areas={areas}
-        onCreated={async (name) => {
-          setNotice(`Added ${name}.`);
-          await refresh();
-        }}
-        onError={setError}
-      />
-
       <Card>
+        <SectionTitle
+          right={
+            <HeadingAddButton
+              open={adding}
+              onPress={() => setAdding((prev) => !prev)}
+              label={adding ? `Cancel adding a ${lower(labels.customer)}` : `Add a ${lower(labels.customer)}`}
+            />
+          }
+        >
+          {labels.customer_plural} ({visibleCustomers.length}
+          {visibleCustomers.length !== customers.length ? ` of ${customers.length}` : ''})
+        </SectionTitle>
+        <View style={styles.headingDivider} />
+
+        {adding ? (
+          <NewCustomerForm
+            token={token}
+            labels={labels}
+            fieldSpecs={fieldSpecs}
+            home={home}
+            areas={areas}
+            onCreated={async (name) => {
+              setNotice(`Added ${name}.`);
+              setAdding(false);
+              await refresh();
+            }}
+            onError={setError}
+          />
+        ) : null}
+
         <View style={styles.toolsRow}>
           <Field label="Search" size="md" value={search} onChangeText={setSearch} placeholder="Name, phone, or address" />
           <View style={styles.groupByField}>
@@ -127,12 +145,8 @@ export default function CustomersScreen({ token, business }) {
           </View>
         </View>
 
-        <SectionTitle>
-          {labels.customer_plural} ({visibleCustomers.length}
-          {visibleCustomers.length !== customers.length ? ` of ${customers.length}` : ''})
-        </SectionTitle>
         {customers.length === 0 ? (
-          <Empty>No {lower(labels.customer_plural)} yet. Add the first one above.</Empty>
+          <Empty>No {lower(labels.customer_plural)} yet. Add the first one with the + above.</Empty>
         ) : visibleCustomers.length === 0 ? (
           <Empty>No {lower(labels.customer_plural)} match &quot;{search.trim()}&quot;.</Empty>
         ) : (
@@ -289,14 +303,13 @@ function CustomerGroup({
   );
 }
 
-// Collapsed by default — an admin visits this screen far more often to
-// glance at or edit existing customers than to add a new one, and the
-// full form (address, notes, custom fields, a map) is a lot to show
-// before anyone's asked for it. Same expand-on-tap pattern CustomerCard
-// already uses below, just defaulting the other way: closed here, closed
-// there too, but this one has nothing to summarize while collapsed.
-function NewCustomerCard({ token, labels, fieldSpecs, home, areas, onCreated, onError }) {
-  const [expanded, setExpanded] = useState(false);
+// The add form lives inside the roster card, revealed by the "+" on its
+// heading — same control as Drivers, Service areas and Products. It used
+// to be a card of its own above the list, which made adding a customer
+// look like a peer of the whole roster rather than a rare action against
+// it, and put a permanently half-empty box at the top of the screen an
+// admin mostly visits to look something up.
+function NewCustomerForm({ token, labels, fieldSpecs, home, areas, onCreated, onError }) {
   const [form, setForm] = useState({ name: '', phone: '', address: '', lat: '', lng: '', notes: '' });
   const [customFields, setCustomFields] = useState({});
   const [busy, setBusy] = useState(false);
@@ -318,7 +331,6 @@ function NewCustomerCard({ token, labels, fieldSpecs, home, areas, onCreated, on
       const created = form.name;
       setForm({ name: '', phone: '', address: '', lat: '', lng: '', notes: '' });
       setCustomFields({});
-      setExpanded(false);
       await onCreated(created);
     } catch (err) {
       onError(err.message);
@@ -328,39 +340,48 @@ function NewCustomerCard({ token, labels, fieldSpecs, home, areas, onCreated, on
   };
 
   return (
-    <Card>
-      <Disclosure open={expanded} onToggle={() => setExpanded((prev) => !prev)}>
-        Add a {lower(labels.customer)}
-      </Disclosure>
+    <View style={styles.inlineForm}>
+      <FieldRow>
+        <Field label="Name" size="md" value={form.name} onChangeText={set('name')} placeholder="Anita Sharma" />
+        <Field
+          label="Phone"
+          size="sm"
+          value={form.phone}
+          onChangeText={set('phone')}
+          keyboardType="phone-pad"
+          placeholder="98765 43210"
+        />
+      </FieldRow>
+      <Field label="Address" size="md" value={form.address} onChangeText={set('address')} placeholder="12, 3rd Cross, Jayanagar" />
+      <LocationPicker
+        label="Where do we deliver?"
+        hint="Leave it unset if you're not at the door yet — you can drop the pin later."
+        lat={Number(form.lat) || 0}
+        lng={Number(form.lng) || 0}
+        onChange={(newLat, newLng) => setForm((prev) => ({ ...prev, lat: newLat.toFixed(6), lng: newLng.toFixed(6) }))}
+        home={home}
+        areas={areas}
+      />
+      <Field
+        label={`Notes for the ${lower(labels.driver)}`}
+        value={form.notes}
+        onChangeText={set('notes')}
+        placeholder="Gate code 1234, leave at door"
+        multiline
+      />
+      <DeclaredFields specs={fieldSpecs} values={customFields} onChange={setCustomFields} />
+      <Button title={`Add ${lower(labels.customer)}`} onPress={submit} busy={busy} disabled={!form.name.trim()} />
+    </View>
+  );
+}
 
-      {expanded ? (
-        <View style={styles.expanded}>
-          <FieldRow>
-            <Field label="Name" size="md" value={form.name} onChangeText={set('name')} placeholder="Anita Sharma" />
-            <Field label="Phone" size="sm" value={form.phone} onChangeText={set('phone')} keyboardType="phone-pad" placeholder="98765 43210" />
-          </FieldRow>
-          <Field label="Address" size="md" value={form.address} onChangeText={set('address')} placeholder="12, 3rd Cross, Jayanagar" />
-          <LocationPicker
-            label="Where do we deliver?"
-            hint="Leave it unset if you're not at the door yet — you can drop the pin later."
-            lat={Number(form.lat) || 0}
-            lng={Number(form.lng) || 0}
-            onChange={(newLat, newLng) => setForm((prev) => ({ ...prev, lat: newLat.toFixed(6), lng: newLng.toFixed(6) }))}
-            home={home}
-            areas={areas}
-          />
-          <Field
-            label={`Notes for the ${lower(labels.driver)}`}
-            value={form.notes}
-            onChangeText={set('notes')}
-            placeholder="Gate code 1234, leave at door"
-            multiline
-          />
-          <DeclaredFields specs={fieldSpecs} values={customFields} onChange={setCustomFields} />
-          <Button title={`Add ${lower(labels.customer)}`} onPress={submit} busy={busy} disabled={!form.name.trim()} />
-        </View>
-      ) : null}
-    </Card>
+// The "+" that reveals the add form, on the roster card's own heading.
+// Same control as the Drivers and Business tabs.
+function HeadingAddButton({ open, onPress, label }) {
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={styles.addButton}>
+      <Text style={styles.addButtonGlyph}>{open ? '×' : '+'}</Text>
+    </Pressable>
   );
 }
 
@@ -700,6 +721,24 @@ const styles = StyleSheet.create({
   page: { padding: spacing.lg, maxWidth: 720, width: '100%', alignSelf: 'center' },
   loader: { marginTop: spacing.xl * 2 },
   group: { marginBottom: spacing.md },
+  headingDivider: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    marginTop: -spacing.sm,
+    marginBottom: spacing.md,
+  },
+  addButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addButtonGlyph: { fontSize: 18, fontWeight: '700', color: colors.link, lineHeight: 20 },
+  inlineForm: { marginBottom: spacing.md },
   toolsRow: { flexDirection: 'row', alignItems: 'flex-end', flexWrap: 'wrap', gap: spacing.md },
   groupByField: { marginBottom: spacing.md },
   groupByLabel: { fontSize: 13, fontWeight: '600', color: colors.label, marginBottom: spacing.xs },
