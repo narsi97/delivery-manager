@@ -106,6 +106,14 @@ export function listServiceAreas(token) {
   return request('/api/v1/service-areas', { method: 'GET', token });
 }
 
+// Where this business already delivers, read back from where its
+// customers' pins cluster — so a new business can accept an area in one
+// tap instead of inventing a radius in kilometres. Only ever proposes
+// places no existing area covers, so it goes quiet once they're set up.
+export function suggestServiceAreas(token) {
+  return request('/api/v1/service-areas/suggest', { method: 'GET', token });
+}
+
 export function createServiceArea(token, area) {
   return request('/api/v1/service-areas', { method: 'POST', token, body: JSON.stringify(area) });
 }

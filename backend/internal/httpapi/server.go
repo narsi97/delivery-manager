@@ -92,6 +92,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PATCH /api/v1/business", s.withAdmin(s.handleUpdateBusiness))
 
 	s.mux.HandleFunc("GET /api/v1/service-areas", s.withAdmin(s.handleListServiceAreas))
+	s.mux.HandleFunc("GET /api/v1/service-areas/suggest", s.withAdmin(s.handleSuggestServiceAreas))
 	s.mux.HandleFunc("POST /api/v1/service-areas", s.withAdmin(s.handleCreateServiceArea))
 	s.mux.HandleFunc("POST /api/v1/service-areas/{id}/drivers", s.withAdmin(s.handleSetAreaDrivers))
 	s.mux.HandleFunc("PATCH /api/v1/service-areas/{id}", s.withAdmin(s.handleUpdateServiceArea))

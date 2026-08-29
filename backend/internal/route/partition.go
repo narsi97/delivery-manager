@@ -349,3 +349,105 @@ func AssignToFinishes(groups [][]Point, finishes []Point) []int {
 	}
 	return assigned
 }
+
+// Cluster groups stops that sit near each other, without being told how
+// many groups there are.
+//
+// Partition answers "cut this into k rounds" — the caller already knows
+// k, because k is how many drivers are out. This answers a different
+// question: "where does this business actually deliver?", which nobody
+// knows in advance and which is the whole difficulty of setting a
+// business up. A dairy delivering to one town has one answer; one
+// delivering to a town and a village 30km away has two, and neither the
+// dairy nor the software knew that before looking.
+//
+// Single-linkage on a distance threshold, which is the right shape for
+// this and not for much else: two stops belong to the same place if you
+// can walk between them in hops shorter than linkMeters. Real delivery
+// geography is streets and villages — dense blobs separated by empty
+// countryside — so a threshold set to "further apart than any two
+// neighbouring houses" separates the towns exactly where a human would,
+// and never has to guess a group count. k-means with a guessed k would
+// happily cut one town in half.
+//
+// Groups come back largest first, each internally ordered by the input
+// order, and stops are never duplicated or dropped.
+func Cluster(stops []Point, linkMeters float64) [][]Point {
+	if len(stops) == 0 {
+		return [][]Point{}
+	}
+
+	// Union-find over "within linkMeters of each other". n is the number
+	// of pinned customers a single business has, so the quadratic pass is
+	// thousands of comparisons at worst — far cheaper than the round
+	// optimizer that runs on every day read.
+	parent := make([]int, len(stops))
+	for i := range parent {
+		parent[i] = i
+	}
+	var find func(int) int
+	find = func(i int) int {
+		for parent[i] != i {
+			parent[i] = parent[parent[i]]
+			i = parent[i]
+		}
+		return i
+	}
+	union := func(a, b int) {
+		ra, rb := find(a), find(b)
+		if ra == rb {
+			return
+		}
+		// Always attach the higher index to the lower, so the
+		// representative of a group is its earliest member and the output
+		// order cannot depend on iteration order.
+		if ra < rb {
+			parent[rb] = ra
+		} else {
+			parent[ra] = rb
+		}
+	}
+
+	for i := range stops {
+		for j := i + 1; j < len(stops); j++ {
+			if DistanceMeters(stops[i].Lat, stops[i].Lng, stops[j].Lat, stops[j].Lng) <= linkMeters {
+				union(i, j)
+			}
+		}
+	}
+
+	order := []int{}
+	members := map[int][]Point{}
+	for i, p := range stops {
+		root := find(i)
+		if _, seen := members[root]; !seen {
+			order = append(order, root)
+		}
+		members[root] = append(members[root], p)
+	}
+
+	groups := make([][]Point, 0, len(order))
+	for _, root := range order {
+		groups = append(groups, members[root])
+	}
+	// Largest first — the place a business delivers to most is the one
+	// worth offering them first. Ties keep input order, so the result is
+	// stable across identical calls.
+	sort.SliceStable(groups, func(i, j int) bool { return len(groups[i]) > len(groups[j]) })
+	return groups
+}
+
+// Enclosing reports the centre of a group and how far its furthest member
+// sits from that centre — the smallest circle centred on the mean that
+// still contains everything. Used to turn a cluster into a service area
+// an admin can see and adjust.
+func Enclosing(points []Point) (Point, float64) {
+	centre := Centroid(points)
+	var furthest float64
+	for _, p := range points {
+		if d := DistanceMeters(centre.Lat, centre.Lng, p.Lat, p.Lng); d > furthest {
+			furthest = d
+		}
+	}
+	return centre, furthest
+}

@@ -204,8 +204,11 @@ export default function TodayScreen({ token, business }) {
           <SectionTitle>Rounds ({routes.length})</SectionTitle>
           {routes.length === 0 ? (
             <Empty>
-              Nothing to deliver here yet. Rounds are prepared automatically for each service area that has
-              deliveries — add one on the Business tab.
+              {areas.length === 0
+                ? 'A round is prepared for each place you deliver to, and you have not set one up yet — start on the Business tab.'
+                : summary.total === 0
+                  ? 'Nothing to deliver on this day.'
+                  : 'Nothing routed yet. Rounds are prepared for each service area that has deliveries in it.'}
             </Empty>
           ) : (
             <View>

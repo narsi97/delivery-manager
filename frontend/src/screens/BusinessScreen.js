@@ -4,7 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import * as api from '../api';
 import { Banner, Button, Card, Disclosure, Empty, Field, FieldRow, Pill, SectionTitle } from '../components';
 import LocationPicker, { InlineLocationEditor } from '../LocationPicker';
-import { colors, spacing } from '../theme';
+import { colors, radius, spacing } from '../theme';
 
 // The business's own settings: its name, where it's based, and the
 // localities it delivers to. Every map elsewhere in the app (Customers,
@@ -24,6 +24,8 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
   // heading — next to the count it's adding to — instead of repeating the
   // section's own title as a second row underneath.
   const [addingArea, setAddingArea] = useState(false);
+  const [suggestions, setSuggestions] = useState([]);
+  const [prefill, setPrefill] = useState(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -43,6 +45,14 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
       setDrivers(driverResponse.drivers || []);
       setCustomers(customerResponse.customers || []);
       setError('');
+      // Best-effort: a business that can't be offered a suggestion is
+      // not a business that should see an error on its settings page.
+      try {
+        const suggested = await api.suggestServiceAreas(token);
+        setSuggestions(suggested.suggestions || []);
+      } catch {
+        setSuggestions([]);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -84,7 +94,10 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
           right={
             <HeadingAddButton
               open={addingArea}
-              onPress={() => setAddingArea((prev) => !prev)}
+              onPress={() => {
+                setPrefill(null);
+                setAddingArea((prev) => !prev);
+              }}
               label={addingArea ? 'Close add a service area' : 'Add a service area'}
             />
           }
@@ -93,6 +106,16 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
         </SectionTitle>
         <View style={styles.headingDivider} />
 
+        {!addingArea && suggestions.length > 0 ? (
+          <SuggestedAreas
+            suggestions={suggestions}
+            onAccept={(suggestion) => {
+              setPrefill(suggestion);
+              setAddingArea(true);
+            }}
+          />
+        ) : null}
+
         {addingArea ? (
           <NewServiceAreaForm
             token={token}
@@ -100,9 +123,12 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
             areas={areas}
             drivers={drivers}
             customers={customers}
+            initial={prefill}
+            key={prefill ? `${prefill.lat},${prefill.lng}` : 'blank'}
             onCreated={async (name) => {
               setNotice(`Added ${name}.`);
               setAddingArea(false);
+              setPrefill(null);
               await refresh();
             }}
             onError={setError}
@@ -110,7 +136,10 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
         ) : null}
 
         {areas.length === 0 ? (
-          <Empty>No service areas yet. Routes are prepared per area, so add the localities you deliver to.</Empty>
+          <Empty>
+            Nothing set up yet. A round is prepared for each place you deliver to, so this is the one thing worth
+            setting up first.
+          </Empty>
         ) : (
           areas.map((area) => (
             <ServiceAreaRow key={area.id} area={area} home={home} token={token} onChanged={refresh} onError={setError} />
@@ -316,17 +345,26 @@ function SelectedEntityEditor({ token, selected, home, onClose, onChanged, onErr
 // Controlled from the parent's "+" at the heading (see BusinessScreen)
 // rather than owning its own expand toggle — the trigger lives next to
 // the count it's adding to, not as a second title repeated underneath.
-function NewServiceAreaForm({ token, home, areas, drivers, customers, onCreated, onError }) {
-  const [name, setName] = useState('');
-  const [lat, setLat] = useState('');
-  const [lng, setLng] = useState('');
-  const [radiusKm, setRadiusKm] = useState('3');
+function NewServiceAreaForm({ token, home, areas, drivers, customers, initial, onCreated, onError }) {
+  const [name, setName] = useState(initial?.name || '');
+  const [lat, setLat] = useState(initial ? String(initial.lat) : '');
+  const [lng, setLng] = useState(initial ? String(initial.lng) : '');
+  const [radiusMeters, setRadiusMeters] = useState(initial?.radius_meters || 3000);
   const [busy, setBusy] = useState(false);
 
   const setPin = (newLat, newLng) => {
     setLat(newLat.toFixed(6));
     setLng(newLng.toFixed(6));
   };
+
+  // How many of this business's own customers the circle currently takes
+  // in. This is the number that replaces "radius in km" as the thing an
+  // admin steers by — "covers 42 of your 47" is a sentence a dairy owner
+  // can act on; 3.4 km is not. Mirrors coveredCount in the backend.
+  const pinned = (customers || []).filter((customer) => customer.lat || customer.lng);
+  const covered = Number(lat) && Number(lng)
+    ? pinned.filter((customer) => metersBetween(Number(lat), Number(lng), customer.lat, customer.lng) <= radiusMeters).length
+    : 0;
 
   const submit = async () => {
     setBusy(true);
@@ -335,13 +373,13 @@ function NewServiceAreaForm({ token, home, areas, drivers, customers, onCreated,
         name,
         lat: Number(lat) || 0,
         lng: Number(lng) || 0,
-        radius_meters: (Number(radiusKm) || 0) * 1000,
+        radius_meters: radiusMeters,
       });
       const created = name;
       setName('');
       setLat('');
       setLng('');
-      setRadiusKm('3');
+      setRadiusMeters(3000);
       await onCreated(created);
     } catch (err) {
       onError(err.message);
@@ -362,20 +400,61 @@ function NewServiceAreaForm({ token, home, areas, drivers, customers, onCreated,
         areas={areas}
         drivers={drivers}
         customers={customers}
-        previewRadiusMeters={(Number(radiusKm) || 0) * 1000 || null}
+        previewRadiusMeters={radiusMeters}
         height={320}
       />
-      <Field
-        label="Radius (km)"
-        value={radiusKm}
-        onChangeText={setRadiusKm}
-        keyboardType="numeric"
-        hint="How far this zone reaches from the pin — shown live on the map above."
+
+      {/* A slider, not a kilometre field. Nobody knows their delivery
+          radius in kilometres, but everybody knows whether a circle has
+          their customers in it — so the readout is people, not distance,
+          and the number of kilometres is shown only as a footnote. */}
+      <Text style={styles.label}>How far out do you go?</Text>
+      <input
+        type="range"
+        min={500}
+        max={25000}
+        step={500}
+        value={radiusMeters}
+        onChange={(event) => setRadiusMeters(Number(event.target.value))}
+        style={radiusSliderStyle}
+        aria-label="How far this area reaches"
       />
+      <Text style={styles.coverage}>
+        {Number(lat) && Number(lng)
+          ? `Covers ${covered} of your ${pinned.length} pinned ${pinned.length === 1 ? 'customer' : 'customers'}`
+          : 'Drop the pin above to see who this covers'}
+      </Text>
+      <Text style={styles.note}>{(radiusMeters / 1000).toFixed(1)} km across the map.</Text>
+
       <Button title="Add service area" onPress={submit} busy={busy} disabled={!name.trim() || !lat || !lng} />
     </View>
   );
 }
+
+// Haversine, same as the backend's route.DistanceMeters — the coverage
+// count shown while dragging the slider has to agree with the one the
+// server will compute, or the circle an admin accepted covers a different
+// set of people than the one they were shown.
+function metersBetween(aLat, aLng, bLat, bLng) {
+  const R = 6371000;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(bLat - aLat);
+  const dLng = toRad(bLng - aLng);
+  const h =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+// Matches Field's input styling — a raw <input> can't take
+// StyleSheet.create output. Full width because a slider is a distance
+// control and needs the travel.
+const radiusSliderStyle = {
+  width: '100%',
+  marginTop: 4,
+  marginBottom: 4,
+  accentColor: colors.accent,
+};
 
 // What the business sells — moved here from the Drivers screen, which
 // was never really the right home for it. A dairy that only sells milk
@@ -572,6 +651,44 @@ function formatQuantity(value) {
 // areas (1)" was saying the same thing twice). One small round button,
 // same 44px-adjacent touch sizing as the rest of this app's icon buttons,
 // that flips to an "×" once open so it's also how you close the form.
+// What the business already told us, without meaning to.
+//
+// Service areas are the hinge the product turns on — no area means no
+// round, and every delivery falls through as a stray — and "radius in
+// kilometres" is the one abstraction a dairy farmer has no word for. But
+// their customers already have pins, and where those pins cluster *is*
+// where they deliver. So the setup step is offered as something to accept
+// rather than something to invent, and the form it opens arrives already
+// filled in.
+//
+// Only ever shown for places no existing area covers (see
+// handleSuggestServiceAreas), so it goes quiet once a business is set up
+// rather than nagging forever.
+function SuggestedAreas({ suggestions, onAccept }) {
+  return (
+    <View style={styles.suggestBox}>
+      <Text style={styles.suggestLead}>
+        {suggestions.length === 1
+          ? 'It looks like you already deliver here:'
+          : 'It looks like you already deliver to these places:'}
+      </Text>
+      {suggestions.map((suggestion) => (
+        <View key={`${suggestion.lat},${suggestion.lng}`} style={styles.suggestRow}>
+          <View style={styles.suggestText}>
+            <Text style={styles.suggestName}>{suggestion.name || 'This area'}</Text>
+            <Text style={styles.suggestMeta}>
+              {suggestion.customer_count} {suggestion.customer_count === 1 ? 'customer' : 'customers'} ·{' '}
+              {(suggestion.radius_meters / 1000).toFixed(1)} km across
+            </Text>
+          </View>
+          <Button title="Set this up" onPress={() => onAccept(suggestion)} style={styles.suggestButton} />
+        </View>
+      ))}
+      <Text style={styles.note}>You can change the name and how far it reaches before saving.</Text>
+    </View>
+  );
+}
+
 function HeadingAddButton({ open, onPress, label }) {
   return (
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={styles.addButton}>
@@ -702,5 +819,27 @@ const styles = StyleSheet.create({
   },
   addButtonGlyph: { fontSize: 18, fontWeight: '700', color: colors.link, lineHeight: 20 },
   inlineForm: { marginBottom: spacing.md },
+  coverage: { fontSize: 14, fontWeight: '700', color: colors.accent, marginTop: spacing.xs },
+  suggestBox: {
+    borderWidth: 1,
+    borderColor: colors.accent,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceAlt,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  suggestLead: { fontSize: 14, fontWeight: '600', color: colors.text, marginBottom: spacing.sm },
+  suggestRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+    paddingVertical: spacing.xs,
+  },
+  suggestText: { flexShrink: 1, minWidth: 140 },
+  suggestName: { fontSize: 15, fontWeight: '700', color: colors.text },
+  suggestMeta: { fontSize: 13, color: colors.subtitle, marginTop: 1 },
+  suggestButton: { flexShrink: 0 },
   newProductToggle: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md },
 });
