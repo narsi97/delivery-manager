@@ -1,7 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, ActivityIndicator, Modal, Pressable, SafeAreaView, StatusBar, StyleSheet, Text, View } from 'react-native';
-
-const DRAWER_WIDTH = 260;
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, SafeAreaView, StatusBar, StyleSheet, Text, View } from 'react-native';
 
 import * as api from './api';
 import { clearSession, loadSession, saveSession } from './session';
@@ -51,11 +49,6 @@ function AppShell() {
   // two jobs, so this is a view toggle rather than a second account.
   const [driving, setDriving] = useState(false);
   const [restoring, setRestoring] = useState(true);
-  // Section nav lives in a burger menu, not a tab row — Today is glanced
-  // at constantly through a shift, Customers and Drivers are setup screens
-  // visited far less often, so they don't need to compete for width on
-  // every screen the way three permanent tabs would.
-  const [menuOpen, setMenuOpen] = useState(false);
   const { t } = useLanguage();
 
   // Restore a stored token on load, but only after the server confirms it
@@ -133,28 +126,27 @@ function AppShell() {
       <StatusBar barStyle="dark-content" />
 
       <View style={styles.topBar}>
-        {!showDriverView ? (
-          <Pressable
-            onPress={() => setMenuOpen(true)}
-            accessibilityRole="button"
-            accessibilityLabel={t('open_menu')}
-            style={styles.burger}
-          >
-            <View style={styles.burgerLine} />
-            <View style={styles.burgerLine} />
-            <View style={styles.burgerLine} />
-          </Pressable>
-        ) : null}
         <View style={styles.topBarText}>
           <Text style={styles.businessName} numberOfLines={1}>
             {business.name}
           </Text>
           <Text style={styles.userName} numberOfLines={1}>
             {user.name} · {showDriverView ? lowerRole(labels) : t('role_admin')}
-            {showDriverView ? '' : ` · ${currentSectionLabel(labels, tab, t)}`}
           </Text>
         </View>
         <View style={styles.topBarActions}>
+          {!showDriverView
+            ? adminTabs(labels, t).map((item) => (
+                <Pressable
+                  key={item.key}
+                  onPress={() => setTab(item.key)}
+                  accessibilityRole="button"
+                  style={[styles.navTab, tab === item.key && styles.navTabActive]}
+                >
+                  <Text style={[styles.navTabText, tab === item.key && styles.navTabTextActive]}>{item.label}</Text>
+                </Pressable>
+              ))
+            : null}
           <LanguageSwitcher />
           <Pressable onPress={signOut} accessibilityRole="button">
             <Text style={styles.signOut}>{t('sign_out')}</Text>
@@ -169,18 +161,6 @@ function AppShell() {
           </Text>
         </Pressable>
       ) : null}
-
-      <NavMenu
-        visible={menuOpen && !showDriverView}
-        onClose={() => setMenuOpen(false)}
-        activeTab={tab}
-        onSelect={(key) => {
-          setTab(key);
-          setMenuOpen(false);
-        }}
-        labels={labels}
-        t={t}
-      />
 
       <View style={styles.body}>
         {showDriverView ? (
@@ -209,86 +189,48 @@ function lowerRole(labels) {
   return lower(labels.driver);
 }
 
-function currentSectionLabel(labels, tab, t) {
-  return adminTabs(labels, t).find((item) => item.key === tab)?.label || '';
-}
-
-// Slide-in drawer from the left, behind a tap-anywhere-to-close backdrop.
-// A real RN Modal rather than an absolutely-positioned sibling View — it
-// renders outside the normal layout tree, which sidesteps the
-// position:'fixed'-inside-a-scrolling-ancestor bug the other 3VNSYSTEMS
-// apps have hit before (see resume-optimizer's WebPortal.web.js) without
-// needing a portal component of our own.
-//
-// The slide itself is a manual Animated.timing on translateX rather than
-// Modal's own animationType — Modal's built-in "slide" animates the
-// whole overlay (backdrop included) as one block, and its direction is
-// mobile-platform-specific (bottom-associated), not the left-edge drawer
-// this needs. Driving translateX directly also means the drawer can stay
-// mounted for its own ~200ms close animation instead of being yanked out
-// the instant `visible` flips — Modal unmounts its children immediately
-// otherwise, which is why `mounted` is tracked separately from `visible`.
-function NavMenu({ visible, onClose, activeTab, onSelect, labels, t }) {
-  const [mounted, setMounted] = useState(visible);
-  const translateX = useRef(new Animated.Value(visible ? 0 : -DRAWER_WIDTH)).current;
-
-  useEffect(() => {
-    if (visible) {
-      setMounted(true);
-      Animated.timing(translateX, { toValue: 0, duration: 220, useNativeDriver: false }).start();
-    } else if (mounted) {
-      Animated.timing(translateX, { toValue: -DRAWER_WIDTH, duration: 180, useNativeDriver: false }).start(() => {
-        setMounted(false);
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible]);
-
-  if (!mounted) {
-    return null;
-  }
-
-  return (
-    <Modal visible transparent animationType="none" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} accessibilityRole="button" accessibilityLabel={t('close_menu')} />
-      <Animated.View style={[styles.drawer, { transform: [{ translateX }] }]}>
-        <Text style={styles.drawerTitle}>{t('menu_heading')}</Text>
-        {adminTabs(labels, t).map((item) => (
-          <Pressable
-            key={item.key}
-            onPress={() => onSelect(item.key)}
-            style={[styles.drawerItem, activeTab === item.key && styles.drawerItemActive]}
-            accessibilityRole="button"
-          >
-            <Text style={[styles.drawerItemText, activeTab === item.key && styles.drawerItemTextActive]}>
-              {item.label}
-            </Text>
-          </Pressable>
-        ))}
-      </Animated.View>
-    </Modal>
-  );
-}
-
 const styles = StyleSheet.create({
   app: { flex: 1, backgroundColor: colors.background },
   loader: { marginTop: spacing.xl * 2 },
+  // flexWrap lets the pill tabs drop to a second line under the business
+  // name on a narrow phone instead of overflowing — same technique
+  // resume-optimizer's own header row uses for the same reason.
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
     backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  burger: { padding: spacing.xs, marginRight: spacing.md, gap: 4 },
-  burgerLine: { width: 20, height: 2, borderRadius: 1, backgroundColor: colors.text },
-  topBarText: { flex: 1, paddingRight: spacing.md },
+  topBarText: { paddingRight: spacing.md, flexShrink: 1 },
   businessName: { fontSize: 16, fontWeight: '800', color: colors.text },
   userName: { fontSize: 12, color: colors.subtitle, marginTop: 1 },
-  topBarActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  // flexShrink + maxWidth is what makes the wrap below actually trigger.
+  // React Native's default flexShrink is 0 (unlike web CSS's 1), so
+  // without this a flex item sizes itself to fit its content no matter
+  // how little room its parent actually has — this row would rather
+  // push "Sign out" off the edge of the screen than shrink to the width
+  // that would make its own flexWrap kick in.
+  topBarActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap', flexShrink: 1, maxWidth: '100%' },
+  // Pill tabs — same shape as resume-optimizer's navTab: a bordered pill
+  // that fills with the accent colour when active, so the section you're
+  // on reads as one glance rather than needing a separate "you are here"
+  // line the way the burger-menu subtitle used to carry.
+  navTab: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+  },
+  navTabActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  navTabText: { color: colors.label, fontSize: 13, fontWeight: '600' },
+  navTabTextActive: { color: colors.accentText },
   signOut: { fontSize: 14, fontWeight: '600', color: colors.link },
   roleToggle: {
     paddingVertical: spacing.sm,
@@ -299,34 +241,4 @@ const styles = StyleSheet.create({
   },
   roleToggleText: { fontSize: 13, fontWeight: '600', color: colors.link },
   body: { flex: 1 },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(15, 23, 42, 0.4)' },
-  drawer: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    left: 0,
-    width: DRAWER_WIDTH,
-    maxWidth: '80%',
-    backgroundColor: colors.surface,
-    paddingTop: spacing.xl,
-    paddingHorizontal: spacing.md,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    shadowOffset: { width: 2, height: 0 },
-    elevation: 8,
-  },
-  drawerTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.hint,
-    textTransform: 'uppercase',
-    letterSpacing: 0.06,
-    marginBottom: spacing.sm,
-    paddingHorizontal: spacing.sm,
-  },
-  drawerItem: { paddingVertical: spacing.md, paddingHorizontal: spacing.sm, borderRadius: 8 },
-  drawerItemActive: { backgroundColor: colors.surfaceAlt },
-  drawerItemText: { fontSize: 16, fontWeight: '600', color: colors.label },
-  drawerItemTextActive: { color: colors.accent },
 });
