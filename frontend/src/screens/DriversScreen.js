@@ -5,7 +5,7 @@ import * as api from '../api';
 import { Banner, Button, Card, Disclosure, Empty, Field, Pill, SectionTitle } from '../components';
 import EntityMapCard from '../EntityMapCard';
 import LocationPicker from '../LocationPicker';
-import { colors, spacing } from '../theme';
+import { colors, radius, spacing } from '../theme';
 
 export default function DriversScreen({ token, currentUserId, business }) {
   const [drivers, setDrivers] = useState([]);
@@ -208,106 +208,141 @@ function DriverRow({ driver, token, business, isSelf, isFirst, onChanged, onErro
     }
   };
 
+  const hasHome = !!(driver.home_lat || driver.home_lng);
+  // One line of context under the name, rather than a standing disclosure
+  // row per driver. Whether a finish point exists is worth seeing at a
+  // glance; the map to change it is not.
+  const meta = [driver.phone, hasHome ? 'finishes at a saved location' : 'no finish point yet']
+    .filter(Boolean)
+    .join(' · ');
+
   return (
     <View style={[styles.driverRow, !isFirst && styles.driverRowDivider]}>
       <View style={styles.driverHeader}>
         <View style={styles.driverHeaderText}>
           <Text style={styles.driverName}>{driver.name}</Text>
-          <Text style={styles.driverMeta}>{driver.phone}</Text>
+          <Text style={styles.driverMeta}>{meta}</Text>
         </View>
         <View style={styles.driverHeaderRight}>
           <Pill label={driver.active ? 'active' : 'deactivated'} tone={driver.active ? 'success' : 'neutral'} />
-          {/* Reset PIN and Deactivate are rare, one-off actions — showing
-              both as standing buttons on every row is exactly the kind
-              of always-on weight this merge is meant to remove. One
-              small trigger, same disclosure shape used everywhere else
-              in this app, rather than a floating menu this stack has no
-              proven pattern for. */}
           <Pressable
             onPress={() => setOptionsOpen((prev) => !prev)}
             accessibilityRole="button"
-            accessibilityLabel={`Options for ${driver.name}`}
-            style={styles.optionsButton}
+            accessibilityLabel={`${optionsOpen ? 'Close options for' : 'Options for'} ${driver.name}`}
+            style={[styles.optionsButton, optionsOpen && styles.optionsButtonOpen]}
           >
-            <Text style={styles.optionsDots}>⋯</Text>
+            <Text style={[styles.optionsDots, optionsOpen && styles.optionsDotsOpen]}>⋯</Text>
           </Pressable>
         </View>
       </View>
 
+      {/* Everything that is not "who is this" lives here: where they
+          finish, their PIN, whether they are active. All of it is rare
+          next to how often this list is read, and showing any of it
+          standing made every driver look like a settings panel — three
+          drivers became a wall of identical horizontal rules with no way
+          to tell which line separated two people and which sat inside
+          one. Nested and tinted so it reads as belonging to the name
+          above it rather than as the next entry down. */}
       {optionsOpen ? (
-        resetting ? (
-          <View style={styles.resetBox}>
-            <Field label="New PIN" size="xs" value={newPin} onChangeText={setNewPin} keyboardType="number-pad" maxLength={6} />
-            <View style={styles.buttonRow}>
-              <Button
-                title="Set PIN"
-                busy={busy}
-                disabled={newPin.length !== 6}
-                onPress={() =>
-                  act(
-                    () => api.resetDriverPin(token, driver.id, newPin),
-                    () => {
-                      onNotice(`${driver.name}'s PIN is now ${newPin}.`);
-                      setResetting(false);
-                      setNewPin('');
-                      setOptionsOpen(false);
-                    }
-                  )
-                }
-                style={styles.flexButton}
+        <View style={styles.optionsPanel}>
+          {resetting ? (
+            <View>
+              <Field
+                label="New PIN"
+                size="xs"
+                value={newPin}
+                onChangeText={setNewPin}
+                keyboardType="number-pad"
+                maxLength={6}
               />
-              <Button title="Cancel" variant="secondary" onPress={() => setResetting(false)} style={styles.flexButton} />
+              <View style={styles.buttonRow}>
+                <Button
+                  title="Set PIN"
+                  busy={busy}
+                  disabled={newPin.length !== 6}
+                  onPress={() =>
+                    act(
+                      () => api.resetDriverPin(token, driver.id, newPin),
+                      () => {
+                        onNotice(`${driver.name}'s PIN is now ${newPin}.`);
+                        setResetting(false);
+                        setNewPin('');
+                        setOptionsOpen(false);
+                      }
+                    )
+                  }
+                  style={styles.flexButton}
+                />
+                <Button
+                  title="Cancel"
+                  variant="secondary"
+                  onPress={() => setResetting(false)}
+                  style={styles.flexButton}
+                />
+              </View>
             </View>
-          </View>
-        ) : (
-          <View style={styles.buttonRow}>
-            <Button title="Reset PIN" variant="secondary" onPress={() => setResetting(true)} style={styles.flexButton} />
-            {!isSelf ? (
-              <Button
-                title={driver.active ? 'Deactivate' : 'Reactivate'}
-                variant={driver.active ? 'danger' : 'secondary'}
-                busy={busy}
-                onPress={() => act(() => api.setDriverActive(token, driver.id, !driver.active), () => setOptionsOpen(false))}
-                style={styles.flexButton}
-              />
-            ) : null}
-          </View>
-        )
+          ) : (
+            <View>
+              <Disclosure compact open={editingHome} onToggle={() => setEditingHome((prev) => !prev)}>
+                {hasHome ? 'Change where they finish' : 'Set where they finish'}
+              </Disclosure>
+              {editingHome ? (
+                <View style={styles.homeEditor}>
+                  <Text style={styles.note}>
+                    A round ends when the driver gets home, not back at the depot — so this changes which stop
+                    comes last on any route they&apos;re given. Saving it re-orders the route they&apos;re on
+                    today.
+                  </Text>
+                  <LocationPicker
+                    label={`Where ${driver.name} finishes`}
+                    lat={driver.home_lat}
+                    lng={driver.home_lng}
+                    onChange={(lat, lng) =>
+                      act(() => api.setDriverHome(token, driver.id, lat, lng), () =>
+                        onNotice(`${driver.name}'s route will now finish at their home.`)
+                      )
+                    }
+                    home={
+                      business && (business.home_lat || business.home_lng)
+                        ? { lat: business.home_lat, lng: business.home_lng }
+                        : null
+                    }
+                    height={260}
+                  />
+                </View>
+              ) : null}
+
+              <View style={styles.buttonRow}>
+                <Button
+                  title="Reset PIN"
+                  variant="secondary"
+                  onPress={() => setResetting(true)}
+                  style={styles.flexButton}
+                />
+                {!isSelf ? (
+                  <Button
+                    title={driver.active ? 'Deactivate' : 'Reactivate'}
+                    variant={driver.active ? 'danger' : 'secondary'}
+                    busy={busy}
+                    onPress={() =>
+                      act(() => api.setDriverActive(token, driver.id, !driver.active), () => setOptionsOpen(false))
+                    }
+                    style={styles.flexButton}
+                  />
+                ) : null}
+              </View>
+
+              {driver.active ? null : (
+                <Text style={styles.note}>
+                  Deactivated drivers are signed out immediately, including on a phone they still have in their
+                  hand.
+                </Text>
+              )}
+            </View>
+          )}
+        </View>
       ) : null}
-
-      <View style={styles.homeSection}>
-        <Disclosure compact open={editingHome} onToggle={() => setEditingHome((prev) => !prev)}>
-          {driver.home_lat || driver.home_lng ? 'Finishes at a saved location' : 'Where does this driver finish?'}
-        </Disclosure>
-        {editingHome ? (
-          <View>
-            <Text style={styles.note}>
-              A round ends when the driver gets home, not back at the depot — so this changes which stop comes
-              last on any route they&apos;re given. Saving it re-orders the route they&apos;re on today.
-            </Text>
-            <LocationPicker
-              label={`Where ${driver.name} finishes`}
-              lat={driver.home_lat}
-              lng={driver.home_lng}
-              onChange={(lat, lng) =>
-                act(() => api.setDriverHome(token, driver.id, lat, lng), () =>
-                  onNotice(`${driver.name}'s route will now finish at their home.`)
-                )
-              }
-              home={business && (business.home_lat || business.home_lng)
-                ? { lat: business.home_lat, lng: business.home_lng }
-                : null}
-              height={260}
-            />
-          </View>
-        ) : null}
-      </View>
-
-      {driver.active ? null : (
-        <Text style={styles.note}>
-          Deactivated drivers are signed out immediately, including on a phone they still have in their hand.
-        </Text>
-      )}
     </View>
   );
 }
@@ -334,6 +369,12 @@ const styles = StyleSheet.create({
   },
   addButtonGlyph: { fontSize: 18, fontWeight: '700', color: colors.link, lineHeight: 20 },
   inlineForm: { marginBottom: spacing.md },
+  // A driver is one block: name, one line of context, and whatever they
+  // opened. The only rule belongs *between* two drivers — an earlier
+  // version also drew one inside each of them, above a standing "where
+  // does this driver finish?" row, which made a roster of identical
+  // horizontal lines where nothing grouped and no line meant anything in
+  // particular.
   driverRow: { paddingVertical: spacing.md },
   driverRowDivider: { borderTopWidth: 1, borderTopColor: colors.border },
   driverHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
@@ -348,9 +389,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Filled while open, so it is obvious which driver the panel below
+  // belongs to when several rows are on screen.
+  optionsButtonOpen: { backgroundColor: colors.surfaceAlt },
   optionsDots: { fontSize: 20, fontWeight: '700', color: colors.subtitle, lineHeight: 20 },
-  resetBox: { marginTop: spacing.md },
-  homeSection: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs },
+  optionsDotsOpen: { color: colors.text },
+  // Indented and tinted rather than separated by a rule: this is part of
+  // the driver above it, not the next thing after them.
+  optionsPanel: {
+    marginTop: spacing.sm,
+    marginLeft: spacing.md,
+    padding: spacing.md,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.md,
+  },
+  homeEditor: { marginTop: spacing.sm },
   buttonRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md, flexWrap: 'wrap' },
   flexButton: { flex: 1, minWidth: 130 },
 });
