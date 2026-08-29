@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 
 import * as api from '../api';
 import { Banner, Button, Card, Disclosure, Empty, Field, FieldRow, Pill, SectionTitle } from '../components';
-import LocationPicker from '../LocationPicker';
+import LocationPicker, { InlineLocationEditor } from '../LocationPicker';
 import { colors, spacing } from '../theme';
 
 // The business's own settings: its name, where it's based, and the
@@ -75,6 +75,7 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
           setNotice('Business details saved.');
           onBusinessUpdated(updated);
         }}
+        onChanged={refresh}
         onError={setError}
       />
 
@@ -146,12 +147,18 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
 // Each half still opens on its own: the name behind a pencil, the
 // location behind its summary. They're set once and rarely touched, so
 // neither should sit open as a form every visit.
-function BusinessDetailsCard({ token, business, drivers, customers, areas, onSaved, onError }) {
+function BusinessDetailsCard({ token, business, drivers, customers, areas, onSaved, onError, onChanged }) {
   const [editingName, setEditingName] = useState(false);
   const [editingHome, setEditingHome] = useState(false);
   const [name, setName] = useState(business.name);
   const [busy, setBusy] = useState(false);
   const hasHome = business.home_lat || business.home_lng;
+  // Whichever customer or driver was last tapped on this map — this is
+  // the one map in the app where every entity is manageable, not just
+  // the one kind a screen owns, so tapping a customer here opens their
+  // location editor right where it was tapped rather than sending the
+  // admin off to the Customers tab to do it.
+  const [selected, setSelected] = useState(null);
 
   const saveName = async () => {
     setBusy(true);
@@ -217,7 +224,7 @@ function BusinessDetailsCard({ token, business, drivers, customers, areas, onSav
             </View>
             <LocationPicker
               label="The depot, the shop, the dairy"
-              hint="Routes start here, and every map in the app opens on the area around it."
+              hint="Routes start here, and every map in the app opens on the area around it. Tap a customer or driver on the map to manage them."
               lat={business.home_lat}
               lng={business.home_lng}
               onChange={savePin}
@@ -225,7 +232,22 @@ function BusinessDetailsCard({ token, business, drivers, customers, areas, onSav
               drivers={drivers}
               customers={customers}
               height={320}
+              onSelectReference={setSelected}
             />
+            {selected ? (
+              <SelectedEntityEditor
+                key={`${selected.kind}-${selected.data.id}`}
+                token={token}
+                selected={selected}
+                home={{ lat: business.home_lat, lng: business.home_lng }}
+                onClose={() => setSelected(null)}
+                onChanged={async () => {
+                  await onChanged();
+                  setSelected(null);
+                }}
+                onError={onError}
+              />
+            ) : null}
           </View>
         ) : (
           <Pressable onPress={() => setEditingHome(true)} accessibilityRole="button">
@@ -240,6 +262,50 @@ function BusinessDetailsCard({ token, business, drivers, customers, areas, onSav
         )}
       </View>
     </Card>
+  );
+}
+
+// What tapping a customer or driver on the business's own map opens. This
+// is the one map in the app where every kind of pin is manageable, so
+// unlike the muted, read-only markers everywhere else, this one edits the
+// actual record — same InlineLocationEditor the route map uses for a
+// stop's pin, wired to whichever entity was tapped.
+function SelectedEntityEditor({ token, selected, home, onClose, onChanged, onError }) {
+  const { kind, data } = selected;
+
+  const save = async (lat, lng) => {
+    try {
+      if (kind === 'customer') {
+        await api.updateCustomer(token, data.id, { lat, lng });
+      } else {
+        await api.setDriverHome(token, data.id, lat, lng);
+      }
+      await onChanged();
+    } catch (err) {
+      onError(err.message);
+    }
+  };
+
+  return (
+    <View style={styles.cardSection}>
+      <View style={styles.editHeader}>
+        <Text style={styles.readLabel}>{kind === 'customer' ? data.name : `${data.name} finishes at`}</Text>
+        <Pressable onPress={onClose} accessibilityRole="button">
+          <Text style={styles.doneLink}>Done</Text>
+        </Pressable>
+      </View>
+      {kind === 'customer' ? (
+        <Text style={styles.note}>{[data.address, data.phone].filter(Boolean).join(' · ') || 'No contact details yet'}</Text>
+      ) : (
+        <Text style={styles.note}>{data.phone || 'No phone on file'}</Text>
+      )}
+      <InlineLocationEditor
+        lat={kind === 'customer' ? data.lat : data.home_lat}
+        lng={kind === 'customer' ? data.lng : data.home_lng}
+        onSave={save}
+        home={home}
+      />
+    </View>
   );
 }
 
