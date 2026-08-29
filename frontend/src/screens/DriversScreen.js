@@ -14,6 +14,7 @@ export default function DriversScreen({ token, currentUserId, business }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [adding, setAdding] = useState(false);
 
   // Scopes the "see everyone" map below to the business's own operating
   // area instead of an India-wide default — see MapPicker.web.js.
@@ -51,34 +52,50 @@ export default function DriversScreen({ token, currentUserId, business }) {
       <Banner message={error} />
       <Banner message={notice} tone="success" />
 
-      <NewDriverCard
-        token={token}
-        onCreated={async (name, pin) => {
-          setNotice(`${name} can now sign in with their phone number and the PIN ${pin}.`);
-          await refresh();
-        }}
-        onError={setError}
-      />
+      <Card>
+        <SectionTitle
+          right={
+            <HeadingAddButton
+              open={adding}
+              onPress={() => setAdding((prev) => !prev)}
+              label={adding ? 'Cancel adding a driver' : 'Add a driver'}
+            />
+          }
+        >
+          Drivers ({drivers.length})
+        </SectionTitle>
+        <View style={styles.headingDivider} />
 
-      <SectionTitle>Drivers ({drivers.length})</SectionTitle>
-      {drivers.length === 0 ? (
-        <Card>
-          <Empty>No drivers yet.</Empty>
-        </Card>
-      ) : (
-        drivers.map((driver) => (
-          <DriverCard
-            key={driver.id}
-            driver={driver}
+        {adding ? (
+          <NewDriverForm
             token={token}
-            business={business}
-            isSelf={driver.id === currentUserId}
-            onChanged={refresh}
+            onCreated={async (name, pin) => {
+              setNotice(`${name} can now sign in with their phone number and the PIN ${pin}.`);
+              setAdding(false);
+              await refresh();
+            }}
             onError={setError}
-            onNotice={setNotice}
           />
-        ))
-      )}
+        ) : null}
+
+        {drivers.length === 0 ? (
+          <Empty>No drivers yet. Add the first one with the + above.</Empty>
+        ) : (
+          drivers.map((driver, index) => (
+            <DriverRow
+              key={driver.id}
+              driver={driver}
+              token={token}
+              business={business}
+              isSelf={driver.id === currentUserId}
+              isFirst={index === 0}
+              onChanged={refresh}
+              onError={setError}
+              onNotice={setNotice}
+            />
+          ))
+        )}
+      </Card>
 
       <EntityMapCard
         token={token}
@@ -94,12 +111,11 @@ export default function DriversScreen({ token, currentUserId, business }) {
   );
 }
 
-// Collapsed by default — same expand-on-tap shape as Customers'
-// "Add a customer": an admin adds a driver rarely compared to how often
-// they glance at the roster below, so the form shouldn't be the first
-// thing on screen every visit.
-function NewDriverCard({ token, onCreated, onError }) {
-  const [expanded, setExpanded] = useState(false);
+// The add form lives inside the roster card, revealed by the "+" on its
+// heading — same shape as Service areas and Products on the Business tab.
+// A separate "Add a driver" card above the list made adding look like a
+// peer of the roster itself, when it is a rare action against it.
+function NewDriverForm({ token, onCreated, onError }) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
@@ -113,7 +129,6 @@ function NewDriverCard({ token, onCreated, onError }) {
       setName('');
       setPhone('');
       setPin('');
-      setExpanded(false);
       await onCreated(created.name, created.pin);
     } catch (err) {
       onError(err.message);
@@ -123,35 +138,56 @@ function NewDriverCard({ token, onCreated, onError }) {
   };
 
   return (
-    <Card>
-      <Disclosure open={expanded} onToggle={() => setExpanded((prev) => !prev)}>
-        Add a driver
-      </Disclosure>
-
-      {expanded ? (
-        <View>
-          <Field label="Name" size="md" value={name} onChangeText={setName} placeholder="Ravi Kumar" />
-          <Field label="Phone number" size="sm" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="98765 43210" />
-          <Field
-            label="PIN"
-            value={pin}
-            onChangeText={setPin}
-            keyboardType="number-pad"
-            maxLength={6}
-            placeholder="6 digits"
-            hint="Not all the same digit, and not a run like 123456. Tell the driver this PIN — you won't be able to read it back."
-          />
-          <Button title="Add driver" onPress={submit} busy={busy} disabled={!name.trim() || !phone.trim() || pin.length !== 6} />
-          <Text style={styles.note}>
-            Drivers sign in with their phone number and this PIN — no Google account and no email needed.
-          </Text>
-        </View>
-      ) : null}
-    </Card>
+    <View style={styles.inlineForm}>
+      <Field label="Name" size="md" value={name} onChangeText={setName} placeholder="Ravi Kumar" />
+      <Field
+        label="Phone number"
+        size="sm"
+        value={phone}
+        onChangeText={setPhone}
+        keyboardType="phone-pad"
+        placeholder="98765 43210"
+      />
+      <Field
+        label="PIN"
+        value={pin}
+        onChangeText={setPin}
+        keyboardType="number-pad"
+        maxLength={6}
+        placeholder="6 digits"
+        hint="Not all the same digit, and not a run like 123456. Tell the driver this PIN — you won't be able to read it back."
+      />
+      <Button
+        title="Add driver"
+        onPress={submit}
+        busy={busy}
+        disabled={!name.trim() || !phone.trim() || pin.length !== 6}
+      />
+      <Text style={styles.note}>
+        Drivers sign in with their phone number and this PIN — no Google account and no email needed.
+      </Text>
+    </View>
   );
 }
 
-function DriverCard({ driver, token, business, isSelf, onChanged, onError, onNotice }) {
+// The "+" that reveals the add form, on the card's own heading rather
+// than in a card of its own. Same control as the Business tab's Service
+// areas and Products headings.
+function HeadingAddButton({ open, onPress, label }) {
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={styles.addButton}>
+      <Text style={styles.addButtonGlyph}>{open ? '×' : '+'}</Text>
+    </Pressable>
+  );
+}
+
+// One driver, as a row inside the shared Drivers card rather than a card
+// of its own — see the "keep them together" note on DriversScreen above.
+// A divider stands in for the border every separate Card used to draw,
+// so three drivers still read as three distinct records without three
+// boxes of whitespace between them.
+function DriverRow({ driver, token, business, isSelf, isFirst, onChanged, onError, onNotice }) {
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [editingHome, setEditingHome] = useState(false);
   const [newPin, setNewPin] = useState('');
@@ -173,52 +209,71 @@ function DriverCard({ driver, token, business, isSelf, onChanged, onError, onNot
   };
 
   return (
-    <Card>
+    <View style={[styles.driverRow, !isFirst && styles.driverRowDivider]}>
       <View style={styles.driverHeader}>
         <View style={styles.driverHeaderText}>
           <Text style={styles.driverName}>{driver.name}</Text>
           <Text style={styles.driverMeta}>{driver.phone}</Text>
         </View>
-        <Pill label={driver.active ? 'active' : 'deactivated'} tone={driver.active ? 'success' : 'neutral'} />
+        <View style={styles.driverHeaderRight}>
+          <Pill label={driver.active ? 'active' : 'deactivated'} tone={driver.active ? 'success' : 'neutral'} />
+          {/* Reset PIN and Deactivate are rare, one-off actions — showing
+              both as standing buttons on every row is exactly the kind
+              of always-on weight this merge is meant to remove. One
+              small trigger, same disclosure shape used everywhere else
+              in this app, rather than a floating menu this stack has no
+              proven pattern for. */}
+          <Pressable
+            onPress={() => setOptionsOpen((prev) => !prev)}
+            accessibilityRole="button"
+            accessibilityLabel={`Options for ${driver.name}`}
+            style={styles.optionsButton}
+          >
+            <Text style={styles.optionsDots}>⋯</Text>
+          </Pressable>
+        </View>
       </View>
 
-      {resetting ? (
-        <View style={styles.resetBox}>
-          <Field label="New PIN" size="xs" value={newPin} onChangeText={setNewPin} keyboardType="number-pad" maxLength={6} />
-          <View style={styles.buttonRow}>
-            <Button
-              title="Set PIN"
-              busy={busy}
-              disabled={newPin.length !== 6}
-              onPress={() =>
-                act(
-                  () => api.resetDriverPin(token, driver.id, newPin),
-                  () => {
-                    onNotice(`${driver.name}'s PIN is now ${newPin}.`);
-                    setResetting(false);
-                    setNewPin('');
-                  }
-                )
-              }
-              style={styles.flexButton}
-            />
-            <Button title="Cancel" variant="secondary" onPress={() => setResetting(false)} style={styles.flexButton} />
+      {optionsOpen ? (
+        resetting ? (
+          <View style={styles.resetBox}>
+            <Field label="New PIN" size="xs" value={newPin} onChangeText={setNewPin} keyboardType="number-pad" maxLength={6} />
+            <View style={styles.buttonRow}>
+              <Button
+                title="Set PIN"
+                busy={busy}
+                disabled={newPin.length !== 6}
+                onPress={() =>
+                  act(
+                    () => api.resetDriverPin(token, driver.id, newPin),
+                    () => {
+                      onNotice(`${driver.name}'s PIN is now ${newPin}.`);
+                      setResetting(false);
+                      setNewPin('');
+                      setOptionsOpen(false);
+                    }
+                  )
+                }
+                style={styles.flexButton}
+              />
+              <Button title="Cancel" variant="secondary" onPress={() => setResetting(false)} style={styles.flexButton} />
+            </View>
           </View>
-        </View>
-      ) : (
-        <View style={styles.buttonRow}>
-          <Button title="Reset PIN" variant="secondary" onPress={() => setResetting(true)} style={styles.flexButton} />
-          {!isSelf ? (
-            <Button
-              title={driver.active ? 'Deactivate' : 'Reactivate'}
-              variant={driver.active ? 'danger' : 'secondary'}
-              busy={busy}
-              onPress={() => act(() => api.setDriverActive(token, driver.id, !driver.active))}
-              style={styles.flexButton}
-            />
-          ) : null}
-        </View>
-      )}
+        ) : (
+          <View style={styles.buttonRow}>
+            <Button title="Reset PIN" variant="secondary" onPress={() => setResetting(true)} style={styles.flexButton} />
+            {!isSelf ? (
+              <Button
+                title={driver.active ? 'Deactivate' : 'Reactivate'}
+                variant={driver.active ? 'danger' : 'secondary'}
+                busy={busy}
+                onPress={() => act(() => api.setDriverActive(token, driver.id, !driver.active), () => setOptionsOpen(false))}
+                style={styles.flexButton}
+              />
+            ) : null}
+          </View>
+        )
+      ) : null}
 
       <View style={styles.homeSection}>
         <Disclosure compact open={editingHome} onToggle={() => setEditingHome((prev) => !prev)}>
@@ -253,7 +308,7 @@ function DriverCard({ driver, token, business, isSelf, onChanged, onError, onNot
           Deactivated drivers are signed out immediately, including on a phone they still have in their hand.
         </Text>
       )}
-    </Card>
+    </View>
   );
 }
 
@@ -261,10 +316,39 @@ const styles = StyleSheet.create({
   page: { padding: spacing.lg, maxWidth: 720, width: '100%', alignSelf: 'center' },
   loader: { marginTop: spacing.xl * 2 },
   note: { fontSize: 12, color: colors.hint, marginTop: spacing.sm, lineHeight: 17 },
+  headingDivider: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    marginTop: -spacing.sm,
+    marginBottom: spacing.md,
+  },
+  addButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addButtonGlyph: { fontSize: 18, fontWeight: '700', color: colors.link, lineHeight: 20 },
+  inlineForm: { marginBottom: spacing.md },
+  driverRow: { paddingVertical: spacing.md },
+  driverRowDivider: { borderTopWidth: 1, borderTopColor: colors.border },
   driverHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   driverHeaderText: { flex: 1 },
+  driverHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   driverName: { fontSize: 16, fontWeight: '700', color: colors.text },
   driverMeta: { fontSize: 13, color: colors.subtitle, marginTop: 2 },
+  optionsButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  optionsDots: { fontSize: 20, fontWeight: '700', color: colors.subtitle, lineHeight: 20 },
   resetBox: { marginTop: spacing.md },
   homeSection: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs },
   buttonRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md, flexWrap: 'wrap' },
