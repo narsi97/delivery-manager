@@ -87,6 +87,12 @@ type Store interface {
 
 	CreateProduct(ctx context.Context, p domain.Product) (domain.Product, error)
 	ListProducts(ctx context.Context, businessID string) ([]domain.Product, error)
+	GetProduct(ctx context.Context, businessID string, id string) (domain.Product, error)
+	// UpdateProduct edits the whole product record — price, unit, stock,
+	// and whether it is still sold. Products were create-and-list only
+	// until a business needed to price what it already sells and say what
+	// it has in stock.
+	UpdateProduct(ctx context.Context, p domain.Product) (domain.Product, error)
 
 	// ServiceArea has no Delete — like Customer, RecurringOrder and User,
 	// it is soft-deactivated (see domain.ServiceArea.Active) rather than

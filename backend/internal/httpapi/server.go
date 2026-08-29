@@ -101,6 +101,8 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("GET /api/v1/products", s.withAdmin(s.handleListProducts))
 	s.mux.HandleFunc("POST /api/v1/products", s.withAdmin(s.handleCreateProduct))
+	s.mux.HandleFunc("PATCH /api/v1/products/{id}", s.withAdmin(s.handleUpdateProduct))
+	s.mux.HandleFunc("GET /api/v1/products/demand", s.withAdmin(s.handleProductDemand))
 
 	s.mux.HandleFunc("GET /api/v1/drivers", s.withAdmin(s.handleListDrivers))
 	s.mux.HandleFunc("POST /api/v1/drivers", s.withAdmin(s.handleCreateDriver))

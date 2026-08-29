@@ -240,6 +240,99 @@ func (s *Server) handleCreateProduct(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, created)
 }
 
+// handleUpdateProduct edits a product a business already sells — its
+// price, its unit, how much is in stock, and whether it is still on the
+// list. Products were create-and-list only until now, which meant a
+// business that set up "Milk 1L" before it had settled on a price could
+// never put one on it.
+//
+// PATCH-partial like the customer and business handlers: an omitted
+// field keeps its stored value, so the stock control can send only a
+// stock number without needing to know the price.
+func (s *Server) handleUpdateProduct(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r.Context())
+
+	existing, err := s.store.GetProduct(r.Context(), sess.Business.ID, r.PathValue("id"))
+	if err != nil {
+		writeStoreError(w, err, "product")
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+		Unit string `json:"unit"`
+		// Pointers so that "not sent" and "explicitly zero" stay
+		// distinguishable — setting a price to nothing, or stock to none,
+		// are both real things to want.
+		PriceCents    *int     `json:"price_cents"`
+		StockQuantity *float64 `json:"stock_quantity"`
+		Active        *bool    `json:"active"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	if strings.TrimSpace(req.Name) != "" {
+		existing.Name = strings.TrimSpace(req.Name)
+	}
+	if strings.TrimSpace(req.Unit) != "" {
+		existing.Unit = strings.TrimSpace(req.Unit)
+	}
+	if req.PriceCents != nil {
+		if *req.PriceCents < 0 {
+			writeError(w, http.StatusBadRequest, "price_cents cannot be negative", "invalid_price")
+			return
+		}
+		existing.PriceCents = *req.PriceCents
+	}
+	if req.StockQuantity != nil {
+		if *req.StockQuantity < 0 {
+			writeError(w, http.StatusBadRequest, "stock cannot be negative", "invalid_stock")
+			return
+		}
+		existing.StockQuantity = *req.StockQuantity
+	}
+	if req.Active != nil {
+		existing.Active = *req.Active
+	}
+
+	updated, err := s.store.UpdateProduct(r.Context(), existing)
+	if err != nil {
+		writeStoreError(w, err, "product")
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+// handleProductDemand answers "what do I need to load today" — for each
+// product, how much the day's still-pending deliveries add up to, next to
+// what is in stock. Stock on its own is a number with nothing to compare
+// it against; this is the comparison, and it comes free from data the day
+// already holds.
+func (s *Server) handleProductDemand(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r.Context())
+
+	date, ok := resolveDate(sess.Business, r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "date must be YYYY-MM-DD", "invalid_date")
+		return
+	}
+
+	orders, err := s.store.ListDailyOrders(r.Context(), sess.Business.ID, date)
+	if err != nil {
+		writeStoreError(w, err, "deliveries")
+		return
+	}
+
+	needed := map[string]float64{}
+	for _, o := range orders {
+		if o.Status == domain.StatusPending {
+			needed[o.ProductID] += o.Quantity
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"date": date, "needed": needed})
+}
+
 // ---------- drivers ----------
 
 func (s *Server) handleListDrivers(w http.ResponseWriter, r *http.Request) {

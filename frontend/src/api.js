@@ -137,6 +137,18 @@ export function createProduct(token, product) {
   return request('/api/v1/products', { method: 'POST', token, body: JSON.stringify(product) });
 }
 
+// Partial: send only what changed. The stock control sends a stock
+// number alone and must not blank out a price someone else set.
+export function updateProduct(token, id, changes) {
+  return request(`/api/v1/products/${id}`, { method: 'PATCH', token, body: JSON.stringify(changes) });
+}
+
+// How much of each product the day's still-pending deliveries add up to,
+// keyed by product id — what stock has to be measured against.
+export function getProductDemand(token, date) {
+  return request(`/api/v1/products/demand${date ? `?date=${date}` : ''}`, { method: 'GET', token });
+}
+
 export function listDrivers(token) {
   return request('/api/v1/drivers', { method: 'GET', token });
 }

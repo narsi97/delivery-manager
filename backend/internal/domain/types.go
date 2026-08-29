@@ -188,7 +188,13 @@ type Product struct {
 	// arithmetic never interprets it.
 	Unit       string `json:"unit"`
 	PriceCents int    `json:"price_cents"`
-	Active     bool   `json:"active"`
+	// StockQuantity is what the business has on hand, in Unit. Kept as a
+	// number the admin sets rather than one the app decrements on every
+	// delivery: a dairy counts what is in the cold room, and a tally that
+	// silently drifts the first time something is spilled, given away or
+	// delivered off the books is worse than no tally at all.
+	StockQuantity float64 `json:"stock_quantity"`
+	Active        bool    `json:"active"`
 }
 
 // RecurringOrder is the standing subscription ("2L of milk, Mon-Fri").

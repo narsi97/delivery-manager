@@ -321,6 +321,29 @@ func (s *MemoryStore) CreateProduct(ctx context.Context, p domain.Product) (doma
 	return p, nil
 }
 
+func (s *MemoryStore) GetProduct(ctx context.Context, businessID string, id string) (domain.Product, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	p, ok := s.products[id]
+	if !ok || p.BusinessID != businessID {
+		return domain.Product{}, ErrNotFound
+	}
+	return p, nil
+}
+
+func (s *MemoryStore) UpdateProduct(ctx context.Context, p domain.Product) (domain.Product, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existing, ok := s.products[p.ID]
+	if !ok || existing.BusinessID != p.BusinessID {
+		return domain.Product{}, ErrNotFound
+	}
+	s.products[p.ID] = p
+	return p, nil
+}
+
 func (s *MemoryStore) ListProducts(ctx context.Context, businessID string) ([]domain.Product, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

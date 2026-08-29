@@ -90,6 +90,14 @@ var schemaStatements = []string{
 		price_cents integer not null default 0,
 		active boolean not null default true
 	)`,
+	// Added after products shipped, so an alter rather than a column in
+	// the create above — the same shape businesses.home_lat used. Stock
+	// is a plain running count the business keeps for itself: what is in
+	// the cold room this morning, set against what today's routes need.
+	// No automatic decrementing on delivery, deliberately — a dairy
+	// reconciles stock by looking, not by trusting a tally that drifts
+	// the first time something is spilled or given away.
+	`alter table products add column if not exists stock_quantity double precision not null default 0`,
 	`create index if not exists products_business_idx on products(business_id)`,
 
 	`create table if not exists recurring_orders (

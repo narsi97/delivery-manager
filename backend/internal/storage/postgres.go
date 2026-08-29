@@ -324,19 +324,49 @@ func (s *PostgresStore) UpdateServiceArea(ctx context.Context, sa domain.Service
 	return scanServiceArea(row)
 }
 
+// One list, so the create/list/get/update queries can't drift apart —
+// same reasoning as serviceAreaColumns above.
+const productColumns = `id, business_id, name, unit, price_cents, stock_quantity, active`
+
+func scanProduct(row interface{ Scan(...any) error }) (domain.Product, error) {
+	var p domain.Product
+	if err := row.Scan(&p.ID, &p.BusinessID, &p.Name, &p.Unit, &p.PriceCents, &p.StockQuantity, &p.Active); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Product{}, ErrNotFound
+		}
+		return domain.Product{}, err
+	}
+	return p, nil
+}
+
 func (s *PostgresStore) CreateProduct(ctx context.Context, p domain.Product) (domain.Product, error) {
 	_, err := s.pool.Exec(ctx,
-		`insert into products (id, business_id, name, unit, price_cents, active) values ($1,$2,$3,$4,$5,$6)`,
-		p.ID, p.BusinessID, p.Name, p.Unit, p.PriceCents, p.Active)
+		`insert into products (id, business_id, name, unit, price_cents, stock_quantity, active) values ($1,$2,$3,$4,$5,$6,$7)`,
+		p.ID, p.BusinessID, p.Name, p.Unit, p.PriceCents, p.StockQuantity, p.Active)
 	if err != nil {
 		return domain.Product{}, err
 	}
 	return p, nil
 }
 
+func (s *PostgresStore) GetProduct(ctx context.Context, businessID string, id string) (domain.Product, error) {
+	row := s.pool.QueryRow(ctx,
+		`select `+productColumns+` from products where business_id=$1 and id=$2`, businessID, id)
+	return scanProduct(row)
+}
+
+func (s *PostgresStore) UpdateProduct(ctx context.Context, p domain.Product) (domain.Product, error) {
+	row := s.pool.QueryRow(ctx,
+		`update products set name=$3, unit=$4, price_cents=$5, stock_quantity=$6, active=$7
+		 where id=$1 and business_id=$2
+		 returning `+productColumns,
+		p.ID, p.BusinessID, p.Name, p.Unit, p.PriceCents, p.StockQuantity, p.Active)
+	return scanProduct(row)
+}
+
 func (s *PostgresStore) ListProducts(ctx context.Context, businessID string) ([]domain.Product, error) {
 	rows, err := s.pool.Query(ctx,
-		`select id, business_id, name, unit, price_cents, active from products where business_id=$1 order by name`, businessID)
+		`select `+productColumns+` from products where business_id=$1 order by name`, businessID)
 	if err != nil {
 		return nil, err
 	}
@@ -345,7 +375,7 @@ func (s *PostgresStore) ListProducts(ctx context.Context, businessID string) ([]
 	out := []domain.Product{}
 	for rows.Next() {
 		var p domain.Product
-		if err := rows.Scan(&p.ID, &p.BusinessID, &p.Name, &p.Unit, &p.PriceCents, &p.Active); err != nil {
+		if err := rows.Scan(&p.ID, &p.BusinessID, &p.Name, &p.Unit, &p.PriceCents, &p.StockQuantity, &p.Active); err != nil {
 			return nil, err
 		}
 		out = append(out, p)

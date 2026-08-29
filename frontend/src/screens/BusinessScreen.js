@@ -15,15 +15,21 @@ import { colors, spacing } from '../theme';
 export default function BusinessScreen({ token, business, onBusinessUpdated }) {
   const [areas, setAreas] = useState([]);
   const [products, setProducts] = useState([]);
+  const [demand, setDemand] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
   const refresh = useCallback(async () => {
     try {
-      const [areaResponse, productResponse] = await Promise.all([api.listServiceAreas(token), api.listProducts(token)]);
+      const [areaResponse, productResponse, demandResponse] = await Promise.all([
+        api.listServiceAreas(token),
+        api.listProducts(token),
+        api.getProductDemand(token),
+      ]);
       setAreas(areaResponse.service_areas || []);
       setProducts(productResponse.products || []);
+      setDemand(demandResponse.needed || {});
       setError('');
     } catch (err) {
       setError(err.message);
@@ -67,31 +73,35 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
         onError={setError}
       />
 
-      <SectionTitle>Service areas ({areas.length})</SectionTitle>
-      {areas.length === 0 ? (
-        <Card>
-          <Empty>No service areas yet. Add one below.</Empty>
-        </Card>
-      ) : (
-        areas.map((area) => (
-          <ServiceAreaCard key={area.id} area={area} home={home} token={token} onChanged={refresh} onError={setError} />
-        ))
-      )}
+      <Card>
+        <SectionTitle>Service areas ({areas.length})</SectionTitle>
+        {areas.length === 0 ? (
+          <Empty>No service areas yet. Routes are prepared per area, so add the localities you deliver to.</Empty>
+        ) : (
+          areas.map((area) => (
+            <ServiceAreaRow key={area.id} area={area} home={home} token={token} onChanged={refresh} onError={setError} />
+          ))
+        )}
 
-      <NewServiceAreaCard
-        token={token}
-        home={home}
-        areas={areas}
-        onCreated={async (name) => {
-          setNotice(`Added ${name}.`);
-          await refresh();
-        }}
-        onError={setError}
-      />
+        <View style={styles.cardSection}>
+          <NewServiceAreaForm
+            token={token}
+            home={home}
+            areas={areas}
+            onCreated={async (name) => {
+              setNotice(`Added ${name}.`);
+              await refresh();
+            }}
+            onError={setError}
+          />
+        </View>
+      </Card>
 
       <ProductCatalogCard
         token={token}
         products={products}
+        demand={demand}
+        onChanged={refresh}
         onCreated={async (name) => {
           setNotice(`Added ${name} to your products.`);
           await refresh();
@@ -226,7 +236,7 @@ function HomeLocationCard({ token, business, onSaved, onError }) {
 // "Add a customer" — this is a create-a-new-record flow (unlike the two
 // cards above, which edit the one business record that already exists),
 // so buffer-then-submit is the right pattern here, not autosave.
-function NewServiceAreaCard({ token, home, areas, onCreated, onError }) {
+function NewServiceAreaForm({ token, home, areas, onCreated, onError }) {
   const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState('');
   const [lat, setLat] = useState('');
@@ -272,7 +282,7 @@ function NewServiceAreaCard({ token, home, areas, onCreated, onError }) {
   };
 
   return (
-    <Card>
+    <View>
       <Disclosure open={expanded} onToggle={() => setExpanded((prev) => !prev)}>
         Add a service area
       </Disclosure>
@@ -303,7 +313,7 @@ function NewServiceAreaCard({ token, home, areas, onCreated, onError }) {
           <Button title="Add service area" onPress={submit} busy={busy} disabled={!name.trim() || !lat || !lng} />
         </View>
       ) : null}
-    </Card>
+    </View>
   );
 }
 
@@ -322,7 +332,7 @@ function NewServiceAreaCard({ token, home, areas, onCreated, onError }) {
 // storage/store.go), no update or deactivate path yet — that's a
 // backend addition to make when editing an existing product is actually
 // needed, not something to fake client-side.
-function ProductCatalogCard({ token, products, onCreated, onError }) {
+function ProductCatalogCard({ token, products, demand, onChanged, onCreated, onError }) {
   const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState('');
   const [unit, setUnit] = useState('');
@@ -358,13 +368,14 @@ function ProductCatalogCard({ token, products, onCreated, onError }) {
         <Empty>Nothing yet — add your first product below.</Empty>
       ) : (
         products.map((product) => (
-          <View key={product.id} style={styles.productRow}>
-            <Text style={styles.productName}>{product.name}</Text>
-            <Text style={styles.productMeta}>
-              {product.unit}
-              {product.price_cents > 0 ? ` · ₹${(product.price_cents / 100).toFixed(2)}` : ''}
-            </Text>
-          </View>
+          <ProductRow
+            key={product.id}
+            product={product}
+            neededToday={demand[product.id] || 0}
+            token={token}
+            onChanged={onChanged}
+            onError={onError}
+          />
         ))
       )}
 
@@ -388,7 +399,109 @@ function ProductCatalogCard({ token, products, onCreated, onError }) {
   );
 }
 
-function ServiceAreaCard({ area, home, token, onChanged, onError }) {
+// One product, with the two things a business actually keeps changing:
+// what it charges, and how much of it there is this morning.
+//
+// Price was previously write-once — set at creation or never, which is
+// backwards, since a dairy usually names its products before it has
+// settled on prices. Stock is a number the admin sets rather than one
+// the app decrements per delivery: a tally that drifts the first time
+// something is spilled or given away is worse than no tally at all.
+//
+// "Needed today" is what makes the stock number mean anything. It is the
+// day's still-pending quantity for this product, so an admin loading the
+// van can see 118 needed against 120 in stock and know they are fine.
+function ProductRow({ product, neededToday, token, onChanged, onError }) {
+  const [expanded, setExpanded] = useState(false);
+  const [price, setPrice] = useState(product.price_cents > 0 ? String(product.price_cents / 100) : '');
+  const [stock, setStock] = useState(String(product.stock_quantity || 0));
+  const [unit, setUnit] = useState(product.unit || '');
+  const [busy, setBusy] = useState(false);
+
+  const short = () => {
+    const have = Number(product.stock_quantity) || 0;
+    return neededToday > 0 && have < neededToday;
+  };
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const rupees = Number(price);
+      await api.updateProduct(token, product.id, {
+        unit: unit.trim() || undefined,
+        price_cents: Number.isFinite(rupees) && rupees > 0 ? Math.round(rupees * 100) : 0,
+        stock_quantity: Number(stock) || 0,
+      });
+      setExpanded(false);
+      await onChanged();
+    } catch (err) {
+      onError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={styles.productBlock}>
+      <Pressable onPress={() => setExpanded((prev) => !prev)} accessibilityRole="button" style={styles.productRow}>
+        <View style={styles.productRowText}>
+          <Text style={styles.productName}>{product.name}</Text>
+          <Text style={styles.productMeta}>
+            {product.unit || 'no unit'}
+            {product.price_cents > 0 ? ` · ₹${(product.price_cents / 100).toFixed(2)}` : ' · no price set'}
+          </Text>
+        </View>
+        <View style={styles.productRight}>
+          <Pill
+            label={`${formatQuantity(product.stock_quantity)} in stock`}
+            tone={short() ? 'warning' : 'neutral'}
+          />
+          <Text style={styles.productChevron}>{expanded ? '▾' : '▸'}</Text>
+        </View>
+      </Pressable>
+
+      {neededToday > 0 ? (
+        <Text style={[styles.productNeeded, short() && styles.productShort]}>
+          {formatQuantity(neededToday)} needed for today&apos;s deliveries
+          {short() ? ` — ${formatQuantity(neededToday - (Number(product.stock_quantity) || 0))} short` : ''}
+        </Text>
+      ) : null}
+
+      {expanded ? (
+        <View style={styles.productEditor}>
+          <FieldRow>
+            <Field label="Unit" size="sm" value={unit} onChangeText={setUnit} placeholder="packet / can / trip" />
+            <Field label="Price ₹" size="xs" value={price} onChangeText={setPrice} keyboardType="numeric" placeholder="60" />
+            <Field label="In stock" size="xs" value={stock} onChangeText={setStock} keyboardType="numeric" />
+          </FieldRow>
+          <View style={styles.buttonRow}>
+            <Button title="Save" onPress={save} busy={busy} style={styles.flexButton} />
+            <Button
+              title="Cancel"
+              variant="secondary"
+              onPress={() => {
+                setPrice(product.price_cents > 0 ? String(product.price_cents / 100) : '');
+                setStock(String(product.stock_quantity || 0));
+                setUnit(product.unit || '');
+                setExpanded(false);
+              }}
+              style={styles.flexButton}
+            />
+          </View>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+// Quantities are whole numbers almost always (12 packets, not 12.0), but
+// half a can is a real thing — so show a decimal only when there is one.
+function formatQuantity(value) {
+  const n = Number(value) || 0;
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
+function ServiceAreaRow({ area, home, token, onChanged, onError }) {
   const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState(area.name);
   const [lat, setLat] = useState(area.lat);
@@ -426,7 +539,7 @@ function ServiceAreaCard({ area, home, token, onChanged, onError }) {
   };
 
   return (
-    <Card>
+    <View>
       <Disclosure
         open={expanded}
         onToggle={() => setExpanded((prev) => !prev)}
@@ -461,7 +574,7 @@ function ServiceAreaCard({ area, home, token, onChanged, onError }) {
           </View>
         </View>
       ) : null}
-    </Card>
+    </View>
   );
 }
 
@@ -479,15 +592,22 @@ const styles = StyleSheet.create({
   pencil: { fontSize: 16, color: colors.link },
   editHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   doneLink: { fontSize: 14, fontWeight: '700', color: colors.link },
+  productBlock: { borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: spacing.xs },
   productRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    gap: spacing.sm,
+    minHeight: 44,
   },
+  productRowText: { flex: 1 },
+  productRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  productChevron: { fontSize: 16, color: colors.link, fontWeight: '700', width: 16, textAlign: 'center' },
+  productNeeded: { fontSize: 12, color: colors.hint, marginBottom: spacing.xs },
+  productShort: { color: colors.warning, fontWeight: '700' },
+  productEditor: { marginBottom: spacing.sm },
   productName: { fontSize: 15, fontWeight: '600', color: colors.text },
   productMeta: { fontSize: 13, color: colors.subtitle },
+  cardSection: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs },
   newProductToggle: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md },
 });
