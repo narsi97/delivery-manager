@@ -3,19 +3,33 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 
 import * as api from '../api';
 import { Banner, Button, Card, Disclosure, Empty, Field, Pill, SectionTitle } from '../components';
+import EntityMapCard from '../EntityMapCard';
 import LocationPicker from '../LocationPicker';
 import { colors, spacing } from '../theme';
 
 export default function DriversScreen({ token, currentUserId, business }) {
   const [drivers, setDrivers] = useState([]);
+  const [customers, setCustomers] = useState([]);
+  const [areas, setAreas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
+  // Scopes the "see everyone" map below to the business's own operating
+  // area instead of an India-wide default — see MapPicker.web.js.
+  const home =
+    business && (business.home_lat || business.home_lng) ? { lat: business.home_lat, lng: business.home_lng } : null;
+
   const refresh = useCallback(async () => {
     try {
-      const driverResponse = await api.listDrivers(token);
+      const [driverResponse, customerResponse, areaResponse] = await Promise.all([
+        api.listDrivers(token),
+        api.listCustomers(token),
+        api.listServiceAreas(token),
+      ]);
       setDrivers(driverResponse.drivers || []);
+      setCustomers(customerResponse.customers || []);
+      setAreas(areaResponse.service_areas || []);
       setError('');
     } catch (err) {
       setError(err.message);
@@ -65,6 +79,17 @@ export default function DriversScreen({ token, currentUserId, business }) {
           />
         ))
       )}
+
+      <EntityMapCard
+        token={token}
+        editableKind="driver"
+        home={home}
+        drivers={drivers}
+        customers={customers}
+        areas={areas}
+        onChanged={refresh}
+        onError={setError}
+      />
     </ScrollView>
   );
 }

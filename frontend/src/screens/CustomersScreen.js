@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 
 import * as api from '../api';
 import { Banner, Button, Card, DeclaredFields, Disclosure, Empty, Field, FieldRow, Pill, SectionTitle } from '../components';
+import EntityMapCard from '../EntityMapCard';
 import { customFieldsFor, labelsFor, lower } from '../labels';
 import LocationPicker from '../LocationPicker';
 import { nearestAreaFor } from '../serviceAreas';
@@ -25,6 +26,7 @@ export default function CustomersScreen({ token, business }) {
   const [products, setProducts] = useState([]);
   const [subscriptions, setSubscriptions] = useState([]);
   const [areas, setAreas] = useState([]);
+  const [drivers, setDrivers] = useState([]);
   const [day, setDay] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -42,17 +44,20 @@ export default function CustomersScreen({ token, business }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [customerResponse, productResponse, subscriptionResponse, areaResponse, dayResponse] = await Promise.all([
-        api.listCustomers(token),
-        api.listProducts(token),
-        api.listRecurringOrders(token),
-        api.listServiceAreas(token),
-        api.getDay(token),
-      ]);
+      const [customerResponse, productResponse, subscriptionResponse, areaResponse, driverResponse, dayResponse] =
+        await Promise.all([
+          api.listCustomers(token),
+          api.listProducts(token),
+          api.listRecurringOrders(token),
+          api.listServiceAreas(token),
+          api.listDrivers(token),
+          api.getDay(token),
+        ]);
       setCustomers(customerResponse.customers || []);
       setProducts(productResponse.products || []);
       setSubscriptions(subscriptionResponse.recurring_orders || []);
       setAreas(areaResponse.service_areas || []);
+      setDrivers(driverResponse.drivers || []);
       setDay(dayResponse);
       setError('');
     } catch (err) {
@@ -152,6 +157,17 @@ export default function CustomersScreen({ token, business }) {
           ))
         )}
       </Card>
+
+      <EntityMapCard
+        token={token}
+        editableKind="customer"
+        home={home}
+        drivers={drivers}
+        customers={customers}
+        areas={areas}
+        onChanged={refresh}
+        onError={setError}
+      />
     </ScrollView>
   );
 }
