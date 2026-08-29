@@ -302,7 +302,7 @@ function DriverRow({ driver, token, business, isSelf, isFirst, onChanged, onErro
               {editingHome ? (
                 <View style={styles.homeEditor}>
                   <Text style={styles.note}>
-                    A round ends when the driver gets home, not back at the depot — so this changes which stop
+                    A route ends when the driver gets home, not back at the depot — so this changes which stop
                     comes last on any route they&apos;re given. Saving it re-orders the route they&apos;re on
                     today.
                   </Text>

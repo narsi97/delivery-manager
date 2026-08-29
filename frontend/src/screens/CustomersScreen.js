@@ -92,7 +92,7 @@ export default function CustomersScreen({ token, business }) {
   }
 
   // Today's stop for each customer, by id, with the route name already
-  // resolved — so CustomerCard can show "delivered on Kodad round"
+  // resolved — so CustomerCard can show "delivered on Kodad route"
   // read-only without needing the routes list itself.
   const routeNames = new Map((day?.routes || []).map((route) => [route.id, route.name]));
   const todayByCustomer = new Map(

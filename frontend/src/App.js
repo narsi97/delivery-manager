@@ -50,7 +50,7 @@ function AppShell() {
   const [session, setSession] = useState(null);
   const [tab, setTab] = useState('today');
   // 'driving' lets an owner who is both admin and driver switch to the
-  // driver view of their own round. A one-person dairy is one human doing
+  // driver view of their own route. A one-person dairy is one human doing
   // two jobs, so this is a view toggle rather than a second account.
   const [driving, setDriving] = useState(false);
   const [restoring, setRestoring] = useState(true);

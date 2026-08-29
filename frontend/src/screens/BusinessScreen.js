@@ -137,7 +137,7 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
 
         {areas.length === 0 ? (
           <Empty>
-            Nothing set up yet. A round is prepared for each place you deliver to, so this is the one thing worth
+            Nothing set up yet. A route is prepared for each place you deliver to, so this is the one thing worth
             setting up first.
           </Empty>
         ) : (
@@ -648,13 +648,13 @@ function formatQuantity(value) {
 
 // The "+" that sits at a section's own heading rather than on a repeated
 // title row underneath it ("Add a service area" directly below "Service
-// areas (1)" was saying the same thing twice). One small round button,
+// areas (1)" was saying the same thing twice). One small circular button,
 // same 44px-adjacent touch sizing as the rest of this app's icon buttons,
 // that flips to an "×" once open so it's also how you close the form.
 // What the business already told us, without meaning to.
 //
 // Service areas are the hinge the product turns on — no area means no
-// round, and every delivery falls through as a stray — and "radius in
+// route, and every delivery falls through as a stray — and "radius in
 // kilometres" is the one abstraction a dairy farmer has no word for. But
 // their customers already have pins, and where those pins cluster *is*
 // where they deliver. So the setup step is offered as something to accept

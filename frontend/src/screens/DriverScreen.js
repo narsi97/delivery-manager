@@ -22,7 +22,7 @@ import { colors, spacing } from '../theme';
 // The driver's whole app. Everything is one column, one action per stop,
 // with large touch targets — it gets used one-handed, outdoors, early.
 //
-// At real round sizes (20+ stops is an ordinary day, not an edge case)
+// At real route sizes (20+ stops is an ordinary day, not an edge case)
 // a full-height action card per stop is a wall of buttons to scroll
 // through. Only the stop actually being driven to gets the full card;
 // everything else is a single-line row that expands on tap — the same
@@ -168,7 +168,7 @@ function StopActions({ stop, token, captures, onChanged, onError }) {
   // pendingStatus is the outcome the driver has chosen but not yet
   // confirmed. It exists only when the business declared something to
   // capture for that outcome — otherwise the first tap completes the stop,
-  // because adding a confirmation step to a plain milk round would be
+  // because adding a confirmation step to a plain milk route would be
   // making every driver pay for a feature one business asked for.
   const [pendingStatus, setPendingStatus] = useState('');
   const [captured, setCaptured] = useState({});

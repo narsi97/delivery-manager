@@ -6,7 +6,7 @@ import { Banner, Button, Card, Disclosure, Empty, Field, Pill, Stepper } from '.
 import { openNavigation } from './navigation';
 import { colors, radius, spacing } from './theme';
 
-// How a single delivery is drawn, wherever it appears — inside a round,
+// How a single delivery is drawn, wherever it appears — inside a route,
 // or in the "not going out yet" card. Kept in one place so a stop looks
 // and behaves the same everywhere it turns up.
 

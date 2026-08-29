@@ -34,7 +34,7 @@ export const homeIcon = icon(
   [34, 34]
 );
 
-// A driver's own home, where their round finishes — a peaked cap, the
+// A driver's own home, where their route finishes — a peaked cap, the
 // thing a delivery rider is wearing.
 export const driverIcon = icon(
   `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">

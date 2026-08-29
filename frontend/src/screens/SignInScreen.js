@@ -211,7 +211,7 @@ function DriverSignIn({ onSession }) {
         secureTextEntry
         maxLength={6}
       />
-      <Button title={t('start_my_round')} onPress={submit} busy={busy} disabled={!phone || pin.length < 6} />
+      <Button title={t('start_my_route')} onPress={submit} busy={busy} disabled={!phone || pin.length < 6} />
       <Text style={styles.note}>{t('pin_hint')}</Text>
     </Card>
   );
@@ -219,7 +219,7 @@ function DriverSignIn({ onSession }) {
 
 // guessTimezone gives the signup form a sensible default from the browser.
 // The value is still editable, because the person setting a business up is
-// not always sitting in the same timezone as the round.
+// not always sitting in the same timezone as the route.
 function guessTimezone() {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata';

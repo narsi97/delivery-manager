@@ -9,13 +9,13 @@ import { selectStyle } from './routeCards';
 import RouteMap from './RouteMap';
 import { colors, radius, spacing } from './theme';
 
-// The day's drop points, coloured by round, with a tap-to-act control —
+// The day's drop points, coloured by route, with a tap-to-act control —
 // the map half of the day's own card, shown when its Rounds section is
 // switched from List to Map.
 //
 // It used to be a separate "Check the route map" card at the bottom of
 // the page, which made the same day's work look like a different subject
-// from the round cards above it. It is the same rounds seen
+// from the route cards above it. It is the same routes seen
 // geographically, so it belongs inside the same card, behind the same
 // List/Map switch the rosters use.
 //
@@ -56,7 +56,7 @@ export default function DayRouteMapPanel({ token, stops, routes, drivers, home, 
     <View>
       <Banner message={error} />
       <Text style={styles.note}>
-        Every delivery for this day, coloured by the round it&apos;s on. Drivers and your business are shown muted for
+        Every delivery for this day, coloured by the route it&apos;s on. Drivers and your business are shown muted for
         reference. Tap one to move it or fix its pin; tap anything else to see what it is.
       </Text>
 
@@ -77,7 +77,7 @@ export default function DayRouteMapPanel({ token, stops, routes, drivers, home, 
             {selectedStop.quantity} × {selectedStop.product_name}
             {selectedStop.customer_address ? ` · ${selectedStop.customer_address}` : ''}
           </Text>
-          <Text style={styles.selectedMeta}>Currently on: {currentRoute ? currentRoute.name : 'no round'}</Text>
+          <Text style={styles.selectedMeta}>Currently on: {currentRoute ? currentRoute.name : 'no route'}</Text>
 
           <Text style={styles.moveLabel}>Move to</Text>
           <select
@@ -86,7 +86,7 @@ export default function DayRouteMapPanel({ token, stops, routes, drivers, home, 
             onChange={(event) => move(event.target.value)}
             style={moveSelectStyle}
           >
-            <option value="">Take off every round</option>
+            <option value="">Take off every route</option>
             {routes.map((route) => (
               <option key={route.id} value={route.id}>
                 {route.name}

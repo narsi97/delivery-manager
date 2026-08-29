@@ -4,25 +4,31 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import * as api from './api';
 import { Banner, Button, Card, Disclosure, Pill } from './components';
 import { StopCard } from './routeCards';
+import { lower } from './labels';
 import { colors, radius, spacing } from './theme';
 
-// One service area's delivery round, as the person running the dairy
-// thinks about it: a place, and who is driving it today.
+// One service area's route, as the person running the dairy thinks about
+// it: a place, and who is driving it today.
+//
+// "Route" is the business's own word for this (labels.route — a school
+// operator may call it a run), so it is never hardcoded in anything the
+// admin reads.
 //
 // This replaces route management as the admin's daily surface. Routes are
 // prepared automatically for every area that has work (see
-// ensureDayRounds), so "create a route" was never the job — the job is
+// ensureDayRoutes), so "create a route" was never the job — the job is
 // naming who goes out, and everything else follows from that. Picking two
 // drivers splits the area between them, each finishing at their own home;
-// picking one gives one round; picking nobody leaves it prepared and
+// picking one gives one route; picking nobody leaves it prepared and
 // unassigned. There is no count to choose and no form to fill in.
 //
 // Everything that is not that one decision — re-optimizing, deleting,
 // clearing the day — lives behind the options button, because it is rare,
 // mostly destructive, and never what the morning is about.
-export default function AreaRoundsCard({
+export default function AreaRoutesCard({
   token,
   area,
+  labels,
   routes,
   stops,
   drivers,
@@ -110,7 +116,7 @@ export default function AreaRoundsCard({
       )}
       <Text style={styles.note}>
         {assigned.length === 0
-          ? 'Nobody assigned yet. Tap a name — the round is already planned and waiting.'
+          ? `Nobody assigned yet. Tap a name — the ${lower(labels.route)} is already planned and waiting.`
           : assigned.length === 1
             ? 'Finishes at their home. Tap another name to share the area between two drivers.'
             : `Split between ${assigned.length}, each taking the side nearest their own home.`}
@@ -136,7 +142,7 @@ export default function AreaRoundsCard({
       {showOptions ? (
         <View style={styles.options}>
           <Text style={styles.optionsNote}>
-            Rarely needed — the round re-plans itself whenever you change who is driving.
+            Rarely needed — the {lower(labels.route)} re-plans itself whenever you change who is driving.
           </Text>
           <View style={styles.optionsRow}>
             {onRebuild ? (
@@ -150,7 +156,7 @@ export default function AreaRoundsCard({
             ) : null}
             {onDelete ? (
               <Button
-                title="Clear this round"
+                title={`Clear this ${lower(labels.route)}`}
                 variant="danger"
                 onPress={onDelete}
                 style={styles.optionButton}
@@ -181,11 +187,11 @@ export default function AreaRoundsCard({
   );
 }
 
-// A round the automatic per-area preparation cannot explain: one an admin
+// A route the automatic per-area preparation cannot explain: one an admin
 // built by hand, or one left over from a service area since removed.
 // Shown plainly rather than hidden, with the same driver picker it always
 // had, so nothing an admin made ever disappears from the screen.
-export function LooseRoundCard({ route, stops, drivers, products, token, onChanged, onError, onDelete }) {
+export function LooseRouteCard({ route, stops, drivers, products, token, onChanged, onError, onDelete, labels }) {
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const routeStops = stops.filter((stop) => stop.route_id === route.id);
@@ -232,7 +238,7 @@ export function LooseRoundCard({ route, stops, drivers, products, token, onChang
       </select>
 
       {onDelete ? (
-        <Button title="Clear this round" variant="secondary" onPress={onDelete} style={styles.spaced} />
+        <Button title={`Clear this ${lower(labels.route)}`} variant="secondary" onPress={onDelete} style={styles.spaced} />
       ) : null}
 
       <Disclosure compact open={expanded} onToggle={() => setExpanded((prev) => !prev)}>

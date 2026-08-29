@@ -76,7 +76,7 @@ export function Field({ label, hint, size = 'full', ...inputProps }) {
   );
 }
 
-// A quantity is picked, not typed. "How many today?" on a milk round is
+// A quantity is picked, not typed. "How many today?" on a milk route is
 // almost always one tap away from what it already is, and a text box
 // asks the least technical user in this app — an admin on a phone,
 // mid-morning — to select, delete, and retype a digit to say "one more".

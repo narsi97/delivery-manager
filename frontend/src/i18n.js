@@ -25,7 +25,7 @@ export const LANGUAGES = [
 const STRINGS = {
   en: {
     app_title: 'Delivery Manager',
-    app_subtitle: 'Recurring deliveries, optimized rounds, one app.',
+    app_subtitle: 'Recurring deliveries, optimized routes, one app.',
     tab_business_admin: 'Business admin',
     tab_driver: 'Driver',
     sign_in: 'Sign in',
@@ -46,7 +46,7 @@ const STRINGS = {
     phone_number_label: 'Phone number',
     pin_label: 'PIN',
     pin_placeholder_digits: '6 digits',
-    start_my_round: 'Start my round',
+    start_my_route: 'Start my route',
     pin_hint: 'Your PIN comes from whoever manages your deliveries. Ask them to reset it if you forget.',
     sign_out: 'Sign out',
     role_admin: 'admin',
@@ -76,7 +76,7 @@ const STRINGS = {
   },
   te: {
     app_title: 'డెలివరీ మేనేజర్',
-    app_subtitle: 'క్రమం తప్పకుండా డెలివరీలు, ఆప్టిమైజ్డ్ రౌండ్లు, ఒకే యాప్.',
+    app_subtitle: 'క్రమం తప్పకుండా డెలివరీలు, ఆప్టిమైజ్డ్ రూట్లు, ఒకే యాప్.',
     tab_business_admin: 'వ్యాపార అడ్మిన్',
     tab_driver: 'డ్రైవర్',
     sign_in: 'సైన్ ఇన్',
@@ -97,7 +97,7 @@ const STRINGS = {
     phone_number_label: 'ఫోన్ నంబర్',
     pin_label: 'పిన్',
     pin_placeholder_digits: '6 అంకెలు',
-    start_my_round: 'నా రౌండ్ ప్రారంభించండి',
+    start_my_route: 'నా రూట్ ప్రారంభించండి',
     pin_hint: 'మీ పిన్ మీ డెలివరీలను నిర్వహించే వ్యక్తి నుండి వస్తుంది. మర్చిపోతే, దాన్ని రీసెట్ చేయమని వారిని అడగండి.',
     sign_out: 'సైన్ అవుట్',
     role_admin: 'అడ్మిన్',

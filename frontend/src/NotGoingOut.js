@@ -5,6 +5,7 @@ import * as api from './api';
 import { Banner, Button, Card, Disclosure, Field, Pill, SectionTitle } from './components';
 import LocationPicker from './LocationPicker';
 import { StopCard } from './routeCards';
+import { lower } from './labels';
 import { nearestAreaFor } from './serviceAreas';
 import { colors, spacing } from './theme';
 
@@ -22,7 +23,7 @@ import { colors, spacing } from './theme';
 // A delivery is only ever in one group, the counts add up to the total,
 // and the heading says the thing the admin actually cares about — these
 // are not going out — rather than naming an internal state.
-export default function NotGoingOut({ token, stops, areas, home, date, products, onChanged, onError, onNotice }) {
+export default function NotGoingOut({ token, stops, areas, home, date, products, labels, onChanged, onError, onNotice }) {
   const pending = stops.filter((stop) => !stop.route_id && stop.status === 'pending');
   if (pending.length === 0) {
     return null;
@@ -64,27 +65,20 @@ export default function NotGoingOut({ token, stops, areas, home, date, products,
       <CauseGroup
         title="Outside where you deliver"
         count={outside.length}
-        explanation="These sit outside every area you've set up, so no round covers them. Setting up that area on the Business tab fixes it for good — every day from then on. To get just today out, build a one-off round for them below."
+        explanation={`These sit outside every area you've set up, so no ${lower(labels.route)} covers them. Setting up that area on the Business tab fixes it for good — every day from then on. To get just today out, build a one-off ${lower(labels.route)} for them below.`}
         stops={outside}
         products={products}
         token={token}
         onChanged={onChanged}
         onError={onError}
       >
-        <OneOffRound
-          token={token}
-          stops={outside}
-          areas={areas}
-          home={home}
-          date={date}
-          onDone={onNotice}
-        />
+        <OneOffRoute token={token} stops={outside} areas={areas} home={home} date={date} labels={labels} onDone={onNotice} />
       </CauseGroup>
 
       <CauseGroup
-        title="Waiting for a round"
+        title={`Waiting for a ${lower(labels.route)}`}
         count={waiting.length}
-        explanation="These are inside an area you deliver to, so a round will pick them up. If they're still here after a reload, the area's round was cleared — it comes back on its own tomorrow, or you can rebuild it from the round's options."
+        explanation={`These are inside an area you deliver to, so a ${lower(labels.route)} will pick them up. If they're still here after a reload, the area's ${lower(labels.route)} was cleared — it comes back on its own tomorrow, or you can rebuild it from its options.`}
         stops={waiting}
         products={products}
         token={token}
@@ -133,15 +127,15 @@ function CauseGroup({ title, count, explanation, stops, products, token, onChang
   );
 }
 
-// Today's way out for deliveries no area covers: put them on a round of
+// Today's way out for deliveries no area covers: put them on a route of
 // their own. Deliberately not automatic — dropping a customer 60km away
-// onto whichever round happened to exist is exactly the behaviour that
+// onto whichever route happened to exist is exactly the behaviour that
 // made service areas necessary in the first place.
 //
 // Owns its own error state rather than pushing it to a banner at the top
 // of the page: an error about this action belongs next to this action,
 // where the person who pressed the button is already looking.
-function OneOffRound({ token, stops, areas, home, date, onDone }) {
+function OneOffRoute({ token, stops, areas, home, date, labels, onDone }) {
   const [expanded, setExpanded] = useState(false);
   const [depot, setDepot] = useState(() =>
     home ? { lat: String(home.lat), lng: String(home.lng) } : { lat: '', lng: '' }
@@ -154,7 +148,7 @@ function OneOffRound({ token, stops, areas, home, date, onDone }) {
     const lat = Number(depot.lat);
     const lng = Number(depot.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) {
-      setError('Set where this round starts from first — use your location, or drop a pin on the map.');
+      setError(`Set where this ${lower(labels.route)} starts from first — use your location, or drop a pin on the map.`);
       return;
     }
     setBusy(true);
@@ -164,11 +158,11 @@ function OneOffRound({ token, stops, areas, home, date, onDone }) {
       const result = await api.buildRoute(token, {
         start_lat: lat,
         start_lng: lng,
-        name: name.trim() || (area ? `${area.name} round` : 'Extra round'),
+        name: name.trim() || (area ? `${area.name} ${lower(labels.route)}` : `Extra ${lower(labels.route)}`),
         order_ids: stops.map((stop) => stop.id),
         date: date || undefined,
       });
-      await onDone(`Round built with ${result.stops.length} stops.`);
+      await onDone(`${labels.route} built with ${result.stops.length} stops.`);
       setExpanded(false);
       setName('');
     } catch (err) {
@@ -181,21 +175,21 @@ function OneOffRound({ token, stops, areas, home, date, onDone }) {
   return (
     <View style={styles.oneOff}>
       <Disclosure compact open={expanded} onToggle={() => setExpanded((prev) => !prev)}>
-        Build a one-off round for these {stops.length}
+        Build a one-off {lower(labels.route)} for these {stops.length}
       </Disclosure>
       {expanded ? (
         <View>
           <Banner message={error} />
-          <Field label="Name (optional)" size="md" value={name} onChangeText={setName} placeholder="Extra round" />
+          <Field label="Name (optional)" size="md" value={name} onChangeText={setName} placeholder={`Extra ${lower(labels.route)}`} />
           <LocationPicker
-            label="Where does this round start?"
+            label={`Where does this ${lower(labels.route)} start?`}
             lat={Number(depot.lat) || 0}
             lng={Number(depot.lng) || 0}
             onChange={(lat, lng) => setDepot({ lat: lat.toFixed(6), lng: lng.toFixed(6) })}
             home={home}
             areas={areas}
           />
-          <Button title={`Build a round for these ${stops.length}`} onPress={build} busy={busy} />
+          <Button title={`Build a ${lower(labels.route)} for these ${stops.length}`} onPress={build} busy={busy} />
         </View>
       ) : null}
     </View>
