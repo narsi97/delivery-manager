@@ -2,13 +2,13 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import * as api from '../api';
-import { Banner, Button, Card, Disclosure, Empty, Field, FieldRow, Pill, SectionTitle, Stepper } from '../components';
+import { Banner, Button, Card, Disclosure, Empty, Field, SectionTitle, Stepper } from '../components';
 import DateNav from '../DateNav';
+import DayRouteMapCard from '../DayRouteMapCard';
 import LocationPicker from '../LocationPicker';
-import RouteMap from '../RouteMap';
-import { RouteSummary, selectStyle } from '../routeCards';
+import { RouteSummary } from '../routeCards';
 import { nearestAreaFor } from '../serviceAreas';
-import { colors, radius, spacing } from '../theme';
+import { colors, spacing } from '../theme';
 
 // Where a day's routes are made and checked.
 //
@@ -187,10 +187,11 @@ export default function RoutesScreen({ token, business }) {
       </Card>
 
       {mappableStops.length > 0 ? (
-        <RouteMapCard
+        <DayRouteMapCard
           token={token}
           stops={mappableStops}
           routes={routes}
+          drivers={drivers}
           home={home}
           onChanged={refresh}
         />
@@ -224,112 +225,6 @@ export default function RoutesScreen({ token, business }) {
     </ScrollView>
   );
 }
-
-// The day's drop points, coloured by route, with a tap-to-move control.
-//
-// Selection lives here rather than inside the map: the map's job is
-// geography, and "which route should this go on" is a picker like every
-// other picker in this app. Keeping them apart means the map never has
-// to grow a popup form, and the control below can say what it's about to
-// do in plain words.
-function RouteMapCard({ token, stops, routes, home, onChanged }) {
-  const [expanded, setExpanded] = useState(false);
-  const [selected, setSelected] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-
-  // The selected stop is re-read from the freshly loaded list on every
-  // render, so after a move it shows its new route rather than the stale
-  // copy captured when it was tapped.
-  const selectedStop = selected ? stops.find((stop) => stop.id === selected) || null : null;
-  const currentRoute = selectedStop ? routes.find((route) => route.id === selectedStop.route_id) : null;
-
-  const move = async (routeId) => {
-    setBusy(true);
-    setError('');
-    try {
-      await api.moveStopToRoute(token, selectedStop.id, routeId);
-      await onChanged();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const unroutedCount = stops.filter((stop) => !stop.route_id).length;
-
-  return (
-    <Card>
-      <Disclosure
-        open={expanded}
-        onToggle={() => setExpanded((prev) => !prev)}
-        right={unroutedCount > 0 ? <Pill label={`${unroutedCount} unassigned`} tone="warning" /> : null}
-      >
-        Check the route map
-      </Disclosure>
-
-      {expanded ? (
-        <View>
-          <Banner message={error} />
-          <Text style={styles.note}>
-            Every drop point for this day, coloured by the route it&apos;s on. Tap a pin to move it to a different
-            route — both routes are re-ordered afterwards so they still make sense to drive.
-          </Text>
-
-          <RouteMap
-            stops={stops}
-            routes={routes}
-            home={home}
-            selectedStopId={selectedStop?.id || null}
-            onSelect={(stop) => setSelected(stop.id)}
-          />
-
-          {selectedStop ? (
-            <View style={styles.selectedBox}>
-              <Text style={styles.selectedName}>{selectedStop.customer_name}</Text>
-              <Text style={styles.selectedMeta}>
-                {selectedStop.quantity} × {selectedStop.product_name}
-                {selectedStop.customer_address ? ` · ${selectedStop.customer_address}` : ''}
-              </Text>
-              <Text style={styles.selectedMeta}>
-                Currently on: {currentRoute ? currentRoute.name : 'no route'}
-              </Text>
-
-              <Text style={styles.moveLabel}>Move to</Text>
-              <select
-                value={selectedStop.route_id || ''}
-                disabled={busy}
-                onChange={(event) => move(event.target.value)}
-                style={moveSelectStyle}
-              >
-                <option value="">Take off every route</option>
-                {routes.map((route) => (
-                  <option key={route.id} value={route.id}>
-                    {route.name}
-                  </option>
-                ))}
-              </select>
-
-              <Button
-                title="Done"
-                variant="secondary"
-                onPress={() => setSelected(null)}
-                style={styles.spaced}
-              />
-            </View>
-          ) : (
-            <Text style={styles.note}>Tap any pin to see who it is and move it.</Text>
-          )}
-        </View>
-      ) : null}
-    </Card>
-  );
-}
-
-// Sized to content like every other picker in this app — a route name is
-// a few words, not a paragraph. See routeCards.js's compactSelectStyle.
-const moveSelectStyle = { ...selectStyle, width: 'auto', minWidth: 180, maxWidth: 300, flexGrow: 0 };
 
 // Creating routes.
 //
@@ -613,15 +508,6 @@ const styles = StyleSheet.create({
   toggleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
   toggleBox: { fontSize: 20, color: colors.link },
   toggleLabel: { fontSize: 15, color: colors.text, fontWeight: '600' },
-  selectedBox: {
-    marginTop: spacing.sm,
-    padding: spacing.md,
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: radius.md,
-  },
-  selectedName: { fontSize: 16, fontWeight: '700', color: colors.text },
-  selectedMeta: { fontSize: 13, color: colors.subtitle, marginTop: 2 },
-  moveLabel: { fontSize: 13, fontWeight: '600', color: colors.label, marginTop: spacing.md, marginBottom: spacing.xs },
   modeRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
   modeButton: { flex: 1, minWidth: 130 },
 });

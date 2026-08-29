@@ -4,6 +4,7 @@ import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import * as api from '../api';
 import { Banner, Card, Empty, SectionTitle } from '../components';
 import DateNav from '../DateNav';
+import DayRouteMapCard from '../DayRouteMapCard';
 import DonutChart from '../DonutChart';
 import { RouteSummary, UnassignedDeliveries } from '../routeCards';
 import { colors, spacing } from '../theme';
@@ -85,6 +86,11 @@ export default function TodayScreen({ token, business }) {
 
   const summary = day?.summary || {};
   const routes = day?.routes || [];
+  const home = business.home_lat || business.home_lng ? { lat: business.home_lat, lng: business.home_lng } : null;
+  // Same map RoutesScreen offers — Today is a second lens on the same
+  // day, not a different feature, so the two must never quietly drift
+  // apart. See DayRouteMapCard's own comment.
+  const mappableStops = (day?.stops || []).filter((stop) => stop.lat || stop.lng);
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
@@ -143,6 +149,17 @@ export default function TodayScreen({ token, business }) {
           onError={setError}
         />
       </Card>
+
+      {mappableStops.length > 0 ? (
+        <DayRouteMapCard
+          token={token}
+          stops={mappableStops}
+          routes={routes}
+          drivers={drivers}
+          home={home}
+          onChanged={refresh}
+        />
+      ) : null}
     </ScrollView>
   );
 }
