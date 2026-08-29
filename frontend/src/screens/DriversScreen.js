@@ -46,25 +46,26 @@ export default function DriversScreen({ token, currentUserId, business }) {
         onError={setError}
       />
 
-      <SectionTitle>Drivers ({drivers.length})</SectionTitle>
-      {drivers.length === 0 ? (
-        <Card>
+      <Card>
+        <SectionTitle>Drivers ({drivers.length})</SectionTitle>
+        {drivers.length === 0 ? (
           <Empty>No drivers yet.</Empty>
-        </Card>
-      ) : (
-        drivers.map((driver) => (
-          <DriverCard
-            key={driver.id}
-            driver={driver}
-            token={token}
-            business={business}
-            isSelf={driver.id === currentUserId}
-            onChanged={refresh}
-            onError={setError}
-            onNotice={setNotice}
-          />
-        ))
-      )}
+        ) : (
+          drivers.map((driver, index) => (
+            <DriverRow
+              key={driver.id}
+              driver={driver}
+              token={token}
+              business={business}
+              isSelf={driver.id === currentUserId}
+              isFirst={index === 0}
+              onChanged={refresh}
+              onError={setError}
+              onNotice={setNotice}
+            />
+          ))
+        )}
+      </Card>
     </ScrollView>
   );
 }
@@ -126,7 +127,13 @@ function NewDriverCard({ token, onCreated, onError }) {
   );
 }
 
-function DriverCard({ driver, token, business, isSelf, onChanged, onError, onNotice }) {
+// One driver, as a row inside the shared Drivers card rather than a card
+// of its own — see the "keep them together" note on DriversScreen above.
+// A divider stands in for the border every separate Card used to draw,
+// so three drivers still read as three distinct records without three
+// boxes of whitespace between them.
+function DriverRow({ driver, token, business, isSelf, isFirst, onChanged, onError, onNotice }) {
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [editingHome, setEditingHome] = useState(false);
   const [newPin, setNewPin] = useState('');
@@ -148,58 +155,75 @@ function DriverCard({ driver, token, business, isSelf, onChanged, onError, onNot
   };
 
   return (
-    <Card>
+    <View style={[styles.driverRow, !isFirst && styles.driverRowDivider]}>
       <View style={styles.driverHeader}>
         <View style={styles.driverHeaderText}>
           <Text style={styles.driverName}>{driver.name}</Text>
           <Text style={styles.driverMeta}>{driver.phone}</Text>
         </View>
-        <Pill label={driver.active ? 'active' : 'deactivated'} tone={driver.active ? 'success' : 'neutral'} />
+        <View style={styles.driverHeaderRight}>
+          <Pill label={driver.active ? 'active' : 'deactivated'} tone={driver.active ? 'success' : 'neutral'} />
+          {/* Reset PIN and Deactivate are rare, one-off actions — showing
+              both as standing buttons on every row is exactly the kind
+              of always-on weight this merge is meant to remove. One
+              small trigger, same disclosure shape used everywhere else
+              in this app, rather than a floating menu this stack has no
+              proven pattern for. */}
+          <Pressable
+            onPress={() => setOptionsOpen((prev) => !prev)}
+            accessibilityRole="button"
+            accessibilityLabel={`Options for ${driver.name}`}
+            style={styles.optionsButton}
+          >
+            <Text style={styles.optionsDots}>⋯</Text>
+          </Pressable>
+        </View>
       </View>
 
-      {resetting ? (
-        <View style={styles.resetBox}>
-          <Field label="New PIN" size="xs" value={newPin} onChangeText={setNewPin} keyboardType="number-pad" maxLength={6} />
-          <View style={styles.buttonRow}>
-            <Button
-              title="Set PIN"
-              busy={busy}
-              disabled={newPin.length !== 6}
-              onPress={() =>
-                act(
-                  () => api.resetDriverPin(token, driver.id, newPin),
-                  () => {
-                    onNotice(`${driver.name}'s PIN is now ${newPin}.`);
-                    setResetting(false);
-                    setNewPin('');
-                  }
-                )
-              }
-              style={styles.flexButton}
-            />
-            <Button title="Cancel" variant="secondary" onPress={() => setResetting(false)} style={styles.flexButton} />
+      {optionsOpen ? (
+        resetting ? (
+          <View style={styles.resetBox}>
+            <Field label="New PIN" size="xs" value={newPin} onChangeText={setNewPin} keyboardType="number-pad" maxLength={6} />
+            <View style={styles.buttonRow}>
+              <Button
+                title="Set PIN"
+                busy={busy}
+                disabled={newPin.length !== 6}
+                onPress={() =>
+                  act(
+                    () => api.resetDriverPin(token, driver.id, newPin),
+                    () => {
+                      onNotice(`${driver.name}'s PIN is now ${newPin}.`);
+                      setResetting(false);
+                      setNewPin('');
+                      setOptionsOpen(false);
+                    }
+                  )
+                }
+                style={styles.flexButton}
+              />
+              <Button title="Cancel" variant="secondary" onPress={() => setResetting(false)} style={styles.flexButton} />
+            </View>
           </View>
-        </View>
-      ) : (
-        <View style={styles.buttonRow}>
-          <Button title="Reset PIN" variant="secondary" onPress={() => setResetting(true)} style={styles.flexButton} />
-          {!isSelf ? (
-            <Button
-              title={driver.active ? 'Deactivate' : 'Reactivate'}
-              variant={driver.active ? 'danger' : 'secondary'}
-              busy={busy}
-              onPress={() => act(() => api.setDriverActive(token, driver.id, !driver.active))}
-              style={styles.flexButton}
-            />
-          ) : null}
-        </View>
-      )}
+        ) : (
+          <View style={styles.buttonRow}>
+            <Button title="Reset PIN" variant="secondary" onPress={() => setResetting(true)} style={styles.flexButton} />
+            {!isSelf ? (
+              <Button
+                title={driver.active ? 'Deactivate' : 'Reactivate'}
+                variant={driver.active ? 'danger' : 'secondary'}
+                busy={busy}
+                onPress={() => act(() => api.setDriverActive(token, driver.id, !driver.active), () => setOptionsOpen(false))}
+                style={styles.flexButton}
+              />
+            ) : null}
+          </View>
+        )
+      ) : null}
 
       <View style={styles.homeSection}>
         <Disclosure compact open={editingHome} onToggle={() => setEditingHome((prev) => !prev)}>
-          {driver.home_lat || driver.home_lng
-            ? `Finishes at ${driver.home_lat.toFixed(4)}, ${driver.home_lng.toFixed(4)}`
-            : 'Where does this driver finish?'}
+          {driver.home_lat || driver.home_lng ? 'Finishes at a saved location' : 'Where does this driver finish?'}
         </Disclosure>
         {editingHome ? (
           <View>
@@ -212,7 +236,7 @@ function DriverCard({ driver, token, business, isSelf, onChanged, onError, onNot
               lng={driver.home_lng}
               onChange={(lat, lng) =>
                 act(() => api.setDriverHome(token, driver.id, lat, lng), () =>
-                  onNotice(`${driver.name} now finishes at ${lat.toFixed(4)}, ${lng.toFixed(4)}.`)
+                  onNotice(`${driver.name}'s route will now finish at their home.`)
                 )
               }
               home={business && (business.home_lat || business.home_lng)
@@ -229,7 +253,7 @@ function DriverCard({ driver, token, business, isSelf, onChanged, onError, onNot
           Deactivated drivers are signed out immediately, including on a phone they still have in their hand.
         </Text>
       )}
-    </Card>
+    </View>
   );
 }
 
@@ -237,10 +261,21 @@ const styles = StyleSheet.create({
   page: { padding: spacing.lg, maxWidth: 720, width: '100%', alignSelf: 'center' },
   loader: { marginTop: spacing.xl * 2 },
   note: { fontSize: 12, color: colors.hint, marginTop: spacing.sm, lineHeight: 17 },
+  driverRow: { paddingVertical: spacing.md },
+  driverRowDivider: { borderTopWidth: 1, borderTopColor: colors.border },
   driverHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   driverHeaderText: { flex: 1 },
+  driverHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   driverName: { fontSize: 16, fontWeight: '700', color: colors.text },
   driverMeta: { fontSize: 13, color: colors.subtitle, marginTop: 2 },
+  optionsButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  optionsDots: { fontSize: 20, fontWeight: '700', color: colors.subtitle, lineHeight: 20 },
   resetBox: { marginTop: spacing.md },
   homeSection: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs },
   buttonRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md, flexWrap: 'wrap' },
