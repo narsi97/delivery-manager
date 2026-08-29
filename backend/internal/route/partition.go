@@ -49,19 +49,49 @@ func Partition(stops []Point, k int) [][]Point {
 	}
 
 	// Sorting first is what makes the seeding positional: k evenly spaced
-	// picks through a north-to-south ordering start the groups spread
-	// across the whole delivery area instead of clumped wherever the
-	// customer list happened to begin.
+	// picks through the ordering start the groups spread across the whole
+	// delivery area instead of clumped wherever the customer list happened
+	// to begin.
+	//
+	// The sort runs along whichever axis the stops actually spread along,
+	// measured in metres so the comparison survives longitude lines
+	// crowding together away from the equator. Sorting north-to-south
+	// unconditionally reads well but seeds badly for the very ordinary
+	// case of a town strung out east-west along a highway: every seed
+	// lands in the same end of it, and the split comes back cut across
+	// the short axis — two drivers each running the full length of the
+	// road instead of taking an end each.
 	ordered := make([]Point, len(stops))
 	copy(ordered, stops)
+
+	minLat, maxLat := ordered[0].Lat, ordered[0].Lat
+	minLng, maxLng := ordered[0].Lng, ordered[0].Lng
+	for _, p := range ordered[1:] {
+		minLat, maxLat = math.Min(minLat, p.Lat), math.Max(maxLat, p.Lat)
+		minLng, maxLng = math.Min(minLng, p.Lng), math.Max(maxLng, p.Lng)
+	}
+	midLat, midLng := (minLat+maxLat)/2, (minLng+maxLng)/2
+	northSouth := DistanceMeters(minLat, midLng, maxLat, midLng)
+	eastWest := DistanceMeters(midLat, minLng, midLat, maxLng)
+
+	// Ties break to latitude, so a perfectly square spread — and any set
+	// of identical points — still orders the one deterministic way.
+	sortByLng := eastWest > northSouth
 	sort.SliceStable(ordered, func(i, j int) bool {
-		if ordered[i].Lat != ordered[j].Lat {
-			return ordered[i].Lat < ordered[j].Lat
+		a, b := ordered[i], ordered[j]
+		first, second := a.Lat, b.Lat
+		third, fourth := a.Lng, b.Lng
+		if sortByLng {
+			first, second = a.Lng, b.Lng
+			third, fourth = a.Lat, b.Lat
 		}
-		if ordered[i].Lng != ordered[j].Lng {
-			return ordered[i].Lng < ordered[j].Lng
+		if first != second {
+			return first < second
 		}
-		return ordered[i].ID < ordered[j].ID
+		if third != fourth {
+			return third < fourth
+		}
+		return a.ID < b.ID
 	})
 
 	centroids := make([]Point, k)
@@ -211,4 +241,111 @@ func SpreadMeters(group []Point) float64 {
 		}
 	}
 	return math.Max(worst, 0)
+}
+
+// Centroid is the mean position of a set of stops. Empty input returns
+// the zero Point, which callers should treat as "no answer" rather than
+// as a location — see AssignToFinishes, which only ever calls this on
+// groups it already knows are non-empty.
+func Centroid(points []Point) Point {
+	if len(points) == 0 {
+		return Point{}
+	}
+	var lat, lng float64
+	for _, p := range points {
+		lat += p.Lat
+		lng += p.Lng
+	}
+	n := float64(len(points))
+	return Point{Lat: lat / n, Lng: lng / n}
+}
+
+// AssignToFinishes decides which driver takes which group, given where
+// each driver finishes their day.
+//
+// Partition cuts the map into balanced clusters but has no opinion about
+// who drives them, and assigning them in arbitrary order is how the
+// driver who lives north of town ends up with the southern cluster and a
+// long empty drive home. Since a round now ends at the driver's own home
+// (see OptimizeReturning and domain.Route.EndLat), that closing leg is
+// real distance, and matching it is nearly free.
+//
+// Pairs are taken greedily in ascending distance from a group's centre to
+// a finish point: the single best (group, driver) pairing available is
+// committed, then the next best among what is left, and so on. That is
+// the same "most constrained first" spirit as assignBalanced — the
+// pairing with the most to lose gets to choose first — and unlike a
+// per-group nearest-wins loop it cannot have the first group claim the
+// home that the second group needed far more.
+//
+// Deterministic: distances are compared with index tie-breaks, so the
+// same drivers and the same stops always produce the same hand-out. An
+// admin who re-assigns without changing anything must not get a
+// reshuffle.
+//
+// Returns finish index per group. Extra groups beyond len(finishes) —
+// which callers should not produce — are left as -1.
+func AssignToFinishes(groups [][]Point, finishes []Point) []int {
+	assigned := make([]int, len(groups))
+	for i := range assigned {
+		assigned[i] = -1
+	}
+	if len(groups) == 0 || len(finishes) == 0 {
+		return assigned
+	}
+
+	type pair struct {
+		group, finish int
+		meters        float64
+	}
+	pairs := make([]pair, 0, len(groups)*len(finishes))
+	for g, group := range groups {
+		if len(group) == 0 {
+			continue
+		}
+		centre := Centroid(group)
+		for f, finish := range finishes {
+			pairs = append(pairs, pair{
+				group:  g,
+				finish: f,
+				meters: DistanceMeters(centre.Lat, centre.Lng, finish.Lat, finish.Lng),
+			})
+		}
+	}
+
+	sort.SliceStable(pairs, func(i, j int) bool {
+		if pairs[i].meters != pairs[j].meters {
+			return pairs[i].meters < pairs[j].meters
+		}
+		if pairs[i].group != pairs[j].group {
+			return pairs[i].group < pairs[j].group
+		}
+		return pairs[i].finish < pairs[j].finish
+	})
+
+	takenFinish := make([]bool, len(finishes))
+	for _, p := range pairs {
+		if assigned[p.group] != -1 || takenFinish[p.finish] {
+			continue
+		}
+		assigned[p.group] = p.finish
+		takenFinish[p.finish] = true
+	}
+
+	// More groups than finishes, or a group whose driver has no home
+	// recorded: hand out whatever is left in index order so every group
+	// still gets a driver. Ordering by geography stopped being possible
+	// the moment there was nothing left to compare against.
+	for g := range assigned {
+		if assigned[g] != -1 || len(groups[g]) == 0 {
+			continue
+		}
+		for f := range takenFinish {
+			if !takenFinish[f] {
+				assigned[g], takenFinish[f] = f, true
+				break
+			}
+		}
+	}
+	return assigned
 }
