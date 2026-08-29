@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 
 import * as api from '../api';
 import { Banner, Button, Card, Disclosure, Empty, Field, Pill, SectionTitle } from '../components';
-import MapPicker from '../MapPicker';
+import LocationPicker from '../LocationPicker';
 import { colors, spacing } from '../theme';
 
 export default function DriversScreen({ token, currentUserId, business }) {
@@ -197,9 +197,7 @@ function DriverCard({ driver, token, business, isSelf, onChanged, onError, onNot
 
       <View style={styles.homeSection}>
         <Disclosure compact open={editingHome} onToggle={() => setEditingHome((prev) => !prev)}>
-          {driver.home_lat || driver.home_lng
-            ? `Finishes at ${driver.home_lat.toFixed(4)}, ${driver.home_lng.toFixed(4)}`
-            : 'Where does this driver finish?'}
+          {driver.home_lat || driver.home_lng ? 'Finishes at a saved location' : 'Where does this driver finish?'}
         </Disclosure>
         {editingHome ? (
           <View>
@@ -207,12 +205,13 @@ function DriverCard({ driver, token, business, isSelf, onChanged, onError, onNot
               A round ends when the driver gets home, not back at the depot — so this changes which stop comes
               last on any route they&apos;re given. Saving it re-orders the route they&apos;re on today.
             </Text>
-            <MapPicker
+            <LocationPicker
+              label={`Where ${driver.name} finishes`}
               lat={driver.home_lat}
               lng={driver.home_lng}
               onChange={(lat, lng) =>
                 act(() => api.setDriverHome(token, driver.id, lat, lng), () =>
-                  onNotice(`${driver.name} now finishes at ${lat.toFixed(4)}, ${lng.toFixed(4)}.`)
+                  onNotice(`${driver.name}'s route will now finish at their home.`)
                 )
               }
               home={business && (business.home_lat || business.home_lng)

@@ -4,8 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import * as api from '../api';
 import { Banner, Button, Card, DeclaredFields, Disclosure, Empty, Field, FieldRow, Pill, SectionTitle } from '../components';
 import { customFieldsFor, labelsFor, lower } from '../labels';
-import MapPicker from '../MapPicker';
-import { currentPosition } from '../navigation';
+import LocationPicker from '../LocationPicker';
 import { nearestAreaFor } from '../serviceAreas';
 import { colors, radius, spacing } from '../theme';
 
@@ -37,8 +36,8 @@ export default function CustomersScreen({ token, business }) {
   // reshaping this screen again.
   const [groupBy, setGroupBy] = useState('city');
 
-  // Scopes every MapPicker below to the business's own operating area
-  // instead of an India-wide default view — see MapPicker.web.js.
+  // Scopes every map below to the business's own operating area instead
+  // of an India-wide default view — see MapPicker.web.js.
   const home = business.home_lat || business.home_lng ? { lat: business.home_lat, lng: business.home_lng } : null;
 
   const refresh = useCallback(async () => {
@@ -288,15 +287,6 @@ function NewCustomerCard({ token, labels, fieldSpecs, home, areas, onCreated, on
 
   const set = (key) => (value) => setForm((prev) => ({ ...prev, [key]: value }));
 
-  const pinHere = async () => {
-    const position = await currentPosition();
-    if (!position) {
-      onError('Could not read your location. Type the coordinates instead, or pin it later from the door.');
-      return;
-    }
-    setForm((prev) => ({ ...prev, lat: position.lat.toFixed(6), lng: position.lng.toFixed(6) }));
-  };
-
   const submit = async () => {
     setBusy(true);
     try {
@@ -334,23 +324,15 @@ function NewCustomerCard({ token, labels, fieldSpecs, home, areas, onCreated, on
             <Field label="Phone" size="sm" value={form.phone} onChangeText={set('phone')} keyboardType="phone-pad" placeholder="98765 43210" />
           </FieldRow>
           <Field label="Address" size="md" value={form.address} onChangeText={set('address')} placeholder="12, 3rd Cross, Jayanagar" />
-          <FieldRow>
-            <Field label="Latitude" size="sm" value={form.lat} onChangeText={set('lat')} placeholder="12.9716" />
-            <Field label="Longitude" size="sm" value={form.lng} onChangeText={set('lng')} placeholder="77.5946" />
-          </FieldRow>
-          <MapPicker
+          <LocationPicker
+            label="Where do we deliver?"
+            hint="Leave it unset if you're not at the door yet — you can drop the pin later."
             lat={Number(form.lat) || 0}
             lng={Number(form.lng) || 0}
             onChange={(newLat, newLng) => setForm((prev) => ({ ...prev, lat: newLat.toFixed(6), lng: newLng.toFixed(6) }))}
             home={home}
             areas={areas}
           />
-          <Button title="Pin my current location" variant="secondary" onPress={pinHere} />
-          <Text style={styles.note}>
-            Click or drag the pin on the map, use your current location, or type coordinates directly — all three
-            write to the same place. The pin — not the address — is what orders the route. You can leave it blank
-            now and drop it later while standing at the door.
-          </Text>
           <Field
             label={`Notes for the ${lower(labels.driver)}`}
             value={form.notes}
@@ -373,15 +355,6 @@ function CustomerCard({ customer, products, subscriptions, today, todayDate, tok
   const [customFields, setCustomFields] = useState(customer.custom_fields || {});
   const [details, setDetails] = useState({ name: customer.name, phone: customer.phone, address: customer.address });
   const [busy, setBusy] = useState(false);
-
-  const pinHere = async () => {
-    const position = await currentPosition();
-    if (!position) {
-      onError('Could not read your location.');
-      return;
-    }
-    await savePin(position.lat, position.lng);
-  };
 
   const savePin = async (newLat, newLng) => {
     setBusy(true);
@@ -460,9 +433,14 @@ function CustomerCard({ customer, products, subscriptions, today, todayDate, tok
           <Field label="Address" size="md" value={details.address} onChangeText={(value) => setDetails((prev) => ({ ...prev, address: value }))} />
           <Button title="Save contact details" variant="secondary" busy={busy} onPress={saveDetails} disabled={!details.name.trim()} />
 
-          <MapPicker lat={customer.lat} lng={customer.lng} onChange={savePin} home={home} />
+          <LocationPicker
+            label="Where do we deliver?"
+            lat={customer.lat}
+            lng={customer.lng}
+            onChange={savePin}
+            home={home}
+          />
           <View style={styles.buttonRow}>
-            <Button title="Pin at my location" variant="secondary" onPress={pinHere} busy={busy} style={styles.flexButton} />
             <Button
               title={customer.active ? `Pause ${lower(labels.customer)}` : `Resume ${lower(labels.customer)}`}
               variant="secondary"

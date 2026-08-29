@@ -4,8 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import * as api from '../api';
 import { Banner, Button, Card, Disclosure, Empty, Field, FieldRow, Pill, SectionTitle, Stepper } from '../components';
 import DateNav from '../DateNav';
-import MapPicker from '../MapPicker';
-import { currentPosition } from '../navigation';
+import LocationPicker from '../LocationPicker';
 import RouteMap from '../RouteMap';
 import { RouteSummary, selectStyle } from '../routeCards';
 import { nearestAreaFor } from '../serviceAreas';
@@ -437,23 +436,8 @@ function NewRouteForm({ token, date, home, onDone }) {
     <View>
       <Banner message={error} />
       <Field label="Route name" size="md" value={name} onChangeText={setName} placeholder="Evening route" />
-      <FieldRow>
-        <Field
-          label="Starts at latitude"
-          size="sm"
-          value={depot.lat}
-          onChangeText={(value) => setDepot((prev) => ({ ...prev, lat: value }))}
-          placeholder="16.8713"
-        />
-        <Field
-          label="Longitude"
-          size="sm"
-          value={depot.lng}
-          onChangeText={(value) => setDepot((prev) => ({ ...prev, lng: value }))}
-          placeholder="79.5611"
-        />
-      </FieldRow>
-      <MapPicker
+      <LocationPicker
+        label="Where does this route start?"
         lat={Number(depot.lat) || 0}
         lng={Number(depot.lng) || 0}
         onChange={(lat, lng) => setDepot({ lat: lat.toFixed(6), lng: lng.toFixed(6) })}
@@ -551,15 +535,6 @@ function StrayStopsCard({ token, stops, areas, home, date, onDone }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const useMyLocation = async () => {
-    const position = await currentPosition();
-    if (!position) {
-      setError('Could not read your location. Type the coordinates instead, or drop the pin on the map.');
-      return;
-    }
-    setDepot({ lat: position.lat.toFixed(6), lng: position.lng.toFixed(6) });
-  };
-
   const build = async () => {
     const lat = Number(depot.lat);
     const lng = Number(depot.lng);
@@ -613,30 +588,14 @@ function StrayStopsCard({ token, stops, areas, home, date, onDone }) {
         <View>
           <Banner message={error} />
           <Field label="Route name" size="md" value={name} onChangeText={setName} placeholder="Extra route" />
-          <FieldRow>
-            <Field
-              label="Starts at latitude"
-              size="sm"
-              value={depot.lat}
-              onChangeText={(value) => setDepot((prev) => ({ ...prev, lat: value }))}
-              placeholder="16.8713"
-            />
-            <Field
-              label="Longitude"
-              size="sm"
-              value={depot.lng}
-              onChangeText={(value) => setDepot((prev) => ({ ...prev, lng: value }))}
-              placeholder="79.5611"
-            />
-          </FieldRow>
-          <MapPicker
+          <LocationPicker
+            label="Where does this route start?"
             lat={Number(depot.lat) || 0}
             lng={Number(depot.lng) || 0}
             onChange={(lat, lng) => setDepot({ lat: lat.toFixed(6), lng: lng.toFixed(6) })}
             home={home}
             areas={areas}
           />
-          <Button title="Use my current location" variant="secondary" onPress={useMyLocation} />
           <Button title={`Build a route for these ${stops.length}`} onPress={build} busy={busy} style={styles.spaced} />
         </View>
       ) : null}
