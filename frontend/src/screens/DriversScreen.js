@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import * as api from '../api';
-import { Banner, Button, Card, Disclosure, Empty, Field, Pill, SectionTitle } from '../components';
-import EntityMapCard from '../EntityMapCard';
+import { Banner, Button, Card, Disclosure, Empty, Field, Pill, SectionTitle, ViewToggle } from '../components';
+import EntityMapPanel from '../EntityMapPanel';
 import LocationPicker from '../LocationPicker';
 import { colors, radius, spacing } from '../theme';
 
@@ -15,6 +15,8 @@ export default function DriversScreen({ token, currentUserId, business }) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [adding, setAdding] = useState(false);
+  // The same drivers, two ways of looking at them — see ViewToggle.
+  const [view, setView] = useState('list');
 
   // Scopes the "see everyone" map below to the business's own operating
   // area instead of an India-wide default — see MapPicker.web.js.
@@ -55,11 +57,21 @@ export default function DriversScreen({ token, currentUserId, business }) {
       <Card>
         <SectionTitle
           right={
-            <HeadingAddButton
-              open={adding}
-              onPress={() => setAdding((prev) => !prev)}
-              label={adding ? 'Cancel adding a driver' : 'Add a driver'}
-            />
+            <View style={styles.headingActions}>
+              <ViewToggle
+                value={view}
+                onChange={setView}
+                options={[
+                  { value: 'list', label: 'List' },
+                  { value: 'map', label: 'Map' },
+                ]}
+              />
+              <HeadingAddButton
+                open={adding}
+                onPress={() => setAdding((prev) => !prev)}
+                label={adding ? 'Cancel adding a driver' : 'Add a driver'}
+              />
+            </View>
           }
         >
           Drivers ({drivers.length})
@@ -78,7 +90,18 @@ export default function DriversScreen({ token, currentUserId, business }) {
           />
         ) : null}
 
-        {drivers.length === 0 ? (
+        {view === 'map' ? (
+          <EntityMapPanel
+            token={token}
+            editableKind="driver"
+            home={home}
+            drivers={drivers}
+            customers={customers}
+            areas={areas}
+            onChanged={refresh}
+            onError={setError}
+          />
+        ) : drivers.length === 0 ? (
           <Empty>No drivers yet. Add the first one with the + above.</Empty>
         ) : (
           drivers.map((driver, index) => (
@@ -96,17 +119,6 @@ export default function DriversScreen({ token, currentUserId, business }) {
           ))
         )}
       </Card>
-
-      <EntityMapCard
-        token={token}
-        editableKind="driver"
-        home={home}
-        drivers={drivers}
-        customers={customers}
-        areas={areas}
-        onChanged={refresh}
-        onError={setError}
-      />
     </ScrollView>
   );
 }
@@ -369,6 +381,7 @@ const styles = StyleSheet.create({
   },
   addButtonGlyph: { fontSize: 18, fontWeight: '700', color: colors.link, lineHeight: 20 },
   inlineForm: { marginBottom: spacing.md },
+  headingActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   // A driver is one block: name, one line of context, and whatever they
   // opened. The only rule belongs *between* two drivers — an earlier
   // version also drew one inside each of them, above a standing "where

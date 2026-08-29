@@ -2,8 +2,20 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import * as api from '../api';
-import { Banner, Button, Card, DeclaredFields, Disclosure, Empty, Field, FieldRow, Pill, SectionTitle } from '../components';
-import EntityMapCard from '../EntityMapCard';
+import {
+  Banner,
+  Button,
+  Card,
+  DeclaredFields,
+  Disclosure,
+  Empty,
+  Field,
+  FieldRow,
+  Pill,
+  SectionTitle,
+  ViewToggle,
+} from '../components';
+import EntityMapPanel from '../EntityMapPanel';
 import { customFieldsFor, labelsFor, lower } from '../labels';
 import LocationPicker from '../LocationPicker';
 import ProductQuantities, { chosenProducts } from '../ProductQuantities';
@@ -39,6 +51,8 @@ export default function CustomersScreen({ token, business }) {
   // reshaping this screen again.
   const [groupBy, setGroupBy] = useState('city');
   const [adding, setAdding] = useState(false);
+  // The same customers, two ways of looking at them — see ViewToggle.
+  const [view, setView] = useState('list');
 
   // Scopes every map below to the business's own operating area instead
   // of an India-wide default view — see MapPicker.web.js.
@@ -85,7 +99,7 @@ export default function CustomersScreen({ token, business }) {
     (day?.stops || []).map((stop) => [
       stop.customer_id,
       { status: stop.status, routeName: stop.route_id ? routeNames.get(stop.route_id) : null },
-    ])
+    ]),
   );
 
   const query = search.trim().toLowerCase();
@@ -108,11 +122,21 @@ export default function CustomersScreen({ token, business }) {
       <Card>
         <SectionTitle
           right={
-            <HeadingAddButton
-              open={adding}
-              onPress={() => setAdding((prev) => !prev)}
-              label={adding ? `Cancel adding a ${lower(labels.customer)}` : `Add a ${lower(labels.customer)}`}
-            />
+            <View style={styles.headingActions}>
+              <ViewToggle
+                value={view}
+                onChange={setView}
+                options={[
+                  { value: 'list', label: 'List' },
+                  { value: 'map', label: 'Map' },
+                ]}
+              />
+              <HeadingAddButton
+                open={adding}
+                onPress={() => setAdding((prev) => !prev)}
+                label={adding ? `Cancel adding a ${lower(labels.customer)}` : `Add a ${lower(labels.customer)}`}
+              />
+            </View>
           }
         >
           {labels.customer_plural} ({visibleCustomers.length}
@@ -137,53 +161,65 @@ export default function CustomersScreen({ token, business }) {
           />
         ) : null}
 
-        <View style={styles.toolsRow}>
-          <Field label="Search" size="md" value={search} onChangeText={setSearch} placeholder="Name, phone, or address" />
-          <View style={styles.groupByField}>
-            <Text style={styles.groupByLabel}>Group by</Text>
-            <select value={groupBy} style={groupBySelectStyle} onChange={(event) => setGroupBy(event.target.value)}>
-              <option value="city">Cities</option>
-            </select>
-          </View>
-        </View>
+        {view === 'list' ? (
+          <>
+            <View style={styles.toolsRow}>
+              <Field
+                label="Search"
+                size="md"
+                value={search}
+                onChangeText={setSearch}
+                placeholder="Name, phone, or address"
+              />
+              <View style={styles.groupByField}>
+                <Text style={styles.groupByLabel}>Group by</Text>
+                <select value={groupBy} style={groupBySelectStyle} onChange={(event) => setGroupBy(event.target.value)}>
+                  <option value="city">Cities</option>
+                </select>
+              </View>
+            </View>
 
-        {customers.length === 0 ? (
-          <Empty>No {lower(labels.customer_plural)} yet. Add the first one with the + above.</Empty>
-        ) : visibleCustomers.length === 0 ? (
-          <Empty>No {lower(labels.customer_plural)} match &quot;{search.trim()}&quot;.</Empty>
+            {customers.length === 0 ? (
+              <Empty>No {lower(labels.customer_plural)} yet. Add the first one with the + above.</Empty>
+            ) : visibleCustomers.length === 0 ? (
+              <Empty>
+                No {lower(labels.customer_plural)} match &quot;{search.trim()}&quot;.
+              </Empty>
+            ) : (
+              groups.map((group) => (
+                <CustomerGroup
+                  key={group.key}
+                  name={group.name}
+                  customers={group.customers}
+                  defaultExpanded={group.defaultExpanded}
+                  forceExpanded={words.length > 0}
+                  products={products}
+                  subscriptions={subscriptions}
+                  todayByCustomer={todayByCustomer}
+                  todayDate={day?.date}
+                  token={token}
+                  labels={labels}
+                  fieldSpecs={fieldSpecs}
+                  home={home}
+                  onChanged={refresh}
+                  onError={setError}
+                />
+              ))
+            )}
+          </>
         ) : (
-          groups.map((group) => (
-            <CustomerGroup
-              key={group.key}
-              name={group.name}
-              customers={group.customers}
-              defaultExpanded={group.defaultExpanded}
-              forceExpanded={words.length > 0}
-              products={products}
-              subscriptions={subscriptions}
-              todayByCustomer={todayByCustomer}
-              todayDate={day?.date}
-              token={token}
-              labels={labels}
-              fieldSpecs={fieldSpecs}
-              home={home}
-              onChanged={refresh}
-              onError={setError}
-            />
-          ))
+          <EntityMapPanel
+            token={token}
+            editableKind="customer"
+            home={home}
+            drivers={drivers}
+            customers={customers}
+            areas={areas}
+            onChanged={refresh}
+            onError={setError}
+          />
         )}
       </Card>
-
-      <EntityMapCard
-        token={token}
-        editableKind="customer"
-        home={home}
-        drivers={drivers}
-        customers={customers}
-        areas={areas}
-        onChanged={refresh}
-        onError={setError}
-      />
     </ScrollView>
   );
 }
@@ -373,7 +409,13 @@ function NewCustomerForm({ token, labels, fieldSpecs, home, areas, products, onC
           placeholder="98765 43210"
         />
       </FieldRow>
-      <Field label="Address" size="md" value={form.address} onChangeText={set('address')} placeholder="12, 3rd Cross, Jayanagar" />
+      <Field
+        label="Address"
+        size="md"
+        value={form.address}
+        onChangeText={set('address')}
+        placeholder="12, 3rd Cross, Jayanagar"
+      />
       <LocationPicker
         label="Where do we deliver?"
         hint="Leave it unset if you're not at the door yet — you can drop the pin later."
@@ -424,11 +466,7 @@ function NewCustomerForm({ token, labels, fieldSpecs, home, areas, products, onC
       ) : null}
 
       <Button
-        title={
-          chosen.length > 0
-            ? `Add ${lower(labels.customer)} and their order`
-            : `Add ${lower(labels.customer)}`
-        }
+        title={chosen.length > 0 ? `Add ${lower(labels.customer)} and their order` : `Add ${lower(labels.customer)}`}
         onPress={submit}
         busy={busy}
         disabled={!form.name.trim() || (chosen.length > 0 && weekdays.length === 0)}
@@ -449,7 +487,19 @@ function HeadingAddButton({ open, onPress, label }) {
 
 const STATUS_TONE = { pending: 'neutral', delivered: 'success', failed: 'error', skipped: 'warning' };
 
-function CustomerCard({ customer, products, subscriptions, today, todayDate, token, labels, fieldSpecs, home, onChanged, onError }) {
+function CustomerCard({
+  customer,
+  products,
+  subscriptions,
+  today,
+  todayDate,
+  token,
+  labels,
+  fieldSpecs,
+  home,
+  onChanged,
+  onError,
+}) {
   const [expanded, setExpanded] = useState(false);
   const [customFields, setCustomFields] = useState(customer.custom_fields || {});
   const [details, setDetails] = useState({ name: customer.name, phone: customer.phone, address: customer.address });
@@ -504,7 +554,10 @@ function CustomerCard({ customer, products, subscriptions, today, todayDate, tok
         {subscriptions.length === 0
           ? 'No standing order yet'
           : subscriptions
-              .map((sub) => `${sub.quantity} × ${productName(products, sub.product_id)} on ${weekdayLabel(sub.weekday_mask)}`)
+              .map(
+                (sub) =>
+                  `${sub.quantity} × ${productName(products, sub.product_id)} on ${weekdayLabel(sub.weekday_mask)}`,
+              )
               .join('  ·  ')}
       </Text>
 
@@ -521,7 +574,12 @@ function CustomerCard({ customer, products, subscriptions, today, todayDate, tok
           ) : null}
 
           <Text style={styles.label}>Contact details</Text>
-          <Field label="Name" size="md" value={details.name} onChangeText={(value) => setDetails((prev) => ({ ...prev, name: value }))} />
+          <Field
+            label="Name"
+            size="md"
+            value={details.name}
+            onChangeText={(value) => setDetails((prev) => ({ ...prev, name: value }))}
+          />
           <Field
             label="Phone"
             size="sm"
@@ -529,8 +587,19 @@ function CustomerCard({ customer, products, subscriptions, today, todayDate, tok
             onChangeText={(value) => setDetails((prev) => ({ ...prev, phone: value }))}
             keyboardType="phone-pad"
           />
-          <Field label="Address" size="md" value={details.address} onChangeText={(value) => setDetails((prev) => ({ ...prev, address: value }))} />
-          <Button title="Save contact details" variant="secondary" busy={busy} onPress={saveDetails} disabled={!details.name.trim()} />
+          <Field
+            label="Address"
+            size="md"
+            value={details.address}
+            onChangeText={(value) => setDetails((prev) => ({ ...prev, address: value }))}
+          />
+          <Button
+            title="Save contact details"
+            variant="secondary"
+            busy={busy}
+            onPress={saveDetails}
+            disabled={!details.name.trim()}
+          />
 
           <LocationPicker
             label="Where do we deliver?"
@@ -634,7 +703,7 @@ function NewOrderForm({ token, customer, subscriptions = [], products, labels, t
   }, [subscriptions]);
 
   const [quantities, setQuantities] = useState(() =>
-    Object.fromEntries(Object.entries(existing).map(([productId, sub]) => [productId, sub.quantity]))
+    Object.fromEntries(Object.entries(existing).map(([productId, sub]) => [productId, sub.quantity])),
   );
   const [weekdays, setWeekdays] = useState(() => {
     const masks = Object.values(existing).map((sub) => sub.weekday_mask);
@@ -739,8 +808,20 @@ function NewOrderForm({ token, customer, subscriptions = [], products, labels, t
               {/* A raw date input, same reasoning as DateNav's: the
                   browser's own picker is one every admin already knows,
                   and it validates the format for free. */}
-              <input type="date" value={date} min={todayDate || undefined} onChange={(event) => setDate(event.target.value)} style={dateInputStyle} />
-              <Field label="Note (optional)" size="md" value={note} onChangeText={setNote} placeholder="For the festival" />
+              <input
+                type="date"
+                value={date}
+                min={todayDate || undefined}
+                onChange={(event) => setDate(event.target.value)}
+                style={dateInputStyle}
+              />
+              <Field
+                label="Note (optional)"
+                size="md"
+                value={note}
+                onChangeText={setNote}
+                placeholder="For the festival"
+              />
               <Text style={styles.note}>
                 Goes straight onto that day&apos;s deliveries — no need to press Generate. Their standing order is
                 untouched.
@@ -756,7 +837,9 @@ function NewOrderForm({ token, customer, subscriptions = [], products, labels, t
                     onPress={() => toggleDay(day.value)}
                     style={[styles.chip, weekdays.includes(day.value) && styles.chipActive]}
                   >
-                    <Text style={[styles.chipText, weekdays.includes(day.value) && styles.chipTextActive]}>{day.label}</Text>
+                    <Text style={[styles.chipText, weekdays.includes(day.value) && styles.chipTextActive]}>
+                      {day.label}
+                    </Text>
                   </Pressable>
                 ))}
               </View>
@@ -790,7 +873,8 @@ export async function placeOrders({ token, customerId, kind, chosen, weekdays, d
   if (replacing) {
     const keeping = new Set(chosen.map((item) => item.product_id));
     for (const [productId, sub] of Object.entries(replacing)) {
-      const unchanged = keeping.has(productId) && sub.quantity === chosen.find((i) => i.product_id === productId).quantity;
+      const unchanged =
+        keeping.has(productId) && sub.quantity === chosen.find((i) => i.product_id === productId).quantity;
       if (!unchanged) {
         await api.setRecurringActive(token, sub.id, false);
       }
@@ -885,6 +969,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
+  headingActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   toolsRow: { flexDirection: 'row', alignItems: 'flex-end', flexWrap: 'wrap', gap: spacing.md },
   groupByField: { marginBottom: spacing.md },
   groupByLabel: { fontSize: 13, fontWeight: '600', color: colors.label, marginBottom: spacing.xs },

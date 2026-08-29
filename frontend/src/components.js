@@ -86,6 +86,34 @@ export function Field({ label, hint, size = 'full', ...inputProps }) {
 // Still a real number underneath: `min` guards the bottom (0 means
 // "nothing today", which is what Skip records), and the caller owns the
 // value so this stays a controlled input like Field.
+// A small two-or-three-way view switch, for when one set of records is
+// worth seeing more than one way — a roster as a list or on a map, say.
+// Deliberately not a Disclosure: those reveal *more* of the same view,
+// while this swaps which view you are in, and the segmented shape says
+// "these are alternatives, and you are in one of them" without needing a
+// label to explain it.
+export function ViewToggle({ value, onChange, options }) {
+  return (
+    <View style={styles.toggle}>
+      {options.map((option) => {
+        const on = option.value === value;
+        return (
+          <Pressable
+            key={option.value}
+            onPress={() => onChange(option.value)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: on }}
+            accessibilityLabel={option.label}
+            style={[styles.toggleItem, on && styles.toggleItemOn]}
+          >
+            <Text style={[styles.toggleText, on && styles.toggleTextOn]}>{option.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 export function Stepper({ label, value, onChange, min = 0, max = 99, hint }) {
   const step = (delta) => onChange(Math.min(max, Math.max(min, value + delta)));
   return (
@@ -297,6 +325,18 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   disclosurePressed: { opacity: 0.6 },
+  toggle: {
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceAlt,
+    padding: 2,
+  },
+  toggleItem: { paddingVertical: 5, paddingHorizontal: 12, borderRadius: radius.sm, minHeight: 32, justifyContent: 'center' },
+  toggleItemOn: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  toggleText: { fontSize: 13, fontWeight: '600', color: colors.subtitle },
+  toggleTextOn: { color: colors.text },
   stepper: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' },
   stepperButton: {
     width: 44,

@@ -12,7 +12,7 @@ import DriverScreen from './screens/DriverScreen';
 import DriversScreen from './screens/DriversScreen';
 import SignInScreen from './screens/SignInScreen';
 import TodayScreen from './screens/TodayScreen';
-import { colors, spacing } from './theme';
+import { colors, radius, spacing } from './theme';
 
 // Tab labels come from the business's own vocabulary, so a school
 // operator sees "Students" and "Drivers" rather than a dairy's nouns.
@@ -54,6 +54,7 @@ function AppShell() {
   // two jobs, so this is a view toggle rather than a second account.
   const [driving, setDriving] = useState(false);
   const [restoring, setRestoring] = useState(true);
+  const [accountOpen, setAccountOpen] = useState(false);
   const { t } = useLanguage();
 
   // Restore a stored token on load, but only after the server confirms it
@@ -131,14 +132,31 @@ function AppShell() {
       <StatusBar barStyle="dark-content" />
 
       <View style={styles.topBar}>
-        <View style={styles.topBarText}>
-          <Text style={styles.businessName} numberOfLines={1}>
-            {business.name}
-          </Text>
-          <Text style={styles.userName} numberOfLines={1}>
-            {user.name} · {showDriverView ? lowerRole(labels) : t('role_admin')}
-          </Text>
-        </View>
+        {/* The account is the menu. Language, driver mode and sign out are
+            all "about me and this session" rather than about the screen,
+            and they were competing with the section tabs for the same
+            row — three of the four things in the top bar were chrome
+            nobody touches in a normal morning. Hanging them off the name
+            that already identifies who is signed in puts them where
+            people look for them, and gives the tabs the room back. */}
+        <Pressable
+          onPress={() => setAccountOpen((prev) => !prev)}
+          accessibilityRole="button"
+          accessibilityLabel={accountOpen ? 'Close account menu' : 'Account menu'}
+          accessibilityState={{ expanded: accountOpen }}
+          style={[styles.account, accountOpen && styles.accountOpen]}
+        >
+          <View style={styles.topBarText}>
+            <Text style={styles.businessName} numberOfLines={1}>
+              {business.name}
+            </Text>
+            <Text style={styles.userName} numberOfLines={1}>
+              {user.name} · {showDriverView ? lowerRole(labels) : t('role_admin')}
+            </Text>
+          </View>
+          <Text style={styles.accountChevron}>{accountOpen ? '▴' : '▾'}</Text>
+        </Pressable>
+
         <View style={styles.topBarActions}>
           {!showDriverView
             ? adminTabs(labels, t).map((item) => (
@@ -152,19 +170,38 @@ function AppShell() {
                 </Pressable>
               ))
             : null}
-          <LanguageSwitcher />
-          <Pressable onPress={signOut} accessibilityRole="button">
-            <Text style={styles.signOut}>{t('sign_out')}</Text>
-          </Pressable>
         </View>
       </View>
 
-      {isAdmin && canDrive ? (
-        <Pressable onPress={() => setDriving((prev) => !prev)} style={styles.roleToggle}>
-          <Text style={styles.roleToggleText}>
-            {showDriverView ? t('switch_to_admin_console') : t('switch_to_my_route', { route: lower(labels.route) })}
-          </Text>
-        </Pressable>
+      {/* Opens in place under the bar rather than floating over it: this
+          stack has no measure/portal precedent, and an inline panel is
+          the same disclosure shape used everywhere else in the app. */}
+      {accountOpen ? (
+        <View style={styles.accountMenu}>
+          <View style={styles.accountRow}>
+            <Text style={styles.accountLabel}>{t('language')}</Text>
+            <LanguageSwitcher />
+          </View>
+
+          {isAdmin && canDrive ? (
+            <Pressable
+              onPress={() => {
+                setDriving((prev) => !prev);
+                setAccountOpen(false);
+              }}
+              accessibilityRole="button"
+              style={styles.accountItem}
+            >
+              <Text style={styles.accountItemText}>
+                {showDriverView ? t('switch_to_admin_console') : t('switch_to_driver_mode')}
+              </Text>
+            </Pressable>
+          ) : null}
+
+          <Pressable onPress={signOut} accessibilityRole="button" style={styles.accountItem}>
+            <Text style={[styles.accountItemText, styles.signOut]}>{t('sign_out')}</Text>
+          </Pressable>
+        </View>
       ) : null}
 
       <View style={styles.body}>
@@ -210,7 +247,45 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  topBarText: { paddingRight: spacing.md, flexShrink: 1 },
+  account: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingVertical: 4,
+    paddingHorizontal: spacing.sm,
+    marginLeft: -spacing.sm,
+    borderRadius: radius.md,
+    flexShrink: 1,
+  },
+  accountOpen: { backgroundColor: colors.surfaceAlt },
+  accountChevron: { fontSize: 11, color: colors.subtitle, flexShrink: 0 },
+  accountMenu: {
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
+  },
+  accountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    flexWrap: 'wrap',
+    paddingVertical: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  accountLabel: { fontSize: 13, fontWeight: '600', color: colors.label },
+  accountItem: {
+    paddingVertical: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  accountItemText: { fontSize: 15, fontWeight: '600', color: colors.link },
+  topBarText: { paddingRight: spacing.xs, flexShrink: 1 },
   businessName: { fontSize: 16, fontWeight: '800', color: colors.text },
   userName: { fontSize: 12, color: colors.subtitle, marginTop: 1 },
   // flexShrink + maxWidth is what makes the wrap below actually trigger.
@@ -235,13 +310,5 @@ const styles = StyleSheet.create({
   navTabText: { color: colors.label, fontSize: 13, fontWeight: '600' },
   navTabTextActive: { color: colors.accentText },
   signOut: { fontSize: 14, fontWeight: '600', color: colors.link },
-  roleToggle: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    backgroundColor: colors.surfaceAlt,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  roleToggleText: { fontSize: 13, fontWeight: '600', color: colors.link },
   body: { flex: 1 },
 });
