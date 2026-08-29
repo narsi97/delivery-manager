@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import * as api from '../api';
@@ -6,6 +6,7 @@ import { Banner, Button, Card, DeclaredFields, Disclosure, Empty, Field, FieldRo
 import EntityMapCard from '../EntityMapCard';
 import { customFieldsFor, labelsFor, lower } from '../labels';
 import LocationPicker from '../LocationPicker';
+import ProductQuantities, { chosenProducts } from '../ProductQuantities';
 import { nearestAreaFor } from '../serviceAreas';
 import { colors, radius, spacing } from '../theme';
 
@@ -126,6 +127,7 @@ export default function CustomersScreen({ token, business }) {
             fieldSpecs={fieldSpecs}
             home={home}
             areas={areas}
+            products={products}
             onCreated={async (name) => {
               setNotice(`Added ${name}.`);
               setAdding(false);
@@ -287,7 +289,12 @@ function CustomerGroup({
               key={customer.id}
               customer={customer}
               products={products}
-              subscriptions={subscriptions.filter((sub) => sub.customer_id === customer.id)}
+              // Active only. A standing order that was replaced or stood
+              // down is history, not something this customer still takes —
+              // listing them made a customer whose order had been changed
+              // twice look like they were getting three deliveries of the
+              // same thing.
+              subscriptions={subscriptions.filter((sub) => sub.customer_id === customer.id && sub.active !== false)}
               today={todayByCustomer.get(customer.id) || null}
               todayDate={todayDate}
               token={token}
@@ -309,17 +316,22 @@ function CustomerGroup({
 // look like a peer of the whole roster rather than a rare action against
 // it, and put a permanently half-empty box at the top of the screen an
 // admin mostly visits to look something up.
-function NewCustomerForm({ token, labels, fieldSpecs, home, areas, onCreated, onError }) {
+function NewCustomerForm({ token, labels, fieldSpecs, home, areas, products, onCreated, onError }) {
   const [form, setForm] = useState({ name: '', phone: '', address: '', lat: '', lng: '', notes: '' });
   const [customFields, setCustomFields] = useState({});
+  const [quantities, setQuantities] = useState({});
+  const [weekdays, setWeekdays] = useState([1, 2, 3, 4, 5, 6, 0]);
   const [busy, setBusy] = useState(false);
 
   const set = (key) => (value) => setForm((prev) => ({ ...prev, [key]: value }));
+  const toggleDay = (day) =>
+    setWeekdays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
+  const chosen = chosenProducts(quantities);
 
   const submit = async () => {
     setBusy(true);
     try {
-      await api.createCustomer(token, {
+      const customer = await api.createCustomer(token, {
         name: form.name,
         phone: form.phone,
         address: form.address,
@@ -328,9 +340,18 @@ function NewCustomerForm({ token, labels, fieldSpecs, home, areas, onCreated, on
         lng: Number(form.lng) || 0,
         custom_fields: customFields,
       });
+      // The standing order is optional — skipping it just means nothing
+      // here runs, and the customer can be given one later from their own
+      // card. Doing it in the same submit rather than as a second step
+      // keeps "signed up a new customer for 2L a day" a single action,
+      // which is how it actually happens at the door.
+      if (chosen.length > 0) {
+        await placeOrders({ token, customerId: customer.id, kind: 'weekly', chosen, weekdays });
+      }
       const created = form.name;
       setForm({ name: '', phone: '', address: '', lat: '', lng: '', notes: '' });
       setCustomFields({});
+      setQuantities({});
       await onCreated(created);
     } catch (err) {
       onError(err.message);
@@ -370,7 +391,48 @@ function NewCustomerForm({ token, labels, fieldSpecs, home, areas, onCreated, on
         multiline
       />
       <DeclaredFields specs={fieldSpecs} values={customFields} onChange={setCustomFields} />
-      <Button title={`Add ${lower(labels.customer)}`} onPress={submit} busy={busy} disabled={!form.name.trim()} />
+
+      {products.length > 0 ? (
+        <View style={styles.orderSection}>
+          <Text style={styles.label}>What will they take? (optional)</Text>
+          <ProductQuantities
+            products={products}
+            quantities={quantities}
+            onChange={setQuantities}
+            unitLabel="Leave everything at zero to skip — you can set this up later from their card."
+          />
+
+          {chosen.length > 0 ? (
+            <View>
+              <Text style={styles.label}>Delivery days</Text>
+              <View style={styles.chipRow}>
+                {WEEKDAYS.map((day) => (
+                  <Pressable
+                    key={day.value}
+                    onPress={() => toggleDay(day.value)}
+                    style={[styles.chip, weekdays.includes(day.value) && styles.chipActive]}
+                  >
+                    <Text style={[styles.chipText, weekdays.includes(day.value) && styles.chipTextActive]}>
+                      {day.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
+      <Button
+        title={
+          chosen.length > 0
+            ? `Add ${lower(labels.customer)} and their order`
+            : `Add ${lower(labels.customer)}`
+        }
+        onPress={submit}
+        busy={busy}
+        disabled={!form.name.trim() || (chosen.length > 0 && weekdays.length === 0)}
+      />
     </View>
   );
 }
@@ -521,6 +583,7 @@ function CustomerCard({ customer, products, subscriptions, today, todayDate, tok
           <NewOrderForm
             token={token}
             customer={customer}
+            subscriptions={subscriptions}
             products={products}
             labels={labels}
             todayDate={todayDate}
@@ -551,12 +614,38 @@ function CustomerCard({ customer, products, subscriptions, today, todayDate, tok
 // Collapsed by default, same as every other creation form in this app:
 // an admin opens a customer card far more often to check something than
 // to add an order.
-function NewOrderForm({ token, customer, products, labels, todayDate, onChanged, onError }) {
+function NewOrderForm({ token, customer, subscriptions = [], products, labels, todayDate, onChanged, onError }) {
   const [expanded, setExpanded] = useState(false);
   const [kind, setKind] = useState('weekly');
-  const [productId, setProductId] = useState(products[0]?.id || '');
-  const [quantity, setQuantity] = useState('1');
-  const [weekdays, setWeekdays] = useState([1, 2, 3, 4, 5, 6, 0]);
+  // The weekly form is an editor for what this customer already takes,
+  // not an append-only log. Seeding it from their live standing orders is
+  // what makes that true: without it, bumping a product they are already
+  // on quietly created a second standing order for the same thing, and
+  // they got two deliveries of it a day. Ad-hoc ("just once") orders
+  // start empty, because those genuinely are one-off additions.
+  const existing = useMemo(() => {
+    const byProduct = {};
+    for (const sub of subscriptions) {
+      if (sub.active !== false) {
+        byProduct[sub.product_id] = sub;
+      }
+    }
+    return byProduct;
+  }, [subscriptions]);
+
+  const [quantities, setQuantities] = useState(() =>
+    Object.fromEntries(Object.entries(existing).map(([productId, sub]) => [productId, sub.quantity]))
+  );
+  const [weekdays, setWeekdays] = useState(() => {
+    const masks = Object.values(existing).map((sub) => sub.weekday_mask);
+    // Only adopt the existing days when every standing order agrees on
+    // them; a customer on different days per product has no single answer
+    // this one control can show, so fall back to every day.
+    if (masks.length > 0 && masks.every((m) => m === masks[0])) {
+      return WEEKDAYS.map((d) => d.value).filter((v) => masks[0] & (1 << v));
+    }
+    return [1, 2, 3, 4, 5, 6, 0];
+  });
   // Defaults to the business's own today (server-resolved, see
   // domain.Business.Today) rather than the device's — an admin on a
   // laptop in another zone must not silently book tomorrow.
@@ -567,26 +656,37 @@ function NewOrderForm({ token, customer, products, labels, todayDate, onChanged,
   const toggleDay = (day) =>
     setWeekdays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
 
+  // Re-seed once a save has landed and the refreshed standing orders come
+  // back, so reopening the form shows what the customer now takes rather
+  // than the draft that produced it. Only while collapsed — never yank
+  // the numbers out from under someone mid-edit.
+  useEffect(() => {
+    if (!expanded) {
+      setQuantities(Object.fromEntries(Object.entries(existing).map(([id, sub]) => [id, sub.quantity])));
+    }
+  }, [existing, expanded]);
+
+  const chosen = chosenProducts(quantities);
+
   const submit = async () => {
     setBusy(true);
     try {
-      if (kind === 'once') {
-        await api.createAdHocOrder(token, {
-          customer_id: customer.id,
-          product_id: productId,
-          quantity: Number(quantity),
-          date,
-          note,
-        });
-      } else {
-        await api.createRecurringOrder(token, {
-          customer_id: customer.id,
-          product_id: productId,
-          quantity: Number(quantity),
-          weekdays,
-        });
-      }
-      setQuantity('1');
+      // One call per product. A RecurringOrder is one row per customer per
+      // product, so "milk every day and curd on Fridays" was always
+      // several records — the old single-select form just made the admin
+      // discover that one product at a time.
+      await placeOrders({
+        token,
+        customerId: customer.id,
+        kind,
+        chosen,
+        weekdays,
+        date,
+        note,
+        // Weekly saves replace this customer's standing orders rather than
+        // adding to them; anything they had that is now zero is stood down.
+        replacing: kind === 'weekly' ? existing : null,
+      });
       setNote('');
       setExpanded(false);
       await onChanged();
@@ -605,7 +705,7 @@ function NewOrderForm({ token, customer, products, labels, todayDate, onChanged,
     );
   }
 
-  const ready = kind === 'once' ? productId && date && Number(quantity) > 0 : productId && weekdays.length > 0;
+  const ready = chosen.length > 0 && (kind === 'once' ? !!date : weekdays.length > 0);
 
   return (
     <View style={styles.subForm}>
@@ -625,20 +725,13 @@ function NewOrderForm({ token, customer, products, labels, todayDate, onChanged,
             </Pressable>
           </View>
 
-          <Text style={styles.label}>{labels.product}</Text>
-          <View style={styles.chipRow}>
-            {products.map((product) => (
-              <Pressable
-                key={product.id}
-                onPress={() => setProductId(product.id)}
-                style={[styles.chip, productId === product.id && styles.chipActive]}
-              >
-                <Text style={[styles.chipText, productId === product.id && styles.chipTextActive]}>{product.name}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <Field label={labels.quantity} size="xs" value={quantity} onChangeText={setQuantity} keyboardType="numeric" />
+          <Text style={styles.label}>What do they take?</Text>
+          <ProductQuantities
+            products={products}
+            quantities={quantities}
+            onChange={setQuantities}
+            unitLabel="Set a quantity for everything they want — leave the rest at zero."
+          />
 
           {kind === 'once' ? (
             <View>
@@ -671,7 +764,11 @@ function NewOrderForm({ token, customer, products, labels, todayDate, onChanged,
           )}
 
           <Button
-            title={kind === 'once' ? 'Add this one order' : 'Save standing order'}
+            title={
+              kind === 'once'
+                ? `Add ${chosen.length > 1 ? `these ${chosen.length} orders` : 'this one order'}`
+                : `Save standing order${chosen.length > 1 ? 's' : ''}`
+            }
             onPress={submit}
             busy={busy}
             disabled={!ready}
@@ -680,6 +777,48 @@ function NewOrderForm({ token, customer, products, labels, todayDate, onChanged,
       ) : null}
     </View>
   );
+}
+
+// Places one order per chosen product. Shared by the "add an order" form
+// on an existing customer and the optional first order on the new-customer
+// form, so the two can't drift into meaning different things.
+export async function placeOrders({ token, customerId, kind, chosen, weekdays, date, note, replacing = null }) {
+  // Stand down what is being replaced first, so a product whose quantity
+  // changed ends up with one standing order at the new number rather than
+  // two that both run. Deactivating rather than deleting keeps the old
+  // arrangement on the record — same convention as customers and drivers.
+  if (replacing) {
+    const keeping = new Set(chosen.map((item) => item.product_id));
+    for (const [productId, sub] of Object.entries(replacing)) {
+      const unchanged = keeping.has(productId) && sub.quantity === chosen.find((i) => i.product_id === productId).quantity;
+      if (!unchanged) {
+        await api.setRecurringActive(token, sub.id, false);
+      }
+    }
+  }
+
+  for (const item of chosen) {
+    // Already on exactly this, at this quantity — nothing to do.
+    if (replacing && replacing[item.product_id] && replacing[item.product_id].quantity === item.quantity) {
+      continue;
+    }
+    if (kind === 'once') {
+      await api.createAdHocOrder(token, {
+        customer_id: customerId,
+        product_id: item.product_id,
+        quantity: item.quantity,
+        date,
+        note,
+      });
+    } else {
+      await api.createRecurringOrder(token, {
+        customer_id: customerId,
+        product_id: item.product_id,
+        quantity: item.quantity,
+        weekdays,
+      });
+    }
+  }
 }
 
 // Matches Field's input styling — a raw <input> can't take
@@ -739,6 +878,13 @@ const styles = StyleSheet.create({
   },
   addButtonGlyph: { fontSize: 18, fontWeight: '700', color: colors.link, lineHeight: 20 },
   inlineForm: { marginBottom: spacing.md },
+  orderSection: {
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
   toolsRow: { flexDirection: 'row', alignItems: 'flex-end', flexWrap: 'wrap', gap: spacing.md },
   groupByField: { marginBottom: spacing.md },
   groupByLabel: { fontSize: 13, fontWeight: '600', color: colors.label, marginBottom: spacing.xs },

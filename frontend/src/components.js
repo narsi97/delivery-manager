@@ -284,15 +284,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm + 2,
   },
   sectionTitle: { fontSize: 17, fontWeight: '700', color: colors.text },
+  // minHeight stays 44 — this is the tap target for expanding a section,
+  // and shrinking it to save space would trade real usability for looks.
   disclosure: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
     minHeight: 44,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
   },
   disclosurePressed: { opacity: 0.6 },
   stepper: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' },
@@ -315,21 +317,30 @@ const styles = StyleSheet.create({
   disclosureRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   disclosureChevron: { fontSize: 20, fontWeight: '700', color: colors.link, width: 20, textAlign: 'center' },
   disclosureChevronCompact: { fontSize: 16, width: 16 },
-  field: { marginBottom: spacing.md },
-  fieldRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, alignItems: 'flex-end' },
-  label: { fontSize: 13, fontWeight: '600', color: colors.label, marginBottom: spacing.xs },
+  // Form rhythm. A label, its input and the gap to the next label repeat
+  // for every field on the screen, so a few pixels each compounds fast: a
+  // six-field form was running most of a phone screen tall for six short
+  // answers, which reads as a long form rather than a quick one.
+  //
+  // The input keeps fontSize 16 deliberately. Mobile Safari zooms the
+  // whole page when a focused input is smaller than that, and a form that
+  // jumps and re-scales on every tap is far worse than one a few pixels
+  // taller.
+  field: { marginBottom: spacing.sm + 2 },
+  fieldRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm + 2, alignItems: 'flex-end' },
+  label: { fontSize: 13, fontWeight: '600', color: colors.label, marginBottom: 3 },
   input: {
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.md,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm + 2,
     fontSize: 16,
     color: colors.text,
     backgroundColor: colors.surface,
   },
-  inputMultiline: { minHeight: 72, textAlignVertical: 'top' },
-  hint: { fontSize: 12, color: colors.hint, marginTop: spacing.xs },
+  inputMultiline: { minHeight: 64, textAlignVertical: 'top' },
+  hint: { fontSize: 12, color: colors.hint, marginTop: 3, lineHeight: 16 },
   button: {
     borderRadius: radius.md,
     paddingVertical: spacing.md,

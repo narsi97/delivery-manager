@@ -203,6 +203,18 @@ export function createRecurringOrder(token, order) {
   return request('/api/v1/recurring-orders', { method: 'POST', token, body: JSON.stringify(order) });
 }
 
+// Standing orders are never edited in place — changing one is a
+// deactivate plus a create, which keeps the old arrangement on the record
+// rather than rewriting history. Used to replace a customer's standing
+// order for a product instead of stacking a second one beside it.
+export function setRecurringActive(token, id, active) {
+  return request(`/api/v1/recurring-orders/${id}/active`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ active }),
+  });
+}
+
 // date is optional and defaults, server-side, to today in the business's
 // own timezone — never the device's. See domain.Business.Today.
 export function getDay(token, date) {
