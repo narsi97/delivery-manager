@@ -205,16 +205,16 @@ export function createAdHocOrder(token, order) {
   return request('/api/v1/orders', { method: 'POST', token, body: JSON.stringify(order) });
 }
 
-// Splits a day's pending deliveries across `count` rounds (1-10) and
-// orders each one. Replaces whatever rounds the day already had, except
+// Splits a day's pending deliveries across `count` routes (1-10) and
+// orders each one. Replaces whatever routes the day already had, except
 // any holding work a driver already completed. Pass return_home to count
 // the drive back to the start point, which changes the order chosen.
-export function planRounds(token, options) {
+export function planRoutes(token, options) {
   return request('/api/v1/routes/plan', { method: 'POST', token, body: JSON.stringify(options) });
 }
 
-// Moves one delivery onto a different round, or off every round with an
-// empty route_id. Both affected rounds are re-ordered server-side.
+// Moves one delivery onto a different route, or off every route with an
+// empty route_id. Both affected routes are re-ordered server-side.
 export function moveStopToRoute(token, orderId, routeId) {
   return request(`/api/v1/orders/${orderId}/route`, {
     method: 'PATCH',
