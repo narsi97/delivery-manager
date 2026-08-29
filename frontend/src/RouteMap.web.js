@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
+import { driverIcon, homeIcon } from './mapIcons';
 import { colors, radius, spacing } from './theme';
 
 // Every drop point for a day on one map, coloured by which route it is
@@ -13,9 +14,18 @@ import { colors, radius, spacing } from './theme';
 // thing this view exists to catch.
 //
 // Tap a pin to select it; the caller renders the "move to another route"
-// control (see RouteMap's onSelect and the picker in RoutesScreen), which
-// keeps the map about geography and leaves the acting-on-it to normal
-// form controls that already match the rest of the app.
+// control (see RouteMap's onSelectStop and the picker in RoutesScreen),
+// which keeps the map about geography and leaves the acting-on-it to
+// normal form controls that already match the rest of the app.
+//
+// The business's own location and every driver's finishing point are
+// drawn too, muted, so an admin checking the day's split can still see
+// "there's a driver who lives right by this cluster" without those
+// markers competing with the coloured stops that are the actual subject
+// of this map. Tapping one of them is read-only — see onSelectOther —
+// because moving a driver's home or the business's depot from inside a
+// route-planning map would be the wrong screen for that decision.
+const MUTED_OPACITY = 0.4;
 
 // Ten colours, one per possible route (see maxPlannedRoutes in the
 // backend). Chosen to stay distinguishable next to each other on a pale
@@ -65,7 +75,16 @@ function markerIcon(color, label, selected) {
   });
 }
 
-export default function RouteMap({ stops, routes, home, selectedStopId, onSelect, height = 420 }) {
+export default function RouteMap({
+  stops,
+  routes,
+  home,
+  drivers = [],
+  selectedStopId,
+  onSelect,
+  onSelectOther,
+  height = 420,
+}) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const layerRef = useRef(null);
@@ -75,6 +94,8 @@ export default function RouteMap({ stops, routes, home, selectedStopId, onSelect
   // depends on identity of the callback the caller happened to pass.
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
+  const onSelectOtherRef = useRef(onSelectOther);
+  onSelectOtherRef.current = onSelectOther;
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) {
@@ -119,15 +140,23 @@ export default function RouteMap({ stops, routes, home, selectedStopId, onSelect
     const routeIds = routes.map((route) => route.id);
     const layer = L.featureGroup();
 
+    // Context, not the subject of this map: drawn muted, and tapping one
+    // opens a read-only card rather than anything editable — see the
+    // header comment above for why.
+    for (const driver of drivers || []) {
+      if (!driver.home_lat && !driver.home_lng) {
+        continue;
+      }
+      L.marker([driver.home_lat, driver.home_lng], { icon: driverIcon, opacity: MUTED_OPACITY })
+        .bindTooltip(`${driver.name} finishes here`, { direction: 'top' })
+        .on('click', () => onSelectOtherRef.current?.({ kind: 'driver', data: driver }))
+        .addTo(layer);
+    }
+
     if (home) {
-      L.circleMarker([home.lat, home.lng], {
-        radius: 8,
-        color: '#111',
-        weight: 3,
-        fillColor: '#fff',
-        fillOpacity: 1,
-      })
-        .bindTooltip('Start', { direction: 'top' })
+      L.marker([home.lat, home.lng], { icon: homeIcon, opacity: MUTED_OPACITY })
+        .bindTooltip('Your business', { direction: 'top' })
+        .on('click', () => onSelectOtherRef.current?.({ kind: 'business', data: home }))
         .addTo(layer);
     }
 
@@ -161,10 +190,11 @@ export default function RouteMap({ stops, routes, home, selectedStopId, onSelect
         fittedRef.current = true;
       }
     }
-  }, [stops, routes, home, selectedStopId]);
+  }, [stops, routes, home, drivers, selectedStopId]);
 
   const routeIds = routes.map((route) => route.id);
   const hasUnrouted = stops.some((stop) => !stop.route_id && (stop.lat || stop.lng));
+  const hasDrivers = (drivers || []).some((driver) => driver.home_lat || driver.home_lng);
 
   return (
     <View>
@@ -180,6 +210,18 @@ export default function RouteMap({ stops, routes, home, selectedStopId, onSelect
           <View style={styles.legendItem}>
             <View style={[styles.swatch, { backgroundColor: UNROUTED_COLOR }]} />
             <Text style={styles.legendLabel}>Not on a route</Text>
+          </View>
+        ) : null}
+        {home ? (
+          <View style={styles.legendItem}>
+            <View style={[styles.swatch, styles.mutedSwatch, styles.keyHome]} />
+            <Text style={styles.legendLabel}>Your business</Text>
+          </View>
+        ) : null}
+        {hasDrivers ? (
+          <View style={styles.legendItem}>
+            <View style={[styles.swatch, styles.mutedSwatch, styles.keyDriver]} />
+            <Text style={styles.legendLabel}>Driver</Text>
           </View>
         ) : null}
       </View>
@@ -199,5 +241,8 @@ const styles = StyleSheet.create({
   legend: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginBottom: spacing.sm },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   swatch: { width: 12, height: 12, borderRadius: 6 },
+  mutedSwatch: { opacity: MUTED_OPACITY },
+  keyHome: { backgroundColor: colors.text, borderRadius: 2 },
+  keyDriver: { backgroundColor: colors.accent },
   legendLabel: { fontSize: 13, color: colors.label, fontWeight: '600' },
 });

@@ -40,6 +40,7 @@ export default function LocationPicker({
   height = 300,
   label = 'Location',
   hint,
+  onSelectReference,
 }) {
   const [link, setLink] = useState('');
   const [error, setError] = useState('');
@@ -94,6 +95,7 @@ export default function LocationPicker({
         customers={customers}
         previewRadiusMeters={previewRadiusMeters}
         height={height}
+        onSelectReference={onSelectReference}
       />
 
       <View style={styles.buttonRow}>
@@ -129,6 +131,51 @@ export default function LocationPicker({
       <Text style={styles.hint}>
         Tap or drag on the map to place the pin. The pin — not the written address — is what orders the route.
       </Text>
+    </View>
+  );
+}
+
+// A location editor sized for the spot inside a "you tapped a pin" panel
+// — Routes/Today's selected stop, or a customer/driver glimpsed from
+// someone else's map — rather than a full form. Buffers the pin locally
+// and only calls onSave when the admin presses Save, the same
+// buffer-then-submit shape every other form-inside-a-card in this app
+// already uses; LocationPicker itself fires onChange per click/drag,
+// which is right for a form field but wrong here, where committing a
+// customer's door to a new spot deserves a deliberate action.
+export function InlineLocationEditor({ lat, lng, onSave, home, areas, drivers, customers, height = 240 }) {
+  const [draft, setDraft] = useState({ lat, lng });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const dirty = draft.lat !== lat || draft.lng !== lng;
+
+  const save = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await onSave(draft.lat, draft.lng);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View>
+      <Banner message={error} />
+      <LocationPicker
+        label="Location"
+        lat={draft.lat}
+        lng={draft.lng}
+        onChange={(newLat, newLng) => setDraft({ lat: newLat, lng: newLng })}
+        home={home}
+        areas={areas}
+        drivers={drivers}
+        customers={customers}
+        height={height}
+      />
+      <Button title="Save location" onPress={save} busy={busy} disabled={!dirty} />
     </View>
   );
 }
