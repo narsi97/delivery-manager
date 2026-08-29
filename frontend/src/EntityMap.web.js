@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
+import { fitToPoints } from './mapFit';
 import { customerIcon, driverIcon, homeIcon } from './mapIcons';
 import { colors, radius, spacing } from './theme';
 
@@ -150,12 +151,16 @@ export default function EntityMap({
     layer.addTo(map);
     layerRef.current = layer;
 
+    // Fit to the entities, not to the layer — the layer also holds the
+    // service-area circles, and one 6km ring is enough to open a map of
+    // four adjacent streets zoomed out to a speck. See mapFit.js.
     if (!fittedRef.current) {
-      const bounds = layer.getBounds();
-      if (bounds.isValid()) {
-        map.fitBounds(bounds, { padding: [30, 30] });
-        fittedRef.current = true;
-      }
+      const points = [
+        ...(customers || []).map((c) => ({ lat: c.lat, lng: c.lng })),
+        ...(drivers || []).map((d) => ({ lat: d.home_lat, lng: d.home_lng })),
+        ...(home ? [{ lat: home.lat, lng: home.lng }] : []),
+      ];
+      fittedRef.current = fitToPoints(map, points, { fallbackBounds: layer.getBounds() });
     }
   }, [home, drivers, customers, areas, editableKind, selectedId]);
 

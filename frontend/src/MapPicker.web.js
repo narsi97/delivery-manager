@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
+import { fitToPoints } from './mapFit';
 import { activePinIcon, customerIcon, driverIcon, homeIcon } from './mapIcons';
 import { colors, radius, spacing } from './theme';
 
@@ -176,14 +177,22 @@ export default function MapPicker({
       );
     }
 
-    // No pin yet, but there's a home/service area to scope the default
-    // view to — fit those bounds instead of the India-wide fallback
-    // above. This is the fix for "zoom in/out over a vast area": a
-    // business that has set up where it operates never has to re-find
-    // itself on the map by hand.
-    if (!hasPin && referenceShapes.length > 0) {
-      const group = L.featureGroup(referenceShapes);
-      map.fitBounds(group.getBounds(), { padding: [20, 20] });
+    // No pin yet — open on the business's own working area rather than
+    // the country. Fitting the *reference points* (customers, drivers,
+    // the depot) rather than every reference shape matters here: the
+    // service-area circles are kilometres wide, and including them opened
+    // this picker so far out that placing a pin meant zooming in first.
+    // See mapFit.js.
+    if (!hasPin) {
+      const points = [
+        ...(customersRef.current || []).map((c) => ({ lat: c.lat, lng: c.lng })),
+        ...(driversRef.current || []).map((d) => ({ lat: d.home_lat, lng: d.home_lng })),
+        ...(homeRef.current ? [{ lat: homeRef.current.lat, lng: homeRef.current.lng }] : []),
+      ];
+      fitToPoints(map, points, {
+        padding: 20,
+        fallbackBounds: referenceShapes.length > 0 ? L.featureGroup(referenceShapes).getBounds() : null,
+      });
     }
 
     map.on('click', (event) => {

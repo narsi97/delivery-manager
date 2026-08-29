@@ -4,6 +4,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
 import { driverIcon, homeIcon } from './mapIcons';
+import { fitToPoints } from './mapFit';
 import { colors, radius, spacing } from './theme';
 
 // Every drop point for a day on one map, coloured by which route it is
@@ -196,12 +197,16 @@ export default function RouteMap({
     // Fit once, on the first render that actually has something to fit.
     // Re-fitting on every change would yank the map back to the whole
     // day every time an admin moved one stop, undoing their zoom.
+    // The day's stops are the subject; drivers and the depot are context
+    // but still worth keeping in view, so all three decide the opening
+    // frame. See mapFit.js for why this isn't just layer.getBounds().
     if (!fittedRef.current) {
-      const bounds = layer.getBounds();
-      if (bounds.isValid()) {
-        map.fitBounds(bounds, { padding: [30, 30] });
-        fittedRef.current = true;
-      }
+      const points = [
+        ...(stops || []).map((stop) => ({ lat: stop.lat, lng: stop.lng })),
+        ...(drivers || []).map((d) => ({ lat: d.home_lat, lng: d.home_lng })),
+        ...(home ? [{ lat: home.lat, lng: home.lng }] : []),
+      ];
+      fittedRef.current = fitToPoints(map, points, { fallbackBounds: layer.getBounds() });
     }
   }, [stops, routes, home, drivers, selectedStopId]);
 
