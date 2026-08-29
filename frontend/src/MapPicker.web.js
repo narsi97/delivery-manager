@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-import { activePinIcon, customerIcon, driverIcon, homeIcon } from './mapIcons';
+import { MAP_COLORS, activePinIcon, customerIcon, driverIcon, homeIcon } from './mapIcons';
 import { colors, radius, spacing } from './theme';
 
 // The pin being placed right now. Every other symbol on this map (the
@@ -233,30 +233,29 @@ export default function MapPicker({
   );
 }
 
-// What the symbols mean. Drawn as small CSS shapes rather than reusing
-// the SVG icons at a smaller size — a 14px house is a smudge, whereas a
-// square, a circle and a ring stay legible and still map one-to-one onto
-// what's on the map above.
+// What the symbols mean. The swatches are the same shapes and colours as
+// the markers above rather than generic dots — a legend that doesn't
+// look like the thing it explains makes the reader do the matching.
 function MapLegend({ home, drivers, customers, areas }) {
   const items = [];
   if (home) {
-    items.push({ key: 'home', label: 'Your business', style: styles.keyHome });
+    items.push({ key: 'home', label: 'Your business', swatch: styles.keyHome });
   }
   if ((drivers || []).some((d) => d.home_lat || d.home_lng)) {
-    items.push({ key: 'driver', label: 'Driver finishes here', style: styles.keyDriver });
+    items.push({ key: 'driver', label: 'Driver finishes here', swatch: styles.keyDriver });
   }
   if ((customers || []).length > 0) {
-    items.push({ key: 'customer', label: 'Customer', style: styles.keyCustomer });
+    items.push({ key: 'customer', label: 'Customer', swatch: styles.keyCustomer });
   }
   if ((areas || []).some((a) => a.active !== false)) {
-    items.push({ key: 'area', label: 'Service area', style: styles.keyArea });
+    items.push({ key: 'area', label: 'Service area', swatch: styles.keyArea });
   }
 
   return (
     <View style={styles.legend}>
       {items.map((item) => (
         <View key={item.key} style={styles.legendItem}>
-          <View style={[styles.keyBase, item.style]} />
+          <View style={[styles.keyBase, item.swatch]} />
           <Text style={styles.legendLabel}>{item.label}</Text>
         </View>
       ))}
@@ -277,8 +276,10 @@ const styles = StyleSheet.create({
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   legendLabel: { fontSize: 12, color: colors.subtitle, fontWeight: '600' },
   keyBase: { width: 12, height: 12 },
-  keyHome: { backgroundColor: colors.text, borderRadius: 2 },
-  keyDriver: { backgroundColor: colors.accent, borderRadius: 6 },
-  keyCustomer: { backgroundColor: colors.subtitle, borderRadius: 6, width: 8, height: 8 },
+  // A square for the house, discs for the two round markers, a ring for
+  // the area — matching the marker silhouettes, not just their colours.
+  keyHome: { backgroundColor: MAP_COLORS.business, borderRadius: 2 },
+  keyDriver: { backgroundColor: MAP_COLORS.driver, borderRadius: 6 },
+  keyCustomer: { backgroundColor: MAP_COLORS.customer, borderRadius: 6, width: 10, height: 10 },
   keyArea: { borderWidth: 2, borderColor: colors.subtitle, borderRadius: 6, backgroundColor: 'transparent' },
 });
