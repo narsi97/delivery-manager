@@ -3,9 +3,8 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 
 import * as api from '../api';
 import { Banner, Button, Card, Disclosure, Empty, Field, FieldRow, Pill, SectionTitle } from '../components';
-import MapPicker from '../MapPicker';
-import { currentPosition } from '../navigation';
-import { colors, spacing } from '../theme';
+import LocationPicker, { InlineLocationEditor } from '../LocationPicker';
+import { colors, radius, spacing } from '../theme';
 
 // The business's own settings: its name, where it's based, and the
 // localities it delivers to. Every map elsewhere in the app (Customers,
@@ -21,6 +20,12 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  // Owned here rather than inside the form itself, so the "+" sits at the
+  // heading — next to the count it's adding to — instead of repeating the
+  // section's own title as a second row underneath.
+  const [addingArea, setAddingArea] = useState(false);
+  const [suggestions, setSuggestions] = useState([]);
+  const [prefill, setPrefill] = useState(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -40,6 +45,14 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
       setDrivers(driverResponse.drivers || []);
       setCustomers(customerResponse.customers || []);
       setError('');
+      // Best-effort: a business that can't be offered a suggestion is
+      // not a business that should see an error on its settings page.
+      try {
+        const suggested = await api.suggestServiceAreas(token);
+        setSuggestions(suggested.suggestions || []);
+      } catch {
+        setSuggestions([]);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -65,50 +78,73 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
       <BusinessDetailsCard
         token={token}
         business={business}
-        onSaved={(updated) => {
-          setNotice('Business details saved.');
-          onBusinessUpdated(updated);
-        }}
-        onError={setError}
-      />
-
-      <HomeLocationCard
-        token={token}
-        business={business}
         drivers={drivers}
         customers={customers}
         areas={areas}
         onSaved={(updated) => {
-          setNotice('Home location saved.');
+          setNotice('Business details saved.');
           onBusinessUpdated(updated);
         }}
+        onChanged={refresh}
         onError={setError}
       />
 
       <Card>
-        <SectionTitle>Service areas ({areas.length})</SectionTitle>
-        {areas.length === 0 ? (
-          <Empty>No service areas yet. Routes are prepared per area, so add the localities you deliver to.</Empty>
-        ) : (
-          areas.map((area) => (
-            <ServiceAreaRow key={area.id} area={area} home={home} token={token} onChanged={refresh} onError={setError} />
-          ))
-        )}
+        <SectionTitle
+          right={
+            <HeadingAddButton
+              open={addingArea}
+              onPress={() => {
+                setPrefill(null);
+                setAddingArea((prev) => !prev);
+              }}
+              label={addingArea ? 'Close add a service area' : 'Add a service area'}
+            />
+          }
+        >
+          Service areas ({areas.length})
+        </SectionTitle>
+        <View style={styles.headingDivider} />
 
-        <View style={styles.cardSection}>
+        {!addingArea && suggestions.length > 0 ? (
+          <SuggestedAreas
+            suggestions={suggestions}
+            onAccept={(suggestion) => {
+              setPrefill(suggestion);
+              setAddingArea(true);
+            }}
+          />
+        ) : null}
+
+        {addingArea ? (
           <NewServiceAreaForm
             token={token}
             home={home}
             areas={areas}
             drivers={drivers}
             customers={customers}
+            initial={prefill}
+            key={prefill ? `${prefill.lat},${prefill.lng}` : 'blank'}
             onCreated={async (name) => {
               setNotice(`Added ${name}.`);
+              setAddingArea(false);
+              setPrefill(null);
               await refresh();
             }}
             onError={setError}
           />
-        </View>
+        ) : null}
+
+        {areas.length === 0 ? (
+          <Empty>
+            Nothing set up yet. A round is prepared for each place you deliver to, so this is the one thing worth
+            setting up first.
+          </Empty>
+        ) : (
+          areas.map((area) => (
+            <ServiceAreaRow key={area.id} area={area} home={home} token={token} onChanged={refresh} onError={setError} />
+          ))
+        )}
       </Card>
 
       <ProductCatalogCard
@@ -131,17 +167,33 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
 // attention every single visit for no reason. Same "collapsed until
 // asked for" idea as NewCustomerCard's "+ Add", just applied to editing
 // an existing value instead of creating a new one.
-function BusinessDetailsCard({ token, business, onSaved, onError }) {
-  const [editing, setEditing] = useState(false);
+// The business itself: what it's called and where it's based. One card,
+// because they are one subject — a business owner thinking "let me check
+// our details" is thinking about both, and splitting them across two
+// boxes made the screen read as a list of settings rather than a record
+// of the business.
+//
+// Each half still opens on its own: the name behind a pencil, the
+// location behind its summary. They're set once and rarely touched, so
+// neither should sit open as a form every visit.
+function BusinessDetailsCard({ token, business, drivers, customers, areas, onSaved, onError, onChanged }) {
+  const [editingName, setEditingName] = useState(false);
+  const [editingHome, setEditingHome] = useState(false);
   const [name, setName] = useState(business.name);
   const [busy, setBusy] = useState(false);
+  const hasHome = business.home_lat || business.home_lng;
+  // Whichever customer or driver was last tapped on this map — this is
+  // the one map in the app where every entity is manageable, not just
+  // the one kind a screen owns, so tapping a customer here opens their
+  // location editor right where it was tapped rather than sending the
+  // admin off to the Customers tab to do it.
+  const [selected, setSelected] = useState(null);
 
-  const save = async () => {
+  const saveName = async () => {
     setBusy(true);
     try {
-      const updated = await api.updateBusiness(token, { name });
-      onSaved(updated);
-      setEditing(false);
+      onSaved(await api.updateBusiness(token, { name }));
+      setEditingName(false);
     } catch (err) {
       onError(err.message);
     } finally {
@@ -149,27 +201,37 @@ function BusinessDetailsCard({ token, business, onSaved, onError }) {
     }
   };
 
+  // Autosaves per click/drag — the business record already exists, so
+  // there's nothing to buffer-and-submit, same as CustomerCard's pin
+  // editor for an existing customer.
+  const savePin = async (lat, lng) => {
+    try {
+      onSaved(await api.updateBusiness(token, { home_lat: lat, home_lng: lng }));
+    } catch (err) {
+      onError(err.message);
+    }
+  };
+
   return (
     <Card>
-      {editing ? (
+      {editingName ? (
         <View>
-          <SectionTitle>Business details</SectionTitle>
           <Field label="Business name" size="md" value={name} onChangeText={setName} placeholder="Anita's Dairy" />
           <View style={styles.buttonRow}>
-            <Button title="Save" onPress={save} busy={busy} disabled={!name.trim()} style={styles.flexButton} />
+            <Button title="Save" onPress={saveName} busy={busy} disabled={!name.trim()} style={styles.flexButton} />
             <Button
               title="Cancel"
               variant="secondary"
               onPress={() => {
                 setName(business.name);
-                setEditing(false);
+                setEditingName(false);
               }}
               style={styles.flexButton}
             />
           </View>
         </View>
       ) : (
-        <Pressable onPress={() => setEditing(true)} accessibilityRole="button">
+        <Pressable onPress={() => setEditingName(true)} accessibilityRole="button">
           <View style={styles.readRow}>
             <View style={styles.readRowText}>
               <Text style={styles.readLabel}>Business name</Text>
@@ -179,78 +241,100 @@ function BusinessDetailsCard({ token, business, onSaved, onError }) {
           </View>
         </Pressable>
       )}
+
+      <View style={styles.cardSection}>
+        {editingHome ? (
+          <View>
+            <View style={styles.editHeader}>
+              <Text style={styles.readLabel}>Where you&apos;re based</Text>
+              <Pressable onPress={() => setEditingHome(false)} accessibilityRole="button">
+                <Text style={styles.doneLink}>Done</Text>
+              </Pressable>
+            </View>
+            <LocationPicker
+              label="The depot, the shop, the dairy"
+              hint="Routes start here, and every map in the app opens on the area around it. Tap a customer or driver on the map to manage them."
+              lat={business.home_lat}
+              lng={business.home_lng}
+              onChange={savePin}
+              areas={areas}
+              drivers={drivers}
+              customers={customers}
+              height={320}
+              onSelectReference={setSelected}
+            />
+            {selected ? (
+              <SelectedEntityEditor
+                key={`${selected.kind}-${selected.data.id}`}
+                token={token}
+                selected={selected}
+                home={{ lat: business.home_lat, lng: business.home_lng }}
+                onClose={() => setSelected(null)}
+                onChanged={async () => {
+                  await onChanged();
+                  setSelected(null);
+                }}
+                onError={onError}
+              />
+            ) : null}
+          </View>
+        ) : (
+          <Pressable onPress={() => setEditingHome(true)} accessibilityRole="button">
+            <View style={styles.readRow}>
+              <View style={styles.readRowText}>
+                <Text style={styles.readLabel}>Where you&apos;re based</Text>
+                <Text style={styles.readValue}>{hasHome ? 'Pinned on the map' : 'Not set yet'}</Text>
+              </View>
+              <Text style={styles.pencil}>✎</Text>
+            </View>
+          </Pressable>
+        )}
+      </View>
     </Card>
   );
 }
 
-function HomeLocationCard({ token, business, drivers, customers, areas, onSaved, onError }) {
-  const [editing, setEditing] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const hasHome = business.home_lat || business.home_lng;
+// What tapping a customer or driver on the business's own map opens. This
+// is the one map in the app where every kind of pin is manageable, so
+// unlike the muted, read-only markers everywhere else, this one edits the
+// actual record — same InlineLocationEditor the route map uses for a
+// stop's pin, wired to whichever entity was tapped.
+function SelectedEntityEditor({ token, selected, home, onClose, onChanged, onError }) {
+  const { kind, data } = selected;
 
-  // Autosaves per click/drag — the business record already exists, so
-  // there's nothing to buffer-and-submit, same as CustomerCard's pin
-  // editor for an existing customer.
-  const savePin = async (lat, lng) => {
-    setBusy(true);
+  const save = async (lat, lng) => {
     try {
-      const updated = await api.updateBusiness(token, { home_lat: lat, home_lng: lng });
-      onSaved(updated);
+      if (kind === 'customer') {
+        await api.updateCustomer(token, data.id, { lat, lng });
+      } else {
+        await api.setDriverHome(token, data.id, lat, lng);
+      }
+      await onChanged();
     } catch (err) {
       onError(err.message);
-    } finally {
-      setBusy(false);
     }
-  };
-
-  const pinHere = async () => {
-    const position = await currentPosition();
-    if (!position) {
-      onError('Could not read your location. Drop the pin on the map instead.');
-      return;
-    }
-    await savePin(position.lat, position.lng);
   };
 
   return (
-    <Card>
-      {editing ? (
-        <View>
-          <View style={styles.editHeader}>
-            <SectionTitle>Home location</SectionTitle>
-            <Pressable onPress={() => setEditing(false)} accessibilityRole="button">
-              <Text style={styles.doneLink}>Done</Text>
-            </Pressable>
-          </View>
-          <Text style={styles.note}>
-            Where the business itself is based — the depot, the shop, the dairy. Used to pre-fill where a round
-            starts, and to scope every map in the app to the area you actually operate in.
-          </Text>
-          <MapPicker
-            lat={business.home_lat}
-            lng={business.home_lng}
-            onChange={savePin}
-            areas={areas}
-            drivers={drivers}
-            customers={customers}
-            height={320}
-          />
-          <Button title="Pin my current location" variant="secondary" onPress={pinHere} busy={busy} />
-        </View>
-      ) : (
-        <Pressable onPress={() => setEditing(true)} accessibilityRole="button">
-          <View style={styles.readRow}>
-            <View style={styles.readRowText}>
-              <Text style={styles.readLabel}>Home location</Text>
-              <Text style={styles.readValue}>
-                {hasHome ? `${business.home_lat.toFixed(4)}, ${business.home_lng.toFixed(4)}` : 'Not set yet'}
-              </Text>
-            </View>
-            <Text style={styles.pencil}>✎</Text>
-          </View>
+    <View style={styles.cardSection}>
+      <View style={styles.editHeader}>
+        <Text style={styles.readLabel}>{kind === 'customer' ? data.name : `${data.name} finishes at`}</Text>
+        <Pressable onPress={onClose} accessibilityRole="button">
+          <Text style={styles.doneLink}>Done</Text>
         </Pressable>
+      </View>
+      {kind === 'customer' ? (
+        <Text style={styles.note}>{[data.address, data.phone].filter(Boolean).join(' · ') || 'No contact details yet'}</Text>
+      ) : (
+        <Text style={styles.note}>{data.phone || 'No phone on file'}</Text>
       )}
-    </Card>
+      <InlineLocationEditor
+        lat={kind === 'customer' ? data.lat : data.home_lat}
+        lng={kind === 'customer' ? data.lng : data.home_lng}
+        onSave={save}
+        home={home}
+      />
+    </View>
   );
 }
 
@@ -258,12 +342,14 @@ function HomeLocationCard({ token, business, drivers, customers, areas, onSaved,
 // "Add a customer" — this is a create-a-new-record flow (unlike the two
 // cards above, which edit the one business record that already exists),
 // so buffer-then-submit is the right pattern here, not autosave.
-function NewServiceAreaForm({ token, home, areas, drivers, customers, onCreated, onError }) {
-  const [expanded, setExpanded] = useState(false);
-  const [name, setName] = useState('');
-  const [lat, setLat] = useState('');
-  const [lng, setLng] = useState('');
-  const [radiusKm, setRadiusKm] = useState('3');
+// Controlled from the parent's "+" at the heading (see BusinessScreen)
+// rather than owning its own expand toggle — the trigger lives next to
+// the count it's adding to, not as a second title repeated underneath.
+function NewServiceAreaForm({ token, home, areas, drivers, customers, initial, onCreated, onError }) {
+  const [name, setName] = useState(initial?.name || '');
+  const [lat, setLat] = useState(initial ? String(initial.lat) : '');
+  const [lng, setLng] = useState(initial ? String(initial.lng) : '');
+  const [radiusMeters, setRadiusMeters] = useState(initial?.radius_meters || 3000);
   const [busy, setBusy] = useState(false);
 
   const setPin = (newLat, newLng) => {
@@ -271,14 +357,14 @@ function NewServiceAreaForm({ token, home, areas, drivers, customers, onCreated,
     setLng(newLng.toFixed(6));
   };
 
-  const pinHere = async () => {
-    const position = await currentPosition();
-    if (!position) {
-      onError('Could not read your location. Drop the pin on the map instead.');
-      return;
-    }
-    setPin(position.lat, position.lng);
-  };
+  // How many of this business's own customers the circle currently takes
+  // in. This is the number that replaces "radius in km" as the thing an
+  // admin steers by — "covers 42 of your 47" is a sentence a dairy owner
+  // can act on; 3.4 km is not. Mirrors coveredCount in the backend.
+  const pinned = (customers || []).filter((customer) => customer.lat || customer.lng);
+  const covered = Number(lat) && Number(lng)
+    ? pinned.filter((customer) => metersBetween(Number(lat), Number(lng), customer.lat, customer.lng) <= radiusMeters).length
+    : 0;
 
   const submit = async () => {
     setBusy(true);
@@ -287,14 +373,13 @@ function NewServiceAreaForm({ token, home, areas, drivers, customers, onCreated,
         name,
         lat: Number(lat) || 0,
         lng: Number(lng) || 0,
-        radius_meters: (Number(radiusKm) || 0) * 1000,
+        radius_meters: radiusMeters,
       });
       const created = name;
       setName('');
       setLat('');
       setLng('');
-      setRadiusKm('3');
-      setExpanded(false);
+      setRadiusMeters(3000);
       await onCreated(created);
     } catch (err) {
       onError(err.message);
@@ -304,43 +389,72 @@ function NewServiceAreaForm({ token, home, areas, drivers, customers, onCreated,
   };
 
   return (
-    <View>
-      <Disclosure open={expanded} onToggle={() => setExpanded((prev) => !prev)}>
-        Add a service area
-      </Disclosure>
+    <View style={styles.inlineForm}>
+      <Field label="Name" size="md" value={name} onChangeText={setName} placeholder="Jayanagar" />
+      <LocationPicker
+        label="Centre of the area"
+        lat={Number(lat) || 0}
+        lng={Number(lng) || 0}
+        onChange={setPin}
+        home={home}
+        areas={areas}
+        drivers={drivers}
+        customers={customers}
+        previewRadiusMeters={radiusMeters}
+        height={320}
+      />
 
-      {expanded ? (
-        <View>
-          <Field label="Name" size="md" value={name} onChangeText={setName} placeholder="Jayanagar" />
-          <FieldRow>
-            <Field label="Latitude" size="sm" value={lat} onChangeText={setLat} placeholder="12.9716" />
-            <Field label="Longitude" size="sm" value={lng} onChangeText={setLng} placeholder="77.5946" />
-          </FieldRow>
-          <MapPicker
-            lat={Number(lat) || 0}
-            lng={Number(lng) || 0}
-            onChange={setPin}
-            home={home}
-            areas={areas}
-            drivers={drivers}
-            customers={customers}
-            previewRadiusMeters={(Number(radiusKm) || 0) * 1000 || null}
-            height={320}
-          />
-          <Button title="Pin my current location" variant="secondary" onPress={pinHere} />
-          <Field
-            label="Radius (km)"
-            value={radiusKm}
-            onChangeText={setRadiusKm}
-            keyboardType="numeric"
-            hint="How far this zone reaches from the pin — shown live on the map above."
-          />
-          <Button title="Add service area" onPress={submit} busy={busy} disabled={!name.trim() || !lat || !lng} />
-        </View>
-      ) : null}
+      {/* A slider, not a kilometre field. Nobody knows their delivery
+          radius in kilometres, but everybody knows whether a circle has
+          their customers in it — so the readout is people, not distance,
+          and the number of kilometres is shown only as a footnote. */}
+      <Text style={styles.label}>How far out do you go?</Text>
+      <input
+        type="range"
+        min={500}
+        max={25000}
+        step={500}
+        value={radiusMeters}
+        onChange={(event) => setRadiusMeters(Number(event.target.value))}
+        style={radiusSliderStyle}
+        aria-label="How far this area reaches"
+      />
+      <Text style={styles.coverage}>
+        {Number(lat) && Number(lng)
+          ? `Covers ${covered} of your ${pinned.length} pinned ${pinned.length === 1 ? 'customer' : 'customers'}`
+          : 'Drop the pin above to see who this covers'}
+      </Text>
+      <Text style={styles.note}>{(radiusMeters / 1000).toFixed(1)} km across the map.</Text>
+
+      <Button title="Add service area" onPress={submit} busy={busy} disabled={!name.trim() || !lat || !lng} />
     </View>
   );
 }
+
+// Haversine, same as the backend's route.DistanceMeters — the coverage
+// count shown while dragging the slider has to agree with the one the
+// server will compute, or the circle an admin accepted covers a different
+// set of people than the one they were shown.
+function metersBetween(aLat, aLng, bLat, bLng) {
+  const R = 6371000;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(bLat - aLat);
+  const dLng = toRad(bLng - aLng);
+  const h =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+// Matches Field's input styling — a raw <input> can't take
+// StyleSheet.create output. Full width because a slider is a distance
+// control and needs the travel.
+const radiusSliderStyle = {
+  width: '100%',
+  marginTop: 4,
+  marginBottom: 4,
+  accentColor: colors.accent,
+};
 
 // What the business sells — moved here from the Drivers screen, which
 // was never really the right home for it. A dairy that only sells milk
@@ -388,9 +502,32 @@ function ProductCatalogCard({ token, products, demand, onChanged, onCreated, onE
 
   return (
     <Card>
-      <SectionTitle>Products ({products.length})</SectionTitle>
+      <SectionTitle
+        right={
+          <HeadingAddButton
+            open={expanded}
+            onPress={() => setExpanded((prev) => !prev)}
+            label={expanded ? 'Close add a product' : 'Add a product'}
+          />
+        }
+      >
+        Products ({products.length})
+      </SectionTitle>
+      <View style={styles.headingDivider} />
+
+      {expanded ? (
+        <View style={styles.inlineForm}>
+          <Field label="Name" size="md" value={name} onChangeText={setName} placeholder="Paneer 200g" />
+          <FieldRow>
+            <Field label="Unit" size="sm" value={unit} onChangeText={setUnit} placeholder="packet / can / trip" />
+            <Field label="Price ₹" size="xs" value={price} onChangeText={setPrice} keyboardType="numeric" placeholder="60" />
+          </FieldRow>
+          <Button title="Add product" onPress={submit} busy={busy} disabled={!name.trim()} />
+        </View>
+      ) : null}
+
       {products.length === 0 ? (
-        <Empty>Nothing yet — add your first product below.</Empty>
+        <Empty>Nothing yet — add your first product above.</Empty>
       ) : (
         products.map((product) => (
           <ProductRow
@@ -403,23 +540,6 @@ function ProductCatalogCard({ token, products, demand, onChanged, onCreated, onE
           />
         ))
       )}
-
-      <View style={styles.newProductToggle}>
-        <Disclosure open={expanded} onToggle={() => setExpanded((prev) => !prev)}>
-          Add a product
-        </Disclosure>
-      </View>
-
-      {expanded ? (
-        <View>
-          <Field label="Name" size="md" value={name} onChangeText={setName} placeholder="Paneer 200g" />
-          <FieldRow>
-            <Field label="Unit" size="sm" value={unit} onChangeText={setUnit} placeholder="packet / can / trip" />
-            <Field label="Price ₹" size="xs" value={price} onChangeText={setPrice} keyboardType="numeric" placeholder="60" />
-          </FieldRow>
-          <Button title="Add product" onPress={submit} busy={busy} disabled={!name.trim()} />
-        </View>
-      ) : null}
     </Card>
   );
 }
@@ -526,6 +646,57 @@ function formatQuantity(value) {
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
 }
 
+// The "+" that sits at a section's own heading rather than on a repeated
+// title row underneath it ("Add a service area" directly below "Service
+// areas (1)" was saying the same thing twice). One small round button,
+// same 44px-adjacent touch sizing as the rest of this app's icon buttons,
+// that flips to an "×" once open so it's also how you close the form.
+// What the business already told us, without meaning to.
+//
+// Service areas are the hinge the product turns on — no area means no
+// round, and every delivery falls through as a stray — and "radius in
+// kilometres" is the one abstraction a dairy farmer has no word for. But
+// their customers already have pins, and where those pins cluster *is*
+// where they deliver. So the setup step is offered as something to accept
+// rather than something to invent, and the form it opens arrives already
+// filled in.
+//
+// Only ever shown for places no existing area covers (see
+// handleSuggestServiceAreas), so it goes quiet once a business is set up
+// rather than nagging forever.
+function SuggestedAreas({ suggestions, onAccept }) {
+  return (
+    <View style={styles.suggestBox}>
+      <Text style={styles.suggestLead}>
+        {suggestions.length === 1
+          ? 'It looks like you already deliver here:'
+          : 'It looks like you already deliver to these places:'}
+      </Text>
+      {suggestions.map((suggestion) => (
+        <View key={`${suggestion.lat},${suggestion.lng}`} style={styles.suggestRow}>
+          <View style={styles.suggestText}>
+            <Text style={styles.suggestName}>{suggestion.name || 'This area'}</Text>
+            <Text style={styles.suggestMeta}>
+              {suggestion.customer_count} {suggestion.customer_count === 1 ? 'customer' : 'customers'} ·{' '}
+              {(suggestion.radius_meters / 1000).toFixed(1)} km across
+            </Text>
+          </View>
+          <Button title="Set this up" onPress={() => onAccept(suggestion)} style={styles.suggestButton} />
+        </View>
+      ))}
+      <Text style={styles.note}>You can change the name and how far it reaches before saving.</Text>
+    </View>
+  );
+}
+
+function HeadingAddButton({ open, onPress, label }) {
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={styles.addButton}>
+      <Text style={styles.addButtonGlyph}>{open ? '×' : '+'}</Text>
+    </Pressable>
+  );
+}
+
 function ServiceAreaRow({ area, home, token, onChanged, onError }) {
   const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState(area.name);
@@ -576,7 +747,8 @@ function ServiceAreaRow({ area, home, token, onChanged, onError }) {
       {expanded ? (
         <View style={styles.expanded}>
           <Field label="Name" size="md" value={name} onChangeText={setName} />
-          <MapPicker
+          <LocationPicker
+            label="Centre of the area"
             lat={Number(lat) || 0}
             lng={Number(lng) || 0}
             onChange={(newLat, newLng) => {
@@ -634,5 +806,40 @@ const styles = StyleSheet.create({
   productName: { fontSize: 15, fontWeight: '600', color: colors.text },
   productMeta: { fontSize: 13, color: colors.subtitle },
   cardSection: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs },
+  headingDivider: { borderBottomWidth: 1, borderBottomColor: colors.border, marginTop: -spacing.sm, marginBottom: spacing.md },
+  addButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addButtonGlyph: { fontSize: 18, fontWeight: '700', color: colors.link, lineHeight: 20 },
+  inlineForm: { marginBottom: spacing.md },
+  coverage: { fontSize: 14, fontWeight: '700', color: colors.accent, marginTop: spacing.xs },
+  suggestBox: {
+    borderWidth: 1,
+    borderColor: colors.accent,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceAlt,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  suggestLead: { fontSize: 14, fontWeight: '600', color: colors.text, marginBottom: spacing.sm },
+  suggestRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+    paddingVertical: spacing.xs,
+  },
+  suggestText: { flexShrink: 1, minWidth: 140 },
+  suggestName: { fontSize: 15, fontWeight: '700', color: colors.text },
+  suggestMeta: { fontSize: 13, color: colors.subtitle, marginTop: 1 },
+  suggestButton: { flexShrink: 0 },
   newProductToggle: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md },
 });

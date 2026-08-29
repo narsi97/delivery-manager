@@ -1126,6 +1126,7 @@ func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date
 	// see two rounds, not six empty ones.
 	needsRound := map[string]bool{}
 	areaOfOrder := map[string]string{}
+	pinOfOrder := map[string]route.Point{}
 	for _, o := range orders {
 		if o.RouteID != nil || o.Status != domain.StatusPending {
 			continue
@@ -1136,6 +1137,7 @@ func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date
 		}
 		if area, ok := areaContaining(customer.Lat, customer.Lng, areas); ok {
 			areaOfOrder[o.ID] = area.ID
+			pinOfOrder[o.ID] = route.Point{Lat: customer.Lat, Lng: customer.Lng}
 			needsRound[area.ID] = true
 		}
 	}
@@ -1148,33 +1150,86 @@ func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date
 	// Which area each existing round serves, so a round an admin built by
 	// hand near an area's centre is recognised as that area's round
 	// rather than being duplicated beside it.
+	//
+	// An area can hold more than one round — that is what splitting it
+	// between drivers produces (see handleSetAreaDrivers). routeForArea
+	// answers "does this area already have a round", which only needs one
+	// of them; roundsInArea keeps the rest, so a stop added after the
+	// split is placed among them rather than always landing on whichever
+	// happened to be listed first.
 	routeForArea := map[string]domain.Route{}
+	roundsInArea := map[string][]domain.Route{}
 	for _, rt := range routes {
 		if area, ok := areaContaining(rt.StartLat, rt.StartLng, areas); ok {
 			if _, taken := routeForArea[area.ID]; !taken {
 				routeForArea[area.ID] = rt
 			}
+			roundsInArea[area.ID] = append(roundsInArea[area.ID], rt)
 		}
 	}
 
-	// Yesterday's rounds, to carry the driver forward: the same person
-	// drives the same round day after day on a milk route, and making an
+	// Yesterday's rounds, to carry the drivers forward: the same people
+	// drive the same rounds day after day on a milk route, and making an
 	// admin re-pick them every morning is exactly the kind of daily
 	// busywork this pass is removing. Only ever used to fill an
 	// assignment in, never to override one.
-	previousDriverFor := map[string]*string{}
+	//
+	// All of yesterday's drivers for an area, not just one — an area split
+	// between three drivers yesterday is split between the same three
+	// today, or the split would have to be redone every single morning
+	// and would be worth nothing.
+	previousDriversFor := map[string][]string{}
 	if yesterday, err := shiftDate(date, -1); err == nil {
 		if priorRoutes, err := s.store.ListRoutes(r.Context(), business.ID, yesterday); err == nil {
 			for _, rt := range priorRoutes {
 				if rt.DriverID == nil {
 					continue
 				}
-				if area, ok := areaContaining(rt.StartLat, rt.StartLng, areas); ok {
-					previousDriverFor[area.ID] = rt.DriverID
+				area, ok := areaContaining(rt.StartLat, rt.StartLng, areas)
+				if !ok {
+					continue
+				}
+				already := false
+				for _, id := range previousDriversFor[area.ID] {
+					if id == *rt.DriverID {
+						already = true
+						break
+					}
+				}
+				if !already {
+					previousDriversFor[area.ID] = append(previousDriversFor[area.ID], *rt.DriverID)
 				}
 			}
 		}
 	}
+
+	// A driver carried forward may have been deactivated overnight, and
+	// their home is what a split round finishes at — so resolve them once
+	// here rather than trusting yesterday's copy.
+	driverByID := map[string]domain.User{}
+	for _, ids := range previousDriversFor {
+		for _, id := range ids {
+			if _, done := driverByID[id]; done {
+				continue
+			}
+			if u, err := s.store.GetUserByID(r.Context(), business.ID, id); err == nil && u.Active && u.Role.CanDrive() {
+				driverByID[id] = u
+			}
+		}
+	}
+	liveDriversFor := func(areaID string) []domain.User {
+		out := make([]domain.User, 0, len(previousDriversFor[areaID]))
+		for _, id := range previousDriversFor[areaID] {
+			if u, ok := driverByID[id]; ok {
+				out = append(out, u)
+			}
+		}
+		return out
+	}
+
+	// Stops that the split below has already spoken for, so the general
+	// attach loop further down leaves them alone.
+	preAssigned := map[string]string{}
 
 	for _, area := range areas {
 		if !area.Active || !needsRound[area.ID] {
@@ -1183,10 +1238,31 @@ func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date
 		if _, exists := routeForArea[area.ID]; exists {
 			continue
 		}
+
+		// Yesterday this area was shared between several drivers, so today
+		// is too. Cut it the same way and hand each cluster to the driver
+		// who finishes nearest it, exactly as handleSetAreaDrivers would
+		// have — this is that same plan, arriving on its own the next
+		// morning instead of being asked for again.
+		if crew := liveDriversFor(area.ID); len(crew) > 1 {
+			if err := s.prepareSplitArea(r, business, date, area, crew, areaOfOrder, pinOfOrder, preAssigned,
+				routeForArea, roundsInArea); err != nil {
+				return err
+			}
+			continue
+		}
+
 		status := domain.RouteDraft
-		driverID := previousDriverFor[area.ID]
-		if driverID != nil {
+		var driverID *string
+		var endLat, endLng float64
+		if crew := liveDriversFor(area.ID); len(crew) == 1 {
+			driverID = &crew[0].ID
 			status = domain.RouteAssigned
+			// A round ends where its driver lives (see handleAssignRoute).
+			// Carrying the driver forward has to carry that with it, or
+			// yesterday's round and today's identical one would be ordered
+			// differently for no reason the admin can see.
+			endLat, endLng = crew[0].HomeLat, crew[0].HomeLng
 		}
 		created, err := s.store.CreateRoute(r.Context(), domain.Route{
 			ID:         domain.NewID(),
@@ -1197,6 +1273,8 @@ func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date
 			Status:     status,
 			StartLat:   area.Lat,
 			StartLng:   area.Lng,
+			EndLat:     endLat,
+			EndLng:     endLng,
 		})
 		if errors.Is(err, storage.ErrConflict) {
 			// Someone else's read got here first — the round now exists,
@@ -1222,7 +1300,35 @@ func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date
 			return err
 		}
 		routeForArea[area.ID] = created
+		roundsInArea[area.ID] = append(roundsInArea[area.ID], created)
 		log.Printf("prepared %s for business %s on %s", created.Name, business.ID, date)
+	}
+
+	// Where each round's existing work sits, so a new stop in a split
+	// area can join the round already working nearest to it. Only built
+	// for areas that actually hold more than one round — the ordinary
+	// one-round-per-area business never pays for this.
+	stopsOnRound := map[string][]route.Point{}
+	for _, rounds := range roundsInArea {
+		if len(rounds) < 2 {
+			continue
+		}
+		for _, rt := range rounds {
+			stopsOnRound[rt.ID] = nil
+		}
+	}
+	if len(stopsOnRound) > 0 {
+		for _, o := range orders {
+			if o.RouteID == nil {
+				continue
+			}
+			if _, tracked := stopsOnRound[*o.RouteID]; !tracked {
+				continue
+			}
+			if c, known := customersByID[o.CustomerID]; known && c.HasPin() {
+				stopsOnRound[*o.RouteID] = append(stopsOnRound[*o.RouteID], route.Point{Lat: c.Lat, Lng: c.Lng})
+			}
+		}
 	}
 
 	// Now attach. Only rounds that actually gained a stop get
@@ -1230,10 +1336,27 @@ func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date
 	// loop does no writes at all.
 	gained := map[string]bool{}
 	assignedTo := map[string]string{}
+	for orderID, routeID := range preAssigned {
+		assignedTo[orderID] = routeID
+		gained[routeID] = true
+	}
 	for orderID, areaID := range areaOfOrder {
+		if _, spoken := assignedTo[orderID]; spoken {
+			continue
+		}
 		rt, ok := routeForArea[areaID]
 		if !ok {
 			continue
+		}
+		// A split area: give the stop to the round already delivering
+		// closest to it, so a customer added mid-morning joins the driver
+		// who is going past their door rather than whichever round sorts
+		// first. Falls back to routeForArea when no round has any pinned
+		// work yet to compare against.
+		if rounds := roundsInArea[areaID]; len(rounds) > 1 {
+			if nearest, ok := nearestRound(pinOfOrder[orderID], rounds, stopsOnRound); ok {
+				rt = nearest
+			}
 		}
 		assignedTo[orderID] = rt.ID
 		gained[rt.ID] = true
@@ -1242,41 +1365,64 @@ func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date
 		return nil
 	}
 
-	for _, rt := range routeForArea {
-		if !gained[rt.ID] {
-			continue
-		}
-		points := make([]route.Point, 0)
-		for _, o := range orders {
-			onThisRoute := (o.RouteID != nil && *o.RouteID == rt.ID) || assignedTo[o.ID] == rt.ID
-			if !onThisRoute {
+	// Over every round in every area, not just one per area: a split area
+	// holds several, and each of them has its own stops to order.
+	for _, rounds := range roundsInArea {
+		for _, rt := range rounds {
+			if !gained[rt.ID] {
 				continue
 			}
-			c := customersByID[o.CustomerID]
-			points = append(points, route.Point{ID: o.ID, Lat: c.Lat, Lng: c.Lng})
+			if err := s.orderRound(r, business.ID, rt, orders, customersByID, assignedTo); err != nil {
+				return err
+			}
 		}
-
-		start := route.Point{Lat: rt.StartLat, Lng: rt.StartLng}
-		var ordered []route.Point
-		var meters float64
-		if rt.HasEnd() {
-			ordered, meters = route.OptimizeReturning(start, points, route.Point{Lat: rt.EndLat, Lng: rt.EndLng})
-		} else {
-			ordered, meters = route.Optimize(start, points)
-		}
-		orderedIDs := make([]string, 0, len(ordered))
-		for _, p := range ordered {
-			orderedIDs = append(orderedIDs, p.ID)
-		}
-		if err := s.store.AssignStops(r.Context(), business.ID, rt.ID, orderedIDs); err != nil {
-			return err
-		}
-		rt.EstimatedMeters = meters
-		if _, err := s.store.UpdateRoute(r.Context(), rt); err != nil {
-			return err
-		}
-		log.Printf("%s now has %d stops", rt.Name, len(orderedIDs))
 	}
+	return nil
+}
+
+// orderRound works out the visiting order for one round and writes it.
+// Split out of ensureDayRounds so that every round in an area gets the
+// same treatment — see the loop above, which used to reach only the first
+// round of each area and so left a split area's second driver with no
+// stops attached at all.
+func (s *Server) orderRound(
+	r *http.Request,
+	businessID string,
+	rt domain.Route,
+	orders []domain.DailyOrder,
+	customersByID map[string]domain.Customer,
+	assignedTo map[string]string,
+) error {
+	points := make([]route.Point, 0)
+	for _, o := range orders {
+		onThisRoute := (o.RouteID != nil && *o.RouteID == rt.ID) || assignedTo[o.ID] == rt.ID
+		if !onThisRoute {
+			continue
+		}
+		c := customersByID[o.CustomerID]
+		points = append(points, route.Point{ID: o.ID, Lat: c.Lat, Lng: c.Lng})
+	}
+
+	start := route.Point{Lat: rt.StartLat, Lng: rt.StartLng}
+	var ordered []route.Point
+	var meters float64
+	if rt.HasEnd() {
+		ordered, meters = route.OptimizeReturning(start, points, route.Point{Lat: rt.EndLat, Lng: rt.EndLng})
+	} else {
+		ordered, meters = route.Optimize(start, points)
+	}
+	orderedIDs := make([]string, 0, len(ordered))
+	for _, p := range ordered {
+		orderedIDs = append(orderedIDs, p.ID)
+	}
+	if err := s.store.AssignStops(r.Context(), businessID, rt.ID, orderedIDs); err != nil {
+		return err
+	}
+	rt.EstimatedMeters = meters
+	if _, err := s.store.UpdateRoute(r.Context(), rt); err != nil {
+		return err
+	}
+	log.Printf("%s now has %d stops", rt.Name, len(orderedIDs))
 	return nil
 }
 
@@ -1296,6 +1442,33 @@ func areaContaining(lat, lng float64, areas []domain.ServiceArea) (domain.Servic
 		d := route.DistanceMeters(lat, lng, area.Lat, area.Lng)
 		if d <= area.RadiusMeters && d < bestDist {
 			best, bestDist, found = area, d, true
+		}
+	}
+	return best, found
+}
+
+// nearestRound picks which of an area's rounds a loose stop should join,
+// by distance to the nearest stop each round is already making.
+//
+// Only meaningful once an area holds several rounds — that is, once it
+// has been split between drivers (see handleSetAreaDrivers). Measuring
+// against a round's actual stops rather than its start point is what
+// makes this work at all: every round in a split area starts from the
+// same area centre, so start points cannot tell them apart.
+//
+// A round with no pinned work yet is skipped rather than treated as
+// infinitely far, and if none of them has any, the caller keeps its own
+// fallback.
+func nearestRound(pin route.Point, rounds []domain.Route, stopsOnRound map[string][]route.Point) (domain.Route, bool) {
+	var best domain.Route
+	bestDist := math.Inf(1)
+	found := false
+	for _, rt := range rounds {
+		for _, stop := range stopsOnRound[rt.ID] {
+			d := route.DistanceMeters(pin.Lat, pin.Lng, stop.Lat, stop.Lng)
+			if d < bestDist {
+				best, bestDist, found = rt, d, true
+			}
 		}
 	}
 	return best, found

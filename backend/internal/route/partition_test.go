@@ -170,3 +170,84 @@ func TestOptimizeReturningVisitsEveryStopOnce(t *testing.T) {
 		seen[p.ID] = true
 	}
 }
+
+// A town strung out east-west along a highway is as ordinary as one that
+// runs north-south, and the split has to cut across the long axis in both
+// cases. Seeding always ran north-to-south once, which put every seed in
+// the same end of an east-west town and handed both drivers the full
+// length of the road.
+func TestPartitionSplitsAnEastWestLineIntoContiguousHalves(t *testing.T) {
+	stops := []Point{}
+	for i := 0; i < 10; i++ {
+		stops = append(stops, Point{ID: fmt.Sprintf("s%d", i), Lat: 12.90, Lng: 77.55 + float64(i)*0.01})
+	}
+
+	groups := Partition(stops, 2)
+	if len(groups) != 2 {
+		t.Fatalf("got %d groups, want 2", len(groups))
+	}
+
+	maxA, minA := -999.0, 999.0
+	for _, p := range groups[0] {
+		if p.Lng > maxA {
+			maxA = p.Lng
+		}
+		if p.Lng < minA {
+			minA = p.Lng
+		}
+	}
+	for _, p := range groups[1] {
+		if p.Lng > minA && p.Lng < maxA {
+			t.Fatalf("group 1 stop at %.4f falls inside group 0's range %.4f..%.4f — the split interleaves", p.Lng, minA, maxA)
+		}
+	}
+}
+
+// AssignToFinishes exists so the driver who lives at one end of the round
+// is given that end, rather than the clusters being handed out in
+// whatever order they were cut.
+func TestAssignToFinishesGivesEachDriverTheirNearestCluster(t *testing.T) {
+	west := []Point{{ID: "w1", Lat: 12.90, Lng: 77.50}, {ID: "w2", Lat: 12.91, Lng: 77.51}}
+	east := []Point{{ID: "e1", Lat: 12.90, Lng: 77.70}, {ID: "e2", Lat: 12.91, Lng: 77.71}}
+
+	// Finishes deliberately in the opposite order to the groups, so an
+	// implementation that just paired them off by index would fail.
+	finishes := []Point{{Lat: 12.90, Lng: 77.72}, {Lat: 12.90, Lng: 77.48}}
+
+	got := AssignToFinishes([][]Point{west, east}, finishes)
+	if got[0] != 1 {
+		t.Fatalf("west cluster went to finish %d, want 1 (the western home)", got[0])
+	}
+	if got[1] != 0 {
+		t.Fatalf("east cluster went to finish %d, want 0 (the eastern home)", got[1])
+	}
+}
+
+// Every group gets exactly one driver, and no driver gets two — the
+// whole point of matching rather than nearest-wins per group.
+func TestAssignToFinishesIsAOneToOneMatching(t *testing.T) {
+	groups := [][]Point{
+		{{ID: "a", Lat: 12.90, Lng: 77.50}},
+		{{ID: "b", Lat: 12.91, Lng: 77.51}},
+		{{ID: "c", Lat: 12.92, Lng: 77.52}},
+	}
+	// All three homes crowded together, so a naive per-group nearest-wins
+	// would hand the same one out repeatedly.
+	finishes := []Point{
+		{Lat: 12.90, Lng: 77.5000},
+		{Lat: 12.90, Lng: 77.5001},
+		{Lat: 12.90, Lng: 77.5002},
+	}
+
+	got := AssignToFinishes(groups, finishes)
+	seen := map[int]bool{}
+	for g, f := range got {
+		if f < 0 {
+			t.Fatalf("group %d got no driver", g)
+		}
+		if seen[f] {
+			t.Fatalf("driver %d was given more than one group", f)
+		}
+		seen[f] = true
+	}
+}

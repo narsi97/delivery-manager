@@ -39,6 +39,12 @@ export default function MapPicker({
   drivers = [],
   customers = [],
   previewRadiusMeters = null,
+  // Fires when a reference marker (a customer or driver drawn as
+  // backdrop, not the pin this picker exists to place) is tapped. Optional
+  // — most callers just want the backdrop for orientation, but the
+  // Business tab's own map uses this to let an admin manage the customer
+  // or driver they just tapped without leaving the page.
+  onSelectReference,
 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -46,6 +52,8 @@ export default function MapPicker({
   const previewCircleRef = useRef(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const onSelectReferenceRef = useRef(onSelectReference);
+  onSelectReferenceRef.current = onSelectReference;
   // Read at mount time only (see the mount effect below) — home/areas
   // drive a one-time "fit the default view" and a static reference layer,
   // not something that should re-fit the map out from under an admin
@@ -130,6 +138,7 @@ export default function MapPicker({
       referenceShapes.push(
         L.marker([customer.lat, customer.lng], { icon: customerIcon, interactive: true })
           .bindTooltip(customer.name, { direction: 'top' })
+          .on('click', () => onSelectReferenceRef.current?.({ kind: 'customer', data: customer }))
           .addTo(map)
       );
     }
@@ -141,6 +150,7 @@ export default function MapPicker({
       referenceShapes.push(
         L.marker([driver.home_lat, driver.home_lng], { icon: driverIcon })
           .bindTooltip(`${driver.name} finishes here`, { direction: 'top' })
+          .on('click', () => onSelectReferenceRef.current?.({ kind: 'driver', data: driver }))
           .addTo(map)
       );
     }

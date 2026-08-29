@@ -106,12 +106,32 @@ export function listServiceAreas(token) {
   return request('/api/v1/service-areas', { method: 'GET', token });
 }
 
+// Where this business already delivers, read back from where its
+// customers' pins cluster — so a new business can accept an area in one
+// tap instead of inventing a radius in kilometres. Only ever proposes
+// places no existing area covers, so it goes quiet once they're set up.
+export function suggestServiceAreas(token) {
+  return request('/api/v1/service-areas/suggest', { method: 'GET', token });
+}
+
 export function createServiceArea(token, area) {
   return request('/api/v1/service-areas', { method: 'POST', token, body: JSON.stringify(area) });
 }
 
 export function updateServiceArea(token, id, changes) {
   return request(`/api/v1/service-areas/${id}`, { method: 'PATCH', token, body: JSON.stringify(changes) });
+}
+
+// Who is delivering this area today. One driver means one route; several
+// means the area is split between them, each finishing at their own home
+// (see handleSetAreaDrivers). Returns the whole day, since one area's
+// routes changing changes the day's shape.
+export function setAreaDrivers(token, areaId, driverIds, date) {
+  return request(`/api/v1/service-areas/${areaId}/drivers`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ driver_ids: driverIds, date: date || undefined }),
+  });
 }
 
 export function listCustomers(token) {
@@ -205,16 +225,9 @@ export function createAdHocOrder(token, order) {
   return request('/api/v1/orders', { method: 'POST', token, body: JSON.stringify(order) });
 }
 
-// Splits a day's pending deliveries across `count` rounds (1-10) and
-// orders each one. Replaces whatever rounds the day already had, except
-// any holding work a driver already completed. Pass return_home to count
-// the drive back to the start point, which changes the order chosen.
-export function planRounds(token, options) {
-  return request('/api/v1/routes/plan', { method: 'POST', token, body: JSON.stringify(options) });
-}
 
-// Moves one delivery onto a different round, or off every round with an
-// empty route_id. Both affected rounds are re-ordered server-side.
+// Moves one delivery onto a different route, or off every route with an
+// empty route_id. Both affected routes are re-ordered server-side.
 export function moveStopToRoute(token, orderId, routeId) {
   return request(`/api/v1/orders/${orderId}/route`, {
     method: 'PATCH',
@@ -229,12 +242,6 @@ export function deleteRoute(token, id) {
   return request(`/api/v1/routes/${id}`, { method: 'DELETE', token });
 }
 
-// Clears a day's routes and starts over. With service areas set up the
-// next read prepares the per-area routes again, so this is "back to what
-// we'd have had without planning by hand" rather than "no routes".
-export function resetRoutes(token, date) {
-  return request(`/api/v1/routes/reset${date ? `?date=${date}` : ''}`, { method: 'POST', token });
-}
 
 // Pass route_id to rebuild an existing route in place (absorbing any
 // newly-added stops) instead of creating a second one for the same day.
