@@ -205,6 +205,19 @@ func (s *MemoryStore) SetUserActive(ctx context.Context, businessID string, id s
 	return u, nil
 }
 
+func (s *MemoryStore) SetUserHome(ctx context.Context, businessID string, id string, lat, lng float64) (domain.User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	u, ok := s.users[id]
+	if !ok || u.BusinessID != businessID {
+		return domain.User{}, ErrNotFound
+	}
+	u.HomeLat, u.HomeLng = lat, lng
+	s.users[id] = u
+	return u, nil
+}
+
 func (s *MemoryStore) SetUserPIN(ctx context.Context, businessID string, id string, pinHash string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

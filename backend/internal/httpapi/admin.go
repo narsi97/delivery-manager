@@ -427,6 +427,66 @@ func (s *Server) handleResetDriverPIN(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 
+// handleSetDriverHome records where a driver finishes their day.
+//
+// This is not a contact detail — it is routing input. Any route this
+// driver is assigned to ends here, and the last stop is chosen
+// accordingly, so setting it changes the order of tomorrow's round.
+func (s *Server) handleSetDriverHome(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r.Context())
+
+	var req struct {
+		HomeLat float64 `json:"home_lat"`
+		HomeLng float64 `json:"home_lng"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if !validCoordinates(req.HomeLat, req.HomeLng) {
+		writeError(w, http.StatusBadRequest,
+			"home_lat must be between -90 and 90 and home_lng between -180 and 180", "invalid_location")
+		return
+	}
+
+	driver, err := s.store.GetUserByID(r.Context(), sess.Business.ID, r.PathValue("id"))
+	if err != nil {
+		writeStoreError(w, err, "driver")
+		return
+	}
+	if !driver.Role.CanDrive() {
+		writeError(w, http.StatusBadRequest, "that account is not a driver", "not_a_driver")
+		return
+	}
+
+	updated, err := s.store.SetUserHome(r.Context(), sess.Business.ID, driver.ID, req.HomeLat, req.HomeLng)
+	if err != nil {
+		writeStoreError(w, err, "driver")
+		return
+	}
+
+	// Any route already handed to this driver now finishes somewhere
+	// different, so it needs re-ordering — otherwise the change only
+	// takes effect the next time someone happens to reassign them.
+	routes, err := s.store.ListRoutes(r.Context(), sess.Business.ID, sess.Business.Today())
+	if err == nil {
+		for _, rt := range routes {
+			if rt.DriverID == nil || *rt.DriverID != driver.ID {
+				continue
+			}
+			rt.EndLat, rt.EndLng = updated.HomeLat, updated.HomeLng
+			saved, err := s.store.UpdateRoute(r.Context(), rt)
+			if err != nil {
+				continue
+			}
+			if err := s.reorderForEnd(r, sess.Business.ID, saved); err != nil {
+				log.Printf("re-order route %s after driver home change: %v", saved.ID, err)
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, updated)
+}
+
 func (s *Server) handleSetDriverActive(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r.Context())
 
@@ -1196,7 +1256,14 @@ func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date
 			points = append(points, route.Point{ID: o.ID, Lat: c.Lat, Lng: c.Lng})
 		}
 
-		ordered, meters := route.Optimize(route.Point{Lat: rt.StartLat, Lng: rt.StartLng}, points)
+		start := route.Point{Lat: rt.StartLat, Lng: rt.StartLng}
+		var ordered []route.Point
+		var meters float64
+		if rt.HasEnd() {
+			ordered, meters = route.OptimizeReturning(start, points, route.Point{Lat: rt.EndLat, Lng: rt.EndLng})
+		} else {
+			ordered, meters = route.Optimize(start, points)
+		}
 		orderedIDs := make([]string, 0, len(ordered))
 		for _, p := range ordered {
 			orderedIDs = append(orderedIDs, p.ID)
@@ -1397,11 +1464,19 @@ func (s *Server) handleAssignRoute(w http.ResponseWriter, r *http.Request) {
 		if target.Status == domain.RouteDraft {
 			target.Status = domain.RouteAssigned
 		}
+		// A round ends when the driver gets home, not when they get back
+		// to the depot — so who is driving changes which stop should be
+		// last. Picking up the driver's home here (rather than at
+		// planning time) is what makes that work in the order an admin
+		// actually does things: plan the day, then hand rounds out.
+		target.EndLat, target.EndLng = driver.HomeLat, driver.HomeLng
 	} else {
 		// An empty driver_id unassigns — the route goes back to being a
-		// draft the admin can hand to someone else.
+		// draft the admin can hand to someone else, and stops finishing
+		// anywhere in particular.
 		target.DriverID = nil
 		target.Status = domain.RouteDraft
+		target.EndLat, target.EndLng = 0, 0
 	}
 
 	updated, err := s.store.UpdateRoute(r.Context(), target)
@@ -1409,7 +1484,51 @@ func (s *Server) handleAssignRoute(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err, "route")
 		return
 	}
-	writeJSON(w, http.StatusOK, updated)
+
+	// Re-order for the new finish. Skipped when nothing about the ending
+	// changed, so handing a round to a driver with no home saved is the
+	// same cheap operation it always was.
+	if err := s.reorderForEnd(r, sess.Business.ID, updated); err != nil {
+		// The assignment itself succeeded; a failure to re-order leaves a
+		// drivable round in the old sequence rather than no round at all.
+		log.Printf("re-order route %s after assignment: %v", updated.ID, err)
+	}
+
+	refreshed, err := s.store.GetRoute(r.Context(), sess.Business.ID, updated.ID)
+	if err != nil {
+		writeJSON(w, http.StatusOK, updated)
+		return
+	}
+	writeJSON(w, http.StatusOK, refreshed)
+}
+
+// reorderForEnd re-optimizes a route now that where it finishes may have
+// changed. See route.OptimizeReturning for why an end point changes the
+// best order rather than just the total.
+func (s *Server) reorderForEnd(r *http.Request, businessID string, rt domain.Route) error {
+	orders, err := s.store.ListDailyOrders(r.Context(), businessID, rt.RouteDate)
+	if err != nil {
+		return err
+	}
+	customers, err := s.store.ListCustomers(r.Context(), businessID)
+	if err != nil {
+		return err
+	}
+	customersByID := map[string]domain.Customer{}
+	for _, c := range customers {
+		customersByID[c.ID] = c
+	}
+
+	members := []string{}
+	for _, o := range orders {
+		if o.RouteID != nil && *o.RouteID == rt.ID && o.Status == domain.StatusPending {
+			members = append(members, o.ID)
+		}
+	}
+	if len(members) == 0 {
+		return nil
+	}
+	return s.reorderRoute(r, businessID, rt, members, orders, customersByID)
 }
 
 // ---------- shared read models ----------

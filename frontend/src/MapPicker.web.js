@@ -1,27 +1,15 @@
 import React, { useEffect, useRef } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-import { colors, radius } from './theme';
+import { activePinIcon, customerIcon, driverIcon, homeIcon } from './mapIcons';
+import { colors, radius, spacing } from './theme';
 
-// A pin drawn as an inline SVG data URI, not one of Leaflet's bundled PNG
-// icons — those resolve to a relative image path that assumes a plain
-// webpack/CRA asset pipeline, which Metro doesn't serve at the same URL,
-// and the well-known symptom is a broken-image marker. A self-contained
-// data: URI has no path to get wrong, and img-src already allows data:
-// under the shared Caddy's CSP (see caddy/Caddyfile).
-const PIN_SVG = encodeURIComponent(
-  `<svg xmlns="http://www.w3.org/2000/svg" width="30" height="42" viewBox="0 0 30 42">` +
-    `<path d="M15 0C6.7 0 0 6.7 0 15c0 10.5 15 27 15 27s15-16.5 15-27C30 6.7 23.3 0 15 0z" fill="${colors.accent}"/>` +
-    `<circle cx="15" cy="15" r="6" fill="#fff"/>` +
-    `</svg>`
-);
-const pinIcon = L.icon({
-  iconUrl: `data:image/svg+xml,${PIN_SVG}`,
-  iconSize: [30, 42],
-  iconAnchor: [15, 42],
-});
+// The pin being placed right now. Every other symbol on this map (the
+// business, drivers, customers) comes from mapIcons.js so the whole app
+// draws them the same way.
+const pinIcon = activePinIcon;
 
 // Center used only before any pin exists on this record — purely
 // cosmetic, since the first click replaces it immediately.
@@ -41,7 +29,17 @@ const DEFAULT_CENTER = [20.5937, 78.9629]; // roughly the center of India
 //   - previewRadiusMeters: number | null — draws (and live-updates) a
 //     circle around the *current* pin, for the "add a service area" flow
 //     where an admin is picking a radius and wants to see it as they type.
-export default function MapPicker({ lat, lng, onChange, height = 260, home = null, areas = [], previewRadiusMeters = null }) {
+export default function MapPicker({
+  lat,
+  lng,
+  onChange,
+  height = 260,
+  home = null,
+  areas = [],
+  drivers = [],
+  customers = [],
+  previewRadiusMeters = null,
+}) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markerRef = useRef(null);
@@ -56,6 +54,10 @@ export default function MapPicker({ lat, lng, onChange, height = 260, home = nul
   homeRef.current = home;
   const areasRef = useRef(areas);
   areasRef.current = areas;
+  const driversRef = useRef(drivers);
+  driversRef.current = drivers;
+  const customersRef = useRef(customers);
+  customersRef.current = customers;
 
   const placeMarker = (map, latlng) => {
     if (markerRef.current) {
@@ -119,15 +121,35 @@ export default function MapPicker({ lat, lng, onChange, height = 260, home = nul
         }).addTo(map)
       );
     }
+    // Customers first, so the handful of markers that matter draw on top
+    // of the hundred that are context.
+    for (const customer of customersRef.current || []) {
+      if (!customer.lat && !customer.lng) {
+        continue;
+      }
+      referenceShapes.push(
+        L.marker([customer.lat, customer.lng], { icon: customerIcon, interactive: true })
+          .bindTooltip(customer.name, { direction: 'top' })
+          .addTo(map)
+      );
+    }
+
+    for (const driver of driversRef.current || []) {
+      if (!driver.home_lat && !driver.home_lng) {
+        continue;
+      }
+      referenceShapes.push(
+        L.marker([driver.home_lat, driver.home_lng], { icon: driverIcon })
+          .bindTooltip(`${driver.name} finishes here`, { direction: 'top' })
+          .addTo(map)
+      );
+    }
+
     if (homeRef.current) {
       referenceShapes.push(
-        L.circleMarker([homeRef.current.lat, homeRef.current.lng], {
-          radius: 7,
-          color: colors.text,
-          weight: 2,
-          fillColor: '#fff',
-          fillOpacity: 1,
-        }).addTo(map)
+        L.marker([homeRef.current.lat, homeRef.current.lng], { icon: homeIcon })
+          .bindTooltip('Your business', { direction: 'top' })
+          .addTo(map)
       );
     }
 
@@ -201,7 +223,45 @@ export default function MapPicker({ lat, lng, onChange, height = 260, home = nul
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lat, lng, previewRadiusMeters]);
 
-  return <View ref={containerRef} style={[styles.map, { height }]} />;
+  const showLegend = !!home || (drivers || []).some((d) => d.home_lat || d.home_lng) || (customers || []).length > 0;
+
+  return (
+    <View>
+      <View ref={containerRef} style={[styles.map, { height }]} />
+      {showLegend ? <MapLegend home={home} drivers={drivers} customers={customers} areas={areas} /> : null}
+    </View>
+  );
+}
+
+// What the symbols mean. Drawn as small CSS shapes rather than reusing
+// the SVG icons at a smaller size — a 14px house is a smudge, whereas a
+// square, a circle and a ring stay legible and still map one-to-one onto
+// what's on the map above.
+function MapLegend({ home, drivers, customers, areas }) {
+  const items = [];
+  if (home) {
+    items.push({ key: 'home', label: 'Your business', style: styles.keyHome });
+  }
+  if ((drivers || []).some((d) => d.home_lat || d.home_lng)) {
+    items.push({ key: 'driver', label: 'Driver finishes here', style: styles.keyDriver });
+  }
+  if ((customers || []).length > 0) {
+    items.push({ key: 'customer', label: 'Customer', style: styles.keyCustomer });
+  }
+  if ((areas || []).some((a) => a.active !== false)) {
+    items.push({ key: 'area', label: 'Service area', style: styles.keyArea });
+  }
+
+  return (
+    <View style={styles.legend}>
+      {items.map((item) => (
+        <View key={item.key} style={styles.legendItem}>
+          <View style={[styles.keyBase, item.style]} />
+          <Text style={styles.legendLabel}>{item.label}</Text>
+        </View>
+      ))}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -213,4 +273,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  legend: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginTop: spacing.xs, marginBottom: spacing.sm },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  legendLabel: { fontSize: 12, color: colors.subtitle, fontWeight: '600' },
+  keyBase: { width: 12, height: 12 },
+  keyHome: { backgroundColor: colors.text, borderRadius: 2 },
+  keyDriver: { backgroundColor: colors.accent, borderRadius: 6 },
+  keyCustomer: { backgroundColor: colors.subtitle, borderRadius: 6, width: 8, height: 8 },
+  keyArea: { borderWidth: 2, borderColor: colors.subtitle, borderRadius: 6, backgroundColor: 'transparent' },
 });

@@ -116,11 +116,23 @@ type User struct {
 	// account on a shared work handset. Exactly one of the two is the
 	// account's sign-in identity; both may be present for contact
 	// purposes.
-	Email     string    `json:"email,omitempty"`
-	Phone     string    `json:"phone,omitempty"`
-	Active    bool      `json:"active"`
+	Email  string `json:"email,omitempty"`
+	Phone  string `json:"phone,omitempty"`
+	Active bool   `json:"active"`
+	// HomeLat/HomeLng is where this driver finishes their day. A round
+	// ends when the driver gets home, not when they get back to the
+	// depot, and that changes which stop should be last: the cheapest
+	// order to end in Ramgiri is not the cheapest order to end back at
+	// the dairy. Zero means unset — see HasHome.
+	HomeLat   float64   `json:"home_lat"`
+	HomeLng   float64   `json:"home_lng"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+// HasHome reports whether this user has somewhere to finish. Mirrors
+// Customer.HasPin and Business.HasHome — exact 0,0 is treated as unset
+// rather than as Null Island.
+func (u User) HasHome() bool { return u.HomeLat != 0 || u.HomeLng != 0 }
 
 // Customer is deliberately account-less by default. Admins onboard real
 // customers long before those customers ever get an app, so AccountID is
@@ -349,6 +361,14 @@ type Route struct {
 	// point, so it's stored with the route rather than recomputed.
 	StartLat float64 `json:"start_lat"`
 	StartLng float64 `json:"start_lng"`
+	// EndLat/EndLng is where the round finishes, when that is somewhere
+	// in particular — set from the assigned driver's home. Zero leaves
+	// the round open-ended, which is what every route was before drivers
+	// had homes: the last stop is wherever the optimizer left it, and
+	// the drive afterwards costs nothing because nobody said where it
+	// goes. See HasEnd.
+	EndLat float64 `json:"end_lat"`
+	EndLng float64 `json:"end_lng"`
 	// EstimatedMeters is straight-line distance across the ordered stops,
 	// not road distance — V1 has no routing-API dependency (see
 	// internal/route). It is a comparison aid ("this ordering is better
@@ -356,6 +376,9 @@ type Route struct {
 	EstimatedMeters float64   `json:"estimated_meters"`
 	CreatedAt       time.Time `json:"created_at"`
 }
+
+// HasEnd reports whether this route finishes somewhere specific.
+func (r Route) HasEnd() bool { return r.EndLat != 0 || r.EndLng != 0 }
 
 // Stop is a read model: a DailyOrder joined with the customer and product
 // a driver needs to actually complete it. Drivers get one payload with

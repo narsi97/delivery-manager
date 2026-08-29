@@ -166,7 +166,17 @@ func (s *Server) reorderRoute(
 		points = append(points, route.Point{ID: id, Lat: customer.Lat, Lng: customer.Lng})
 	}
 
-	ordered, meters := route.Optimize(route.Point{Lat: rt.StartLat, Lng: rt.StartLng}, points)
+	// A route with a finish point is a different problem from one
+	// without: the drive home counts, so the cheapest order changes. See
+	// route.OptimizeReturning.
+	start := route.Point{Lat: rt.StartLat, Lng: rt.StartLng}
+	var ordered []route.Point
+	var meters float64
+	if rt.HasEnd() {
+		ordered, meters = route.OptimizeReturning(start, points, route.Point{Lat: rt.EndLat, Lng: rt.EndLng})
+	} else {
+		ordered, meters = route.Optimize(start, points)
+	}
 	orderedIDs := make([]string, 0, len(ordered)+len(unpinned))
 	for _, p := range ordered {
 		orderedIDs = append(orderedIDs, p.ID)

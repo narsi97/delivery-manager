@@ -27,6 +27,18 @@ var schemaStatements = []string{
 	// already promises for exactly that case.
 	`alter table businesses add column if not exists home_lat double precision not null default 0`,
 	`alter table businesses add column if not exists home_lng double precision not null default 0`,
+	// Where the driver finishes. A delivery round ends when the driver
+	// gets home, not when they get back to the depot — the last stop is
+	// chosen differently if the drive afterwards is to Ramgiri rather
+	// than back across town. Zero means unset, same convention as
+	// Customer.Lat/Lng and Business.HomeLat.
+	`alter table users add column if not exists home_lat double precision not null default 0`,
+	`alter table users add column if not exists home_lng double precision not null default 0`,
+	// Where a route finishes, if anywhere in particular. Set from the
+	// assigned driver's home; zero leaves the route open-ended, which is
+	// what it was before drivers had homes.
+	`alter table routes add column if not exists end_lat double precision not null default 0`,
+	`alter table routes add column if not exists end_lng double precision not null default 0`,
 
 	`create table if not exists users (
 		id text primary key,

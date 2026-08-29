@@ -16,20 +16,29 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
   const [areas, setAreas] = useState([]);
   const [products, setProducts] = useState([]);
   const [demand, setDemand] = useState({});
+  const [drivers, setDrivers] = useState([]);
+  const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
   const refresh = useCallback(async () => {
     try {
-      const [areaResponse, productResponse, demandResponse] = await Promise.all([
+      // Drivers and customers are loaded here purely so the maps on this
+      // screen can show every location the business has in one picture —
+      // see MapPicker's drivers/customers props.
+      const [areaResponse, productResponse, demandResponse, driverResponse, customerResponse] = await Promise.all([
         api.listServiceAreas(token),
         api.listProducts(token),
         api.getProductDemand(token),
+        api.listDrivers(token),
+        api.listCustomers(token),
       ]);
       setAreas(areaResponse.service_areas || []);
       setProducts(productResponse.products || []);
       setDemand(demandResponse.needed || {});
+      setDrivers(driverResponse.drivers || []);
+      setCustomers(customerResponse.customers || []);
       setError('');
     } catch (err) {
       setError(err.message);
@@ -66,6 +75,9 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
       <HomeLocationCard
         token={token}
         business={business}
+        drivers={drivers}
+        customers={customers}
+        areas={areas}
         onSaved={(updated) => {
           setNotice('Home location saved.');
           onBusinessUpdated(updated);
@@ -88,6 +100,8 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
             token={token}
             home={home}
             areas={areas}
+            drivers={drivers}
+            customers={customers}
             onCreated={async (name) => {
               setNotice(`Added ${name}.`);
               await refresh();
@@ -169,7 +183,7 @@ function BusinessDetailsCard({ token, business, onSaved, onError }) {
   );
 }
 
-function HomeLocationCard({ token, business, onSaved, onError }) {
+function HomeLocationCard({ token, business, drivers, customers, areas, onSaved, onError }) {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const hasHome = business.home_lat || business.home_lng;
@@ -212,7 +226,15 @@ function HomeLocationCard({ token, business, onSaved, onError }) {
             Where the business itself is based — the depot, the shop, the dairy. Used to pre-fill where a round
             starts, and to scope every map in the app to the area you actually operate in.
           </Text>
-          <MapPicker lat={business.home_lat} lng={business.home_lng} onChange={savePin} />
+          <MapPicker
+            lat={business.home_lat}
+            lng={business.home_lng}
+            onChange={savePin}
+            areas={areas}
+            drivers={drivers}
+            customers={customers}
+            height={320}
+          />
           <Button title="Pin my current location" variant="secondary" onPress={pinHere} busy={busy} />
         </View>
       ) : (
@@ -236,7 +258,7 @@ function HomeLocationCard({ token, business, onSaved, onError }) {
 // "Add a customer" — this is a create-a-new-record flow (unlike the two
 // cards above, which edit the one business record that already exists),
 // so buffer-then-submit is the right pattern here, not autosave.
-function NewServiceAreaForm({ token, home, areas, onCreated, onError }) {
+function NewServiceAreaForm({ token, home, areas, drivers, customers, onCreated, onError }) {
   const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState('');
   const [lat, setLat] = useState('');
@@ -300,7 +322,10 @@ function NewServiceAreaForm({ token, home, areas, onCreated, onError }) {
             onChange={setPin}
             home={home}
             areas={areas}
+            drivers={drivers}
+            customers={customers}
             previewRadiusMeters={(Number(radiusKm) || 0) * 1000 || null}
+            height={320}
           />
           <Button title="Pin my current location" variant="secondary" onPress={pinHere} />
           <Field

@@ -3,9 +3,10 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 
 import * as api from '../api';
 import { Banner, Button, Card, Disclosure, Empty, Field, Pill, SectionTitle } from '../components';
+import MapPicker from '../MapPicker';
 import { colors, spacing } from '../theme';
 
-export default function DriversScreen({ token, currentUserId }) {
+export default function DriversScreen({ token, currentUserId, business }) {
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -56,6 +57,7 @@ export default function DriversScreen({ token, currentUserId }) {
             key={driver.id}
             driver={driver}
             token={token}
+            business={business}
             isSelf={driver.id === currentUserId}
             onChanged={refresh}
             onError={setError}
@@ -124,8 +126,9 @@ function NewDriverCard({ token, onCreated, onError }) {
   );
 }
 
-function DriverCard({ driver, token, isSelf, onChanged, onError, onNotice }) {
+function DriverCard({ driver, token, business, isSelf, onChanged, onError, onNotice }) {
   const [resetting, setResetting] = useState(false);
+  const [editingHome, setEditingHome] = useState(false);
   const [newPin, setNewPin] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -192,6 +195,35 @@ function DriverCard({ driver, token, isSelf, onChanged, onError, onNotice }) {
         </View>
       )}
 
+      <View style={styles.homeSection}>
+        <Disclosure compact open={editingHome} onToggle={() => setEditingHome((prev) => !prev)}>
+          {driver.home_lat || driver.home_lng
+            ? `Finishes at ${driver.home_lat.toFixed(4)}, ${driver.home_lng.toFixed(4)}`
+            : 'Where does this driver finish?'}
+        </Disclosure>
+        {editingHome ? (
+          <View>
+            <Text style={styles.note}>
+              A round ends when the driver gets home, not back at the depot — so this changes which stop comes
+              last on any route they&apos;re given. Saving it re-orders the route they&apos;re on today.
+            </Text>
+            <MapPicker
+              lat={driver.home_lat}
+              lng={driver.home_lng}
+              onChange={(lat, lng) =>
+                act(() => api.setDriverHome(token, driver.id, lat, lng), () =>
+                  onNotice(`${driver.name} now finishes at ${lat.toFixed(4)}, ${lng.toFixed(4)}.`)
+                )
+              }
+              home={business && (business.home_lat || business.home_lng)
+                ? { lat: business.home_lat, lng: business.home_lng }
+                : null}
+              height={260}
+            />
+          </View>
+        ) : null}
+      </View>
+
       {driver.active ? null : (
         <Text style={styles.note}>
           Deactivated drivers are signed out immediately, including on a phone they still have in their hand.
@@ -210,6 +242,7 @@ const styles = StyleSheet.create({
   driverName: { fontSize: 16, fontWeight: '700', color: colors.text },
   driverMeta: { fontSize: 13, color: colors.subtitle, marginTop: 2 },
   resetBox: { marginTop: spacing.md },
+  homeSection: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs },
   buttonRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md, flexWrap: 'wrap' },
   flexButton: { flex: 1, minWidth: 130 },
 });

@@ -157,6 +157,16 @@ export function createDriver(token, driver) {
   return request('/api/v1/drivers', { method: 'POST', token, body: JSON.stringify(driver) });
 }
 
+// Where a driver finishes their day. Not a contact detail — any route
+// they are assigned to ends here, and the last stop is chosen for it.
+export function setDriverHome(token, id, lat, lng) {
+  return request(`/api/v1/drivers/${id}/home`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ home_lat: lat, home_lng: lng }),
+  });
+}
+
 export function resetDriverPin(token, id, pin) {
   return request(`/api/v1/drivers/${id}/pin`, { method: 'POST', token, body: JSON.stringify({ pin }) });
 }

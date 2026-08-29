@@ -25,6 +25,16 @@ create table if not exists businesses (
 alter table businesses add column if not exists home_lat double precision not null default 0;
 
 alter table businesses add column if not exists home_lng double precision not null default 0;
+-- Where the driver finishes. A delivery round ends when the driver gets
+-- home, not when they get back to the depot — the last stop is chosen
+-- differently if the drive afterwards is to Ramgiri rather than back
+-- across town. Zero means unset, same convention as customers.lat.
+alter table users add column if not exists home_lat double precision not null default 0;
+alter table users add column if not exists home_lng double precision not null default 0;
+-- Where a route finishes, if anywhere in particular. Set from the
+-- assigned driver's home; zero leaves the route open-ended.
+alter table routes add column if not exists end_lat double precision not null default 0;
+alter table routes add column if not exists end_lng double precision not null default 0;
 
 create table if not exists users (
 		id text primary key,

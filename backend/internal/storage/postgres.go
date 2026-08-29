@@ -130,9 +130,14 @@ func (s *PostgresStore) UpdateBusinessConfig(ctx context.Context, businessID str
 	return scanBusiness(row)
 }
 
+// One list, repeated inline in five queries before this — the kind of
+// duplication that quietly breaks the moment a column is added, which is
+// exactly what happened when drivers got a home location.
+const userColumns = `id, business_id, role, name, coalesce(email,''), coalesce(phone,''), active, home_lat, home_lng, created_at`
+
 func (s *PostgresStore) GetAdminByEmail(ctx context.Context, email string) (domain.User, error) {
 	row := s.pool.QueryRow(ctx,
-		`select id, business_id, role, name, coalesce(email,''), coalesce(phone,''), active, created_at
+		`select `+userColumns+`
 		 from users where lower(email) = lower($1) and role in ('admin','admin_driver')`,
 		strings.TrimSpace(email))
 	return scanUser(row)
@@ -144,12 +149,13 @@ func (s *PostgresStore) GetDriverByPhone(ctx context.Context, phone string) (dom
 		return domain.User{}, "", ErrNotFound
 	}
 	row := s.pool.QueryRow(ctx,
-		`select id, business_id, role, name, coalesce(email,''), coalesce(phone,''), active, created_at, coalesce(pin_hash,'')
+		`select `+userColumns+`, coalesce(pin_hash,'')
 		 from users where phone = $1 and role in ('driver','admin_driver')`, normalized)
 
 	var u domain.User
 	var pinHash string
-	err := row.Scan(&u.ID, &u.BusinessID, &u.Role, &u.Name, &u.Email, &u.Phone, &u.Active, &u.CreatedAt, &pinHash)
+	err := row.Scan(&u.ID, &u.BusinessID, &u.Role, &u.Name, &u.Email, &u.Phone, &u.Active,
+		&u.HomeLat, &u.HomeLng, &u.CreatedAt, &pinHash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.User{}, "", ErrNotFound
 	}
@@ -165,10 +171,11 @@ func (s *PostgresStore) CreateUser(ctx context.Context, u domain.User, pinHash s
 	u.CreatedAt = time.Now().UTC()
 
 	_, err := s.pool.Exec(ctx,
-		`insert into users (id, business_id, role, name, email, phone, pin_hash, active, created_at)
-		 values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		`insert into users (id, business_id, role, name, email, phone, pin_hash, active, home_lat, home_lng, created_at)
+		 values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
 		u.ID, u.BusinessID, string(u.Role), u.Name,
-		nullableText(u.Email), nullableText(u.Phone), nullableText(pinHash), u.Active, u.CreatedAt)
+		nullableText(u.Email), nullableText(u.Phone), nullableText(pinHash), u.Active,
+		u.HomeLat, u.HomeLng, u.CreatedAt)
 	if isUniqueViolation(err) {
 		return domain.User{}, ErrConflict
 	}
@@ -180,14 +187,14 @@ func (s *PostgresStore) CreateUser(ctx context.Context, u domain.User, pinHash s
 
 func (s *PostgresStore) GetUserByID(ctx context.Context, businessID string, id string) (domain.User, error) {
 	row := s.pool.QueryRow(ctx,
-		`select id, business_id, role, name, coalesce(email,''), coalesce(phone,''), active, created_at
+		`select `+userColumns+`
 		 from users where id = $1 and business_id = $2`, id, businessID)
 	return scanUser(row)
 }
 
 func (s *PostgresStore) ListUsers(ctx context.Context, businessID string) ([]domain.User, error) {
 	rows, err := s.pool.Query(ctx,
-		`select id, business_id, role, name, coalesce(email,''), coalesce(phone,''), active, created_at
+		`select `+userColumns+`
 		 from users where business_id = $1 order by created_at`, businessID)
 	if err != nil {
 		return nil, err
@@ -208,8 +215,16 @@ func (s *PostgresStore) ListUsers(ctx context.Context, businessID string) ([]dom
 func (s *PostgresStore) SetUserActive(ctx context.Context, businessID string, id string, active bool) (domain.User, error) {
 	row := s.pool.QueryRow(ctx,
 		`update users set active = $3 where id = $1 and business_id = $2
-		 returning id, business_id, role, name, coalesce(email,''), coalesce(phone,''), active, created_at`,
+		 returning `+userColumns,
 		id, businessID, active)
+	return scanUser(row)
+}
+
+func (s *PostgresStore) SetUserHome(ctx context.Context, businessID string, id string, lat, lng float64) (domain.User, error) {
+	row := s.pool.QueryRow(ctx,
+		`update users set home_lat = $3, home_lng = $4 where id = $1 and business_id = $2
+		 returning `+userColumns,
+		id, businessID, lat, lng)
 	return scanUser(row)
 }
 
@@ -551,16 +566,17 @@ func (s *PostgresStore) UpdateDailyOrder(ctx context.Context, o domain.DailyOrde
 func (s *PostgresStore) CreateRoute(ctx context.Context, r domain.Route) (domain.Route, error) {
 	r.CreatedAt = time.Now().UTC()
 	_, err := s.pool.Exec(ctx,
-		`insert into routes (id, business_id, route_date, name, driver_id, status, start_lat, start_lng, estimated_meters, created_at)
-		 values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-		r.ID, r.BusinessID, r.RouteDate, r.Name, r.DriverID, string(r.Status), r.StartLat, r.StartLng, r.EstimatedMeters, r.CreatedAt)
+		`insert into routes (id, business_id, route_date, name, driver_id, status, start_lat, start_lng, end_lat, end_lng, estimated_meters, created_at)
+		 values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+		r.ID, r.BusinessID, r.RouteDate, r.Name, r.DriverID, string(r.Status),
+		r.StartLat, r.StartLng, r.EndLat, r.EndLng, r.EstimatedMeters, r.CreatedAt)
 	if err != nil {
 		return domain.Route{}, err
 	}
 	return r, nil
 }
 
-const routeColumns = `id, business_id, route_date, name, driver_id, status, start_lat, start_lng, estimated_meters, created_at`
+const routeColumns = `id, business_id, route_date, name, driver_id, status, start_lat, start_lng, end_lat, end_lng, estimated_meters, created_at`
 
 func (s *PostgresStore) DeleteRoute(ctx context.Context, businessID string, id string) error {
 	// The business_id predicate is the tenant guard: a route id from
@@ -613,9 +629,10 @@ func (s *PostgresStore) ListRoutes(ctx context.Context, businessID string, date 
 
 func (s *PostgresStore) UpdateRoute(ctx context.Context, r domain.Route) (domain.Route, error) {
 	row := s.pool.QueryRow(ctx,
-		`update routes set name=$3, driver_id=$4, status=$5, start_lat=$6, start_lng=$7, estimated_meters=$8
+		`update routes set name=$3, driver_id=$4, status=$5, start_lat=$6, start_lng=$7, end_lat=$8, end_lng=$9, estimated_meters=$10
 		 where id=$1 and business_id=$2 returning `+routeColumns,
-		r.ID, r.BusinessID, r.Name, r.DriverID, string(r.Status), r.StartLat, r.StartLng, r.EstimatedMeters)
+		r.ID, r.BusinessID, r.Name, r.DriverID, string(r.Status),
+		r.StartLat, r.StartLng, r.EndLat, r.EndLng, r.EstimatedMeters)
 	return scanRoute(row)
 }
 
@@ -726,7 +743,8 @@ func scanServiceArea(row scanner) (domain.ServiceArea, error) {
 
 func scanUser(row scanner) (domain.User, error) {
 	var u domain.User
-	if err := row.Scan(&u.ID, &u.BusinessID, &u.Role, &u.Name, &u.Email, &u.Phone, &u.Active, &u.CreatedAt); err != nil {
+	if err := row.Scan(&u.ID, &u.BusinessID, &u.Role, &u.Name, &u.Email, &u.Phone, &u.Active,
+		&u.HomeLat, &u.HomeLng, &u.CreatedAt); err != nil {
 		return domain.User{}, noRows(err)
 	}
 	return u, nil
@@ -795,7 +813,7 @@ func marshalOrderBags(o domain.DailyOrder) (fields []byte, captures []byte, err 
 func scanRoute(row scanner) (domain.Route, error) {
 	var r domain.Route
 	if err := row.Scan(&r.ID, &r.BusinessID, &r.RouteDate, &r.Name, &r.DriverID, &r.Status,
-		&r.StartLat, &r.StartLng, &r.EstimatedMeters, &r.CreatedAt); err != nil {
+		&r.StartLat, &r.StartLng, &r.EndLat, &r.EndLng, &r.EstimatedMeters, &r.CreatedAt); err != nil {
 		return domain.Route{}, noRows(err)
 	}
 	return r, nil

@@ -78,6 +78,9 @@ type Store interface {
 	SetUserActive(ctx context.Context, businessID string, id string, active bool) (domain.User, error)
 	// SetUserPIN replaces a driver's PIN — the "driver forgot their PIN"
 	// path, which an admin performs.
+	// SetUserHome records where a driver finishes their day, which is
+	// what an assigned route ends at (see handleAssignRoute).
+	SetUserHome(ctx context.Context, businessID string, id string, lat, lng float64) (domain.User, error)
 	SetUserPIN(ctx context.Context, businessID string, id string, pinHash string) error
 
 	CreateCustomer(ctx context.Context, c domain.Customer) (domain.Customer, error)
