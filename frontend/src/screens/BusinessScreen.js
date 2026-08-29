@@ -20,6 +20,10 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  // Owned here rather than inside the form itself, so the "+" sits at the
+  // heading — next to the count it's adding to — instead of repeating the
+  // section's own title as a second row underneath.
+  const [addingArea, setAddingArea] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -75,16 +79,20 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
       />
 
       <Card>
-        <SectionTitle>Service areas ({areas.length})</SectionTitle>
-        {areas.length === 0 ? (
-          <Empty>No service areas yet. Routes are prepared per area, so add the localities you deliver to.</Empty>
-        ) : (
-          areas.map((area) => (
-            <ServiceAreaRow key={area.id} area={area} home={home} token={token} onChanged={refresh} onError={setError} />
-          ))
-        )}
+        <SectionTitle
+          right={
+            <HeadingAddButton
+              open={addingArea}
+              onPress={() => setAddingArea((prev) => !prev)}
+              label={addingArea ? 'Close add a service area' : 'Add a service area'}
+            />
+          }
+        >
+          Service areas ({areas.length})
+        </SectionTitle>
+        <View style={styles.headingDivider} />
 
-        <View style={styles.cardSection}>
+        {addingArea ? (
           <NewServiceAreaForm
             token={token}
             home={home}
@@ -93,11 +101,20 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
             customers={customers}
             onCreated={async (name) => {
               setNotice(`Added ${name}.`);
+              setAddingArea(false);
               await refresh();
             }}
             onError={setError}
           />
-        </View>
+        ) : null}
+
+        {areas.length === 0 ? (
+          <Empty>No service areas yet. Routes are prepared per area, so add the localities you deliver to.</Empty>
+        ) : (
+          areas.map((area) => (
+            <ServiceAreaRow key={area.id} area={area} home={home} token={token} onChanged={refresh} onError={setError} />
+          ))
+        )}
       </Card>
 
       <ProductCatalogCard
@@ -230,8 +247,10 @@ function BusinessDetailsCard({ token, business, drivers, customers, areas, onSav
 // "Add a customer" — this is a create-a-new-record flow (unlike the two
 // cards above, which edit the one business record that already exists),
 // so buffer-then-submit is the right pattern here, not autosave.
+// Controlled from the parent's "+" at the heading (see BusinessScreen)
+// rather than owning its own expand toggle — the trigger lives next to
+// the count it's adding to, not as a second title repeated underneath.
 function NewServiceAreaForm({ token, home, areas, drivers, customers, onCreated, onError }) {
-  const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState('');
   const [lat, setLat] = useState('');
   const [lng, setLng] = useState('');
@@ -257,7 +276,6 @@ function NewServiceAreaForm({ token, home, areas, drivers, customers, onCreated,
       setLat('');
       setLng('');
       setRadiusKm('3');
-      setExpanded(false);
       await onCreated(created);
     } catch (err) {
       onError(err.message);
@@ -267,36 +285,28 @@ function NewServiceAreaForm({ token, home, areas, drivers, customers, onCreated,
   };
 
   return (
-    <View>
-      <Disclosure open={expanded} onToggle={() => setExpanded((prev) => !prev)}>
-        Add a service area
-      </Disclosure>
-
-      {expanded ? (
-        <View>
-          <Field label="Name" size="md" value={name} onChangeText={setName} placeholder="Jayanagar" />
-          <LocationPicker
-            label="Centre of the area"
-            lat={Number(lat) || 0}
-            lng={Number(lng) || 0}
-            onChange={setPin}
-            home={home}
-            areas={areas}
-            drivers={drivers}
-            customers={customers}
-            previewRadiusMeters={(Number(radiusKm) || 0) * 1000 || null}
-            height={320}
-          />
-          <Field
-            label="Radius (km)"
-            value={radiusKm}
-            onChangeText={setRadiusKm}
-            keyboardType="numeric"
-            hint="How far this zone reaches from the pin — shown live on the map above."
-          />
-          <Button title="Add service area" onPress={submit} busy={busy} disabled={!name.trim() || !lat || !lng} />
-        </View>
-      ) : null}
+    <View style={styles.inlineForm}>
+      <Field label="Name" size="md" value={name} onChangeText={setName} placeholder="Jayanagar" />
+      <LocationPicker
+        label="Centre of the area"
+        lat={Number(lat) || 0}
+        lng={Number(lng) || 0}
+        onChange={setPin}
+        home={home}
+        areas={areas}
+        drivers={drivers}
+        customers={customers}
+        previewRadiusMeters={(Number(radiusKm) || 0) * 1000 || null}
+        height={320}
+      />
+      <Field
+        label="Radius (km)"
+        value={radiusKm}
+        onChangeText={setRadiusKm}
+        keyboardType="numeric"
+        hint="How far this zone reaches from the pin — shown live on the map above."
+      />
+      <Button title="Add service area" onPress={submit} busy={busy} disabled={!name.trim() || !lat || !lng} />
     </View>
   );
 }
@@ -347,9 +357,32 @@ function ProductCatalogCard({ token, products, demand, onChanged, onCreated, onE
 
   return (
     <Card>
-      <SectionTitle>Products ({products.length})</SectionTitle>
+      <SectionTitle
+        right={
+          <HeadingAddButton
+            open={expanded}
+            onPress={() => setExpanded((prev) => !prev)}
+            label={expanded ? 'Close add a product' : 'Add a product'}
+          />
+        }
+      >
+        Products ({products.length})
+      </SectionTitle>
+      <View style={styles.headingDivider} />
+
+      {expanded ? (
+        <View style={styles.inlineForm}>
+          <Field label="Name" size="md" value={name} onChangeText={setName} placeholder="Paneer 200g" />
+          <FieldRow>
+            <Field label="Unit" size="sm" value={unit} onChangeText={setUnit} placeholder="packet / can / trip" />
+            <Field label="Price ₹" size="xs" value={price} onChangeText={setPrice} keyboardType="numeric" placeholder="60" />
+          </FieldRow>
+          <Button title="Add product" onPress={submit} busy={busy} disabled={!name.trim()} />
+        </View>
+      ) : null}
+
       {products.length === 0 ? (
-        <Empty>Nothing yet — add your first product below.</Empty>
+        <Empty>Nothing yet — add your first product above.</Empty>
       ) : (
         products.map((product) => (
           <ProductRow
@@ -362,23 +395,6 @@ function ProductCatalogCard({ token, products, demand, onChanged, onCreated, onE
           />
         ))
       )}
-
-      <View style={styles.newProductToggle}>
-        <Disclosure open={expanded} onToggle={() => setExpanded((prev) => !prev)}>
-          Add a product
-        </Disclosure>
-      </View>
-
-      {expanded ? (
-        <View>
-          <Field label="Name" size="md" value={name} onChangeText={setName} placeholder="Paneer 200g" />
-          <FieldRow>
-            <Field label="Unit" size="sm" value={unit} onChangeText={setUnit} placeholder="packet / can / trip" />
-            <Field label="Price ₹" size="xs" value={price} onChangeText={setPrice} keyboardType="numeric" placeholder="60" />
-          </FieldRow>
-          <Button title="Add product" onPress={submit} busy={busy} disabled={!name.trim()} />
-        </View>
-      ) : null}
     </Card>
   );
 }
@@ -483,6 +499,19 @@ function ProductRow({ product, neededToday, token, onChanged, onError }) {
 function formatQuantity(value) {
   const n = Number(value) || 0;
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
+// The "+" that sits at a section's own heading rather than on a repeated
+// title row underneath it ("Add a service area" directly below "Service
+// areas (1)" was saying the same thing twice). One small round button,
+// same 44px-adjacent touch sizing as the rest of this app's icon buttons,
+// that flips to an "×" once open so it's also how you close the form.
+function HeadingAddButton({ open, onPress, label }) {
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={styles.addButton}>
+      <Text style={styles.addButtonGlyph}>{open ? '×' : '+'}</Text>
+    </Pressable>
+  );
 }
 
 function ServiceAreaRow({ area, home, token, onChanged, onError }) {
@@ -594,5 +623,18 @@ const styles = StyleSheet.create({
   productName: { fontSize: 15, fontWeight: '600', color: colors.text },
   productMeta: { fontSize: 13, color: colors.subtitle },
   cardSection: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs },
+  headingDivider: { borderBottomWidth: 1, borderBottomColor: colors.border, marginTop: -spacing.sm, marginBottom: spacing.md },
+  addButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addButtonGlyph: { fontSize: 18, fontWeight: '700', color: colors.link, lineHeight: 20 },
+  inlineForm: { marginBottom: spacing.md },
   newProductToggle: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md },
 });
