@@ -14,6 +14,10 @@ import SignInScreen from './screens/SignInScreen';
 import TodayScreen from './screens/TodayScreen';
 import { colors, radius, spacing } from './theme';
 
+// The column every admin screen lays its cards out in (see each screen's
+// `page` style). The header matches it so the two line up.
+const CONTENT_WIDTH = 720;
+
 // Tab labels come from the business's own vocabulary, so a school
 // operator sees "Students" and "Drivers" rather than a dairy's nouns.
 // "Business" has no terminology entry — it's a genuinely new noun outside
@@ -132,44 +136,46 @@ function AppShell() {
       <StatusBar barStyle="dark-content" />
 
       <View style={styles.topBar}>
-        {/* The account is the menu. Language, driver mode and sign out are
-            all "about me and this session" rather than about the screen,
-            and they were competing with the section tabs for the same
-            row — three of the four things in the top bar were chrome
-            nobody touches in a normal morning. Hanging them off the name
-            that already identifies who is signed in puts them where
-            people look for them, and gives the tabs the room back. */}
-        <Pressable
-          onPress={() => setAccountOpen((prev) => !prev)}
-          accessibilityRole="button"
-          accessibilityLabel={accountOpen ? 'Close account menu' : 'Account menu'}
-          accessibilityState={{ expanded: accountOpen }}
-          style={[styles.account, accountOpen && styles.accountOpen]}
-        >
-          <View style={styles.topBarText}>
-            <Text style={styles.businessName} numberOfLines={1}>
-              {business.name}
-            </Text>
-            <Text style={styles.userName} numberOfLines={1}>
-              {user.name} · {showDriverView ? lowerRole(labels) : t('role_admin')}
-            </Text>
-          </View>
-          <Text style={styles.accountChevron}>{accountOpen ? '▴' : '▾'}</Text>
-        </Pressable>
+        <View style={styles.topBarInner}>
+          {/* The account is the menu. Language, driver mode and sign out are
+              all "about me and this session" rather than about the screen,
+              and they were competing with the section tabs for the same
+              row — three of the four things in the top bar were chrome
+              nobody touches in a normal morning. Hanging them off the name
+              that already identifies who is signed in puts them where
+              people look for them, and gives the tabs the room back. */}
+          <Pressable
+            onPress={() => setAccountOpen((prev) => !prev)}
+            accessibilityRole="button"
+            accessibilityLabel={accountOpen ? 'Close account menu' : 'Account menu'}
+            accessibilityState={{ expanded: accountOpen }}
+            style={[styles.account, accountOpen && styles.accountOpen]}
+          >
+            <View style={styles.topBarText}>
+              <Text style={styles.businessName} numberOfLines={1}>
+                {business.name}
+              </Text>
+              <Text style={styles.userName} numberOfLines={1}>
+                {user.name} · {showDriverView ? lowerRole(labels) : t('role_admin')}
+              </Text>
+            </View>
+            <Text style={styles.accountChevron}>{accountOpen ? '▴' : '▾'}</Text>
+          </Pressable>
 
-        <View style={styles.topBarActions}>
-          {!showDriverView
-            ? adminTabs(labels, t).map((item) => (
-                <Pressable
-                  key={item.key}
-                  onPress={() => setTab(item.key)}
-                  accessibilityRole="button"
-                  style={[styles.navTab, tab === item.key && styles.navTabActive]}
-                >
-                  <Text style={[styles.navTabText, tab === item.key && styles.navTabTextActive]}>{item.label}</Text>
-                </Pressable>
-              ))
-            : null}
+          <View style={styles.topBarActions}>
+            {!showDriverView
+              ? adminTabs(labels, t).map((item) => (
+                  <Pressable
+                    key={item.key}
+                    onPress={() => setTab(item.key)}
+                    accessibilityRole="button"
+                    style={[styles.navTab, tab === item.key && styles.navTabActive]}
+                  >
+                    <Text style={[styles.navTabText, tab === item.key && styles.navTabTextActive]}>{item.label}</Text>
+                  </Pressable>
+                ))
+              : null}
+          </View>
         </View>
       </View>
 
@@ -178,29 +184,31 @@ function AppShell() {
           the same disclosure shape used everywhere else in the app. */}
       {accountOpen ? (
         <View style={styles.accountMenu}>
-          <View style={styles.accountRow}>
-            <Text style={styles.accountLabel}>{t('language')}</Text>
-            <LanguageSwitcher />
-          </View>
+          <View style={styles.accountMenuInner}>
+            <View style={styles.accountRow}>
+              <Text style={styles.accountLabel}>{t('language')}</Text>
+              <LanguageSwitcher />
+            </View>
 
-          {isAdmin && canDrive ? (
-            <Pressable
-              onPress={() => {
-                setDriving((prev) => !prev);
-                setAccountOpen(false);
-              }}
-              accessibilityRole="button"
-              style={styles.accountItem}
-            >
-              <Text style={styles.accountItemText}>
-                {showDriverView ? t('switch_to_admin_console') : t('switch_to_driver_mode')}
-              </Text>
+            {isAdmin && canDrive ? (
+              <Pressable
+                onPress={() => {
+                  setDriving((prev) => !prev);
+                  setAccountOpen(false);
+                }}
+                accessibilityRole="button"
+                style={styles.accountItem}
+              >
+                <Text style={styles.accountItemText}>
+                  {showDriverView ? t('switch_to_admin_console') : t('switch_to_driver_mode')}
+                </Text>
+              </Pressable>
+            ) : null}
+
+            <Pressable onPress={signOut} accessibilityRole="button" style={styles.accountItem}>
+              <Text style={[styles.accountItemText, styles.signOut]}>{t('sign_out')}</Text>
             </Pressable>
-          ) : null}
-
-          <Pressable onPress={signOut} accessibilityRole="button" style={styles.accountItem}>
-            <Text style={[styles.accountItemText, styles.signOut]}>{t('sign_out')}</Text>
-          </Pressable>
+          </View>
         </View>
       ) : null}
 
@@ -235,17 +243,34 @@ const styles = StyleSheet.create({
   // flexWrap lets the pill tabs drop to a second line under the business
   // name on a narrow phone instead of overflowing — same technique
   // resume-optimizer's own header row uses for the same reason.
+  // The bar itself spans the window so its surface and bottom rule reach
+  // both edges; its *contents* are held to the same column the screens
+  // use, so the tabs line up over the cards instead of being flung to the
+  // far edge of a wide monitor with a lake of empty space between them
+  // and the business name. Same shape as resume-optimizer, whose header
+  // simply lives inside its content container.
   topBar: {
+    paddingVertical: spacing.md,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  // The horizontal padding lives here rather than on the bar, so the
+  // account and the tabs line up with the *edges of the cards* below
+  // them — each screen pads inside its own column the same way. Padding
+  // the bar instead would leave the header sitting a notch wider than
+  // everything it sits above, which is more obviously wrong than being
+  // centred slightly off.
+  topBarInner: {
+    width: '100%',
+    maxWidth: CONTENT_WIDTH,
+    alignSelf: 'center',
+    paddingHorizontal: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     flexWrap: 'wrap',
     gap: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
   },
   account: {
     flexDirection: 'row',
@@ -263,8 +288,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
-    paddingHorizontal: spacing.lg,
     paddingBottom: spacing.sm,
+  },
+  accountMenuInner: {
+    width: '100%',
+    maxWidth: CONTENT_WIDTH,
+    alignSelf: 'center',
+    paddingHorizontal: spacing.lg,
   },
   accountRow: {
     flexDirection: 'row',
@@ -294,7 +324,14 @@ const styles = StyleSheet.create({
   // how little room its parent actually has — this row would rather
   // push "Sign out" off the edge of the screen than shrink to the width
   // that would make its own flexWrap kick in.
-  topBarActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap', flexShrink: 1, maxWidth: '100%' },
+  topBarActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+    flexShrink: 1,
+    maxWidth: '100%',
+  },
   // Pill tabs — same shape as resume-optimizer's navTab: a bordered pill
   // that fills with the accent colour when active, so the section you're
   // on reads as one glance rather than needing a separate "you are here"
