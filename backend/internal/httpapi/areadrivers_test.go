@@ -37,9 +37,9 @@ func areaSetup(t *testing.T, perCluster int) (*client, string) {
 	return admin, str(area, "id")
 }
 
-func driverWithHome(t *testing.T, admin *client, name, phone, pin string, lat, lng float64) string {
+func driverWithHome(t *testing.T, admin *client, name, phone string, lat, lng float64) string {
 	t.Helper()
-	id := makeDriver(t, admin, name, phone, pin)
+	id := makeDriver(t, admin, name, phone)
 	admin.mustDo(http.MethodPost, "/api/v1/drivers/"+id+"/home",
 		map[string]any{"home_lat": lat, "home_lng": lng}, http.StatusOK)
 	return id
@@ -60,8 +60,8 @@ func routesOf(t *testing.T, day map[string]any) []map[string]any {
 // count to choose and no form to fill in.
 func TestAssigningTwoDriversToAnAreaSplitsIt(t *testing.T) {
 	admin, areaID := areaSetup(t, 4)
-	west := driverWithHome(t, admin, "Ravi", "+91 90000 00001", "481920", 12.9700, 77.5500)
-	east := driverWithHome(t, admin, "Kumar", "+91 90000 00002", "481921", 12.9700, 77.6400)
+	west := driverWithHome(t, admin, "Ravi", "+91 90000 00001", 12.9700, 77.5500)
+	east := driverWithHome(t, admin, "Kumar", "+91 90000 00002", 12.9700, 77.6400)
 
 	day := admin.mustDo(http.MethodPost, "/api/v1/service-areas/"+areaID+"/drivers",
 		map[string]any{"driver_ids": []string{west, east}}, http.StatusOK)
@@ -98,8 +98,8 @@ func TestAssigningTwoDriversToAnAreaSplitsIt(t *testing.T) {
 // driver's own door.
 func TestEachDriverGetsTheClusterNearestTheirHome(t *testing.T) {
 	admin, areaID := areaSetup(t, 4)
-	west := driverWithHome(t, admin, "Ravi", "+91 90000 00001", "481920", 12.9700, 77.5500)
-	east := driverWithHome(t, admin, "Kumar", "+91 90000 00002", "481921", 12.9700, 77.6400)
+	west := driverWithHome(t, admin, "Ravi", "+91 90000 00001", 12.9700, 77.5500)
+	east := driverWithHome(t, admin, "Kumar", "+91 90000 00002", 12.9700, 77.6400)
 
 	day := admin.mustDo(http.MethodPost, "/api/v1/service-areas/"+areaID+"/drivers",
 		map[string]any{"driver_ids": []string{west, east}}, http.StatusOK)
@@ -126,8 +126,8 @@ func TestEachDriverGetsTheClusterNearestTheirHome(t *testing.T) {
 // the ordering worth anything — see route.OptimizeReturning.
 func TestSplitRoundsEndAtTheirOwnDriversHome(t *testing.T) {
 	admin, areaID := areaSetup(t, 3)
-	west := driverWithHome(t, admin, "Ravi", "+91 90000 00001", "481920", 12.9700, 77.5500)
-	east := driverWithHome(t, admin, "Kumar", "+91 90000 00002", "481921", 12.9700, 77.6400)
+	west := driverWithHome(t, admin, "Ravi", "+91 90000 00001", 12.9700, 77.5500)
+	east := driverWithHome(t, admin, "Kumar", "+91 90000 00002", 12.9700, 77.6400)
 
 	day := admin.mustDo(http.MethodPost, "/api/v1/service-areas/"+areaID+"/drivers",
 		map[string]any{"driver_ids": []string{west, east}}, http.StatusOK)
@@ -147,7 +147,7 @@ func TestSplitRoundsEndAtTheirOwnDriversHome(t *testing.T) {
 // case and must not notice this feature exists.
 func TestAssigningOneDriverKeepsASingleRound(t *testing.T) {
 	admin, areaID := areaSetup(t, 4)
-	solo := driverWithHome(t, admin, "Ravi", "+91 90000 00001", "481920", 12.9700, 77.5500)
+	solo := driverWithHome(t, admin, "Ravi", "+91 90000 00001", 12.9700, 77.5500)
 
 	day := admin.mustDo(http.MethodPost, "/api/v1/service-areas/"+areaID+"/drivers",
 		map[string]any{"driver_ids": []string{solo}}, http.StatusOK)
@@ -169,8 +169,8 @@ func TestAssigningOneDriverKeepsASingleRound(t *testing.T) {
 // Emptying the driver list must not delete the day off the map.
 func TestClearingDriversReturnsToOneUnassignedRound(t *testing.T) {
 	admin, areaID := areaSetup(t, 3)
-	west := driverWithHome(t, admin, "Ravi", "+91 90000 00001", "481920", 12.9700, 77.5500)
-	east := driverWithHome(t, admin, "Kumar", "+91 90000 00002", "481921", 12.9700, 77.6400)
+	west := driverWithHome(t, admin, "Ravi", "+91 90000 00001", 12.9700, 77.5500)
+	east := driverWithHome(t, admin, "Kumar", "+91 90000 00002", 12.9700, 77.6400)
 
 	admin.mustDo(http.MethodPost, "/api/v1/service-areas/"+areaID+"/drivers",
 		map[string]any{"driver_ids": []string{west, east}}, http.StatusOK)
@@ -202,8 +202,8 @@ func TestClearingDriversReturnsToOneUnassignedRound(t *testing.T) {
 // tie-breaks are for.
 func TestReassigningTheSameDriversIsStable(t *testing.T) {
 	admin, areaID := areaSetup(t, 4)
-	west := driverWithHome(t, admin, "Ravi", "+91 90000 00001", "481920", 12.9700, 77.5500)
-	east := driverWithHome(t, admin, "Kumar", "+91 90000 00002", "481921", 12.9700, 77.6400)
+	west := driverWithHome(t, admin, "Ravi", "+91 90000 00001", 12.9700, 77.5500)
+	east := driverWithHome(t, admin, "Kumar", "+91 90000 00002", 12.9700, 77.6400)
 
 	shape := func(day map[string]any) map[string]string {
 		routeDriver := map[string]string{}
@@ -234,8 +234,8 @@ func TestReassigningTheSameDriversIsStable(t *testing.T) {
 // before anything is written — the area keeps the plan it had.
 func TestAssigningARejectedDriverLeavesThePlanAlone(t *testing.T) {
 	admin, areaID := areaSetup(t, 3)
-	good := driverWithHome(t, admin, "Ravi", "+91 90000 00001", "481920", 12.9700, 77.5500)
-	gone := makeDriver(t, admin, "Kumar", "+91 90000 00002", "481921")
+	good := driverWithHome(t, admin, "Ravi", "+91 90000 00001", 12.9700, 77.5500)
+	gone := makeDriver(t, admin, "Kumar", "+91 90000 00002")
 	admin.mustDo(http.MethodPost, "/api/v1/drivers/"+gone+"/active",
 		map[string]any{"active": false}, http.StatusOK)
 
@@ -281,8 +281,8 @@ func TestSplittingOneAreaLeavesTheOtherAlone(t *testing.T) {
 	}
 	admin.mustDo(http.MethodGet, "/api/v1/day", nil, http.StatusOK)
 
-	west := driverWithHome(t, admin, "Ravi", "+91 90000 00001", "481920", 12.9700, 77.5500)
-	east := driverWithHome(t, admin, "Kumar", "+91 90000 00002", "481921", 12.9700, 77.6400)
+	west := driverWithHome(t, admin, "Ravi", "+91 90000 00001", 12.9700, 77.5500)
+	east := driverWithHome(t, admin, "Kumar", "+91 90000 00002", 12.9700, 77.6400)
 
 	day := admin.mustDo(http.MethodPost, "/api/v1/service-areas/"+str(near, "id")+"/drivers",
 		map[string]any{"driver_ids": []string{west, east}}, http.StatusOK)
@@ -304,8 +304,8 @@ func TestSplittingOneAreaLeavesTheOtherAlone(t *testing.T) {
 // forward, applied to the whole crew.
 func TestAMultiDriverSplitCarriesForwardToTomorrow(t *testing.T) {
 	admin, areaID := areaSetup(t, 4)
-	west := driverWithHome(t, admin, "Ravi", "+91 90000 00001", "481920", 12.9700, 77.5500)
-	east := driverWithHome(t, admin, "Kumar", "+91 90000 00002", "481921", 12.9700, 77.6400)
+	west := driverWithHome(t, admin, "Ravi", "+91 90000 00001", 12.9700, 77.5500)
+	east := driverWithHome(t, admin, "Kumar", "+91 90000 00002", 12.9700, 77.6400)
 
 	today := admin.mustDo(http.MethodPost, "/api/v1/service-areas/"+areaID+"/drivers",
 		map[string]any{"driver_ids": []string{west, east}}, http.StatusOK)
@@ -341,8 +341,8 @@ func TestAMultiDriverSplitCarriesForwardToTomorrow(t *testing.T) {
 // split. The area falls back to the drivers who are actually available.
 func TestADeactivatedDriverIsNotCarriedForward(t *testing.T) {
 	admin, areaID := areaSetup(t, 4)
-	west := driverWithHome(t, admin, "Ravi", "+91 90000 00001", "481920", 12.9700, 77.5500)
-	east := driverWithHome(t, admin, "Kumar", "+91 90000 00002", "481921", 12.9700, 77.6400)
+	west := driverWithHome(t, admin, "Ravi", "+91 90000 00001", 12.9700, 77.5500)
+	east := driverWithHome(t, admin, "Kumar", "+91 90000 00002", 12.9700, 77.6400)
 
 	today := admin.mustDo(http.MethodPost, "/api/v1/service-areas/"+areaID+"/drivers",
 		map[string]any{"driver_ids": []string{west, east}}, http.StatusOK)

@@ -876,3 +876,66 @@ func unmarshalFields(raw []byte) (domain.FieldValues, error) {
 	}
 	return values, nil
 }
+
+func (s *PostgresStore) GetUserByPhone(ctx context.Context, phone string) (domain.User, error) {
+	row := s.pool.QueryRow(ctx,
+		`select `+userColumns+` from users where phone = $1`, strings.TrimSpace(phone))
+	return scanUser(row)
+}
+
+func (s *PostgresStore) PutOTPChallenge(ctx context.Context, c domain.OTPChallenge) error {
+	_, err := s.pool.Exec(ctx,
+		`insert into otp_challenges
+			(phone, code_hash, purpose, attempts, expires_at, created_at, business_name, business_type, owner_name)
+		 values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		 on conflict (phone) do update set
+			code_hash = excluded.code_hash,
+			purpose = excluded.purpose,
+			attempts = 0,
+			expires_at = excluded.expires_at,
+			created_at = excluded.created_at,
+			business_name = excluded.business_name,
+			business_type = excluded.business_type,
+			owner_name = excluded.owner_name`,
+		c.Phone, c.CodeHash, c.Purpose, c.Attempts, c.ExpiresAt, c.CreatedAt,
+		c.BusinessName, string(c.BusinessType), c.OwnerName)
+	return err
+}
+
+func (s *PostgresStore) GetOTPChallenge(ctx context.Context, phone string) (domain.OTPChallenge, error) {
+	var c domain.OTPChallenge
+	var businessType string
+	err := s.pool.QueryRow(ctx,
+		`select phone, code_hash, purpose, attempts, expires_at, created_at,
+		        business_name, business_type, owner_name
+		 from otp_challenges where phone = $1`, phone).
+		Scan(&c.Phone, &c.CodeHash, &c.Purpose, &c.Attempts, &c.ExpiresAt, &c.CreatedAt,
+			&c.BusinessName, &businessType, &c.OwnerName)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.OTPChallenge{}, ErrNotFound
+	}
+	if err != nil {
+		return domain.OTPChallenge{}, err
+	}
+	c.BusinessType = domain.BusinessType(businessType)
+	return c, nil
+}
+
+func (s *PostgresStore) BumpOTPAttempts(ctx context.Context, phone string) (int, error) {
+	var attempts int
+	err := s.pool.QueryRow(ctx,
+		`update otp_challenges set attempts = attempts + 1 where phone = $1 returning attempts`,
+		phone).Scan(&attempts)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	if err != nil {
+		return 0, err
+	}
+	return attempts, nil
+}
+
+func (s *PostgresStore) DeleteOTPChallenge(ctx context.Context, phone string) error {
+	_, err := s.pool.Exec(ctx, `delete from otp_challenges where phone = $1`, phone)
+	return err
+}

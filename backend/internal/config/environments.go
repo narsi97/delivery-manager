@@ -27,14 +27,14 @@ var environmentDefaults = map[string]EnvironmentDefaults{
 		Addr:          ":8087",
 		DatabaseURL:   "",
 		JWTSecret:     "dev-secret-change-me",
-		TokenTTLHours: 24,
+		TokenTTLHours: 24 * 30,
 		AllowedOrigin: "*",
 	},
 	EnvironmentDev: {
 		Addr:          ":8080",
 		DatabaseURL:   "",
 		JWTSecret:     "dev-secret-change-me",
-		TokenTTLHours: 24,
+		TokenTTLHours: 24 * 30,
 		AllowedOrigin: "*",
 	},
 	EnvironmentProd: {
@@ -47,7 +47,7 @@ var environmentDefaults = map[string]EnvironmentDefaults{
 		// driver's own route, so the blast radius of a stolen handset is
 		// one round's customer list — and an admin can deactivate the
 		// driver, which invalidates them at the next request.
-		TokenTTLHours: 24 * 14,
+		TokenTTLHours: 24 * 30,
 		AllowedOrigin: "https://3vnsystems.com",
 	},
 }

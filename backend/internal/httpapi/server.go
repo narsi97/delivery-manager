@@ -12,6 +12,7 @@ import (
 	"delivery-manager/internal/auth"
 	"delivery-manager/internal/config"
 	"delivery-manager/internal/domain"
+	"delivery-manager/internal/notify"
 	"delivery-manager/internal/ratelimit"
 	"delivery-manager/internal/storage"
 )
@@ -36,7 +37,6 @@ type Server struct {
 	auth  *auth.Service
 	mux   *http.ServeMux
 
-	googleClientID  string
 	defaultTimezone string
 	// devLoginEnabled gates POST /api/v1/auth/dev-login, which mints an
 	// admin session (creating a demo business on first use) without any
@@ -45,6 +45,13 @@ type Server struct {
 	// advertise a backdoor.
 	devLoginEnabled bool
 	driverLogins    *ratelimit.Limiter
+	// otpLimiter caps how often a code can be *asked for* per phone
+	// number — the control that stops this being used to text someone
+	// repeatedly, and to run up an SMS bill once a real provider is
+	// wired. Verifying is limited separately by the per-code attempt
+	// count (see auth.OTPMaxAttempts).
+	otpLimiter *ratelimit.Limiter
+	otpSender  notify.Sender
 }
 
 func NewServer(store storage.Store, authService *auth.Service, cfg config.Config) *Server {
@@ -52,10 +59,11 @@ func NewServer(store storage.Store, authService *auth.Service, cfg config.Config
 		store:           store,
 		auth:            authService,
 		mux:             http.NewServeMux(),
-		googleClientID:  cfg.GoogleClientID,
 		defaultTimezone: cfg.DefaultTimezone,
 		devLoginEnabled: cfg.Environment != config.EnvironmentProd,
 		driverLogins:    ratelimit.New(driverLoginLimit, driverLoginWindow),
+		otpLimiter:      ratelimit.New(otpRequestBurst, otpRequestWindow),
+		otpSender:       notify.New(string(cfg.Environment), cfg.AllowLogOTPSender),
 	}
 	s.routes()
 	return s
@@ -79,9 +87,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /healthz", s.handleHealth)
 
-	s.mux.HandleFunc("POST /api/v1/auth/signup", s.handleSignup)
-	s.mux.HandleFunc("POST /api/v1/auth/google", s.handleGoogleSignIn)
-	s.mux.HandleFunc("POST /api/v1/auth/driver-login", s.handleDriverLogin)
+	// One door for everyone: a phone number, then the code sent to it.
+	// The owner's Google sign-in and the driver's admin-issued PIN both
+	// used to live here; see otpauth.go for why neither survived.
+	s.mux.HandleFunc("POST /api/v1/auth/otp/request", s.handleRequestOTP)
+	s.mux.HandleFunc("POST /api/v1/auth/otp/verify", s.handleVerifyOTP)
 	if s.devLoginEnabled {
 		s.mux.HandleFunc("POST /api/v1/auth/dev-login", s.handleDevLogin)
 	}
@@ -108,7 +118,6 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("GET /api/v1/drivers", s.withAdmin(s.handleListDrivers))
 	s.mux.HandleFunc("POST /api/v1/drivers", s.withAdmin(s.handleCreateDriver))
-	s.mux.HandleFunc("POST /api/v1/drivers/{id}/pin", s.withAdmin(s.handleResetDriverPIN))
 	s.mux.HandleFunc("POST /api/v1/drivers/{id}/active", s.withAdmin(s.handleSetDriverActive))
 	s.mux.HandleFunc("POST /api/v1/drivers/{id}/home", s.withAdmin(s.handleSetDriverHome))
 
@@ -159,6 +168,12 @@ func sessionFrom(ctx context.Context) session {
 	return s
 }
 
+// refreshTokenAfter is how stale a token has to be before an
+// authenticated request mints a replacement. A day means a daily user is
+// re-issued once a day and never sees a sign-in screen, while the header
+// is absent from the overwhelming majority of requests.
+const refreshTokenAfter = 24 * time.Hour
+
 func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
@@ -188,6 +203,24 @@ func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "invalid or expired session", "invalid_token")
 			return
+		}
+
+		// Sliding session. Sign-in costs an SMS now, so the token is
+		// renewed whenever it is more than refreshTokenAfter old and
+		// still valid: someone using the app keeps their session
+		// indefinitely, and the code screen only comes back after a real
+		// absence. The new token rides on a response header rather than
+		// the body, so every endpoint gets this for free without any of
+		// them knowing about it.
+		if claims.IssuedAt != nil && time.Since(claims.IssuedAt.Time) > refreshTokenAfter {
+			if fresh, err := s.auth.IssueToken(user); err == nil {
+				w.Header().Set("X-Refreshed-Token", fresh)
+				w.Header().Add("Access-Control-Expose-Headers", "X-Refreshed-Token")
+			} else {
+				// Not fatal: the request is authenticated either way, and
+				// the caller keeps the token it already has.
+				log.Printf("refresh token for %s: %v", user.ID, err)
+			}
 		}
 
 		ctx := context.WithValue(r.Context(), sessionContextKey, session{User: user, Business: business})
@@ -227,66 +260,6 @@ type authResponse struct {
 	Business domain.Business `json:"business"`
 }
 
-type signupRequest struct {
-	IDToken      string `json:"id_token"`
-	BusinessName string `json:"business_name"`
-	BusinessType string `json:"business_type"`
-	Timezone     string `json:"timezone"`
-}
-
-func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
-	var req signupRequest
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-
-	req.BusinessName = strings.TrimSpace(req.BusinessName)
-	if req.BusinessName == "" {
-		writeError(w, http.StatusBadRequest, "business_name is required", "missing_fields")
-		return
-	}
-	businessType := domain.BusinessType(strings.ToLower(strings.TrimSpace(req.BusinessType)))
-	if businessType == "" {
-		businessType = domain.BusinessTypeOther
-	}
-	if !domain.ValidBusinessType(businessType) {
-		writeError(w, http.StatusBadRequest, "business_type is not one of dairy, school, grocery, water, other", "invalid_business_type")
-		return
-	}
-
-	if s.googleClientID == "" {
-		writeError(w, http.StatusServiceUnavailable, "Google Sign-In is not configured on this server", "google_not_configured")
-		return
-	}
-	claims, err := auth.VerifyGoogleIDToken(r.Context(), req.IDToken, s.googleClientID)
-	if err != nil {
-		writeGoogleAuthError(w, err)
-		return
-	}
-
-	timezone := strings.TrimSpace(req.Timezone)
-	if timezone == "" {
-		timezone = s.defaultTimezone
-	}
-	if _, err := time.LoadLocation(timezone); err != nil {
-		writeError(w, http.StatusBadRequest, "timezone is not a valid IANA timezone name", "invalid_timezone")
-		return
-	}
-
-	business, admin, err := s.createBusinessWithAdmin(r.Context(), req.BusinessName, businessType, timezone, claims.Email, claims.Name)
-	if errors.Is(err, storage.ErrConflict) {
-		writeError(w, http.StatusConflict, "this Google account already runs a business here — sign in instead", "already_registered")
-		return
-	}
-	if err != nil {
-		log.Printf("signup: %v", err)
-		writeError(w, http.StatusInternalServerError, "could not create the business", "")
-		return
-	}
-
-	s.respondWithSession(w, admin, business)
-}
-
 // createBusinessWithAdmin creates the tenant, its first admin, and the
 // vertical's starting configuration and product catalogue.
 //
@@ -294,7 +267,20 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 // copied into the tenant, not referenced: from this moment the business
 // owns its own config and can diverge from its vertical freely. That copy
 // is the whole extensibility story — see Docs/ARCHITECTURE.md.
+// createBusinessWithOwnerPhone is the signup path now that the owner is
+// identified by a proven phone number rather than a Google account.
+func (s *Server) createBusinessWithOwnerPhone(ctx context.Context, name string, businessType domain.BusinessType, timezone string, phone string, ownerName string) (domain.Business, domain.User, error) {
+	return s.createBusiness(ctx, name, businessType, timezone, "", phone, ownerName)
+}
+
+// createBusinessWithAdmin keeps the email-identified path, which only
+// dev-login uses now — it needs a stable identity that isn't a phone
+// number so repeated demo logins land on the same business.
 func (s *Server) createBusinessWithAdmin(ctx context.Context, name string, businessType domain.BusinessType, timezone string, email string, adminName string) (domain.Business, domain.User, error) {
+	return s.createBusiness(ctx, name, businessType, timezone, email, "", adminName)
+}
+
+func (s *Server) createBusiness(ctx context.Context, name string, businessType domain.BusinessType, timezone string, email string, phone string, adminName string) (domain.Business, domain.User, error) {
 	preset := domain.PresetFor(businessType)
 	business := domain.Business{
 		ID:       domain.NewID(),
@@ -305,12 +291,16 @@ func (s *Server) createBusinessWithAdmin(ctx context.Context, name string, busin
 	}
 	if strings.TrimSpace(adminName) == "" {
 		adminName = email
+		if adminName == "" {
+			adminName = phone
+		}
 	}
 	admin := domain.User{
 		ID:    domain.NewID(),
 		Role:  domain.RoleAdminDriver,
 		Name:  adminName,
 		Email: email,
+		Phone: phone,
 	}
 
 	business, admin, err := s.store.CreateBusiness(ctx, business, admin)
@@ -336,59 +326,17 @@ func (s *Server) createBusinessWithAdmin(ctx context.Context, name string, busin
 	return business, admin, nil
 }
 
-func (s *Server) handleGoogleSignIn(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		IDToken string `json:"id_token"`
+func demoBusinessName(businessType domain.BusinessType) string {
+	switch businessType {
+	case domain.BusinessTypeSchool:
+		return "Demo School Transport"
+	case domain.BusinessTypeWater:
+		return "Demo Water Supply"
+	case domain.BusinessTypeGrocery:
+		return "Demo Grocery"
+	default:
+		return "Demo Dairy"
 	}
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-	if s.googleClientID == "" {
-		writeError(w, http.StatusServiceUnavailable, "Google Sign-In is not configured on this server", "google_not_configured")
-		return
-	}
-
-	claims, err := auth.VerifyGoogleIDToken(r.Context(), req.IDToken, s.googleClientID)
-	if err != nil {
-		writeGoogleAuthError(w, err)
-		return
-	}
-
-	user, err := s.store.GetAdminByEmail(r.Context(), claims.Email)
-	if errors.Is(err, storage.ErrNotFound) {
-		// Deliberately not auto-creating a business here. Elsewhere in
-		// 3VNSYSTEMS, first sign-in *is* registration; here a sign-in
-		// has to resolve to an existing tenant, and silently creating an
-		// empty business for a driver who tapped the wrong button would
-		// be worse than a clear "sign up first".
-		writeError(w, http.StatusNotFound, "no business is registered to this Google account yet", "signup_required")
-		return
-	}
-	if err != nil {
-		log.Printf("google sign-in: %v", err)
-		writeError(w, http.StatusInternalServerError, "could not sign in", "")
-		return
-	}
-	if !user.Active {
-		writeError(w, http.StatusForbidden, "this account has been deactivated", "account_deactivated")
-		return
-	}
-
-	business, err := s.store.GetBusiness(r.Context(), user.BusinessID)
-	if err != nil {
-		log.Printf("google sign-in: load business: %v", err)
-		writeError(w, http.StatusInternalServerError, "could not sign in", "")
-		return
-	}
-	s.respondWithSession(w, user, business)
-}
-
-func writeGoogleAuthError(w http.ResponseWriter, err error) {
-	if errors.Is(err, auth.ErrEmailNotVerified) {
-		writeError(w, http.StatusForbidden, "your Google account's email is not verified", "email_not_verified")
-		return
-	}
-	writeError(w, http.StatusUnauthorized, "could not verify Google sign-in", "invalid_google_token")
 }
 
 // handleDevLogin mints an admin session against a demo business, creating
@@ -438,67 +386,6 @@ func (s *Server) handleDevLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.respondWithSession(w, admin, business)
-}
-
-func demoBusinessName(businessType domain.BusinessType) string {
-	switch businessType {
-	case domain.BusinessTypeSchool:
-		return "Demo School Transport"
-	case domain.BusinessTypeWater:
-		return "Demo Water Supply"
-	case domain.BusinessTypeGrocery:
-		return "Demo Grocery"
-	default:
-		return "Demo Dairy"
-	}
-}
-
-func (s *Server) handleDriverLogin(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Phone string `json:"phone"`
-		PIN   string `json:"pin"`
-	}
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-
-	phone := domain.NormalizePhone(req.Phone)
-	if phone == "" || strings.TrimSpace(req.PIN) == "" {
-		writeError(w, http.StatusBadRequest, "phone and pin are both required", "missing_fields")
-		return
-	}
-
-	if !s.driverLogins.Allow(phone) {
-		writeError(w, http.StatusTooManyRequests, "too many sign-in attempts — try again later", "rate_limited")
-		return
-	}
-
-	user, pinHash, err := s.store.GetDriverByPhone(r.Context(), phone)
-	if err != nil {
-		// Same message and status whether the phone is unknown or the
-		// PIN is wrong, so this endpoint can't be used to enumerate
-		// which numbers are registered drivers.
-		writeError(w, http.StatusUnauthorized, "incorrect phone number or PIN", "invalid_credentials")
-		return
-	}
-	if err := auth.CheckPIN(pinHash, req.PIN); err != nil {
-		writeError(w, http.StatusUnauthorized, "incorrect phone number or PIN", "invalid_credentials")
-		return
-	}
-	if !user.Active {
-		writeError(w, http.StatusForbidden, "this account has been deactivated", "account_deactivated")
-		return
-	}
-
-	business, err := s.store.GetBusiness(r.Context(), user.BusinessID)
-	if err != nil {
-		log.Printf("driver login: load business: %v", err)
-		writeError(w, http.StatusInternalServerError, "could not sign in", "")
-		return
-	}
-
-	s.driverLogins.Reset(phone)
-	s.respondWithSession(w, user, business)
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {

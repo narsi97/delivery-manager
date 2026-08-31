@@ -199,7 +199,7 @@ func TestPreparedRoundInheritsYesterdaysDriver(t *testing.T) {
 	createSubscription(t, admin, customer, productID, 1)
 
 	driver := admin.mustDo(http.MethodPost, "/api/v1/drivers", map[string]any{
-		"name": "Ravi", "phone": "+91 98765 43210", "pin": "481920",
+		"name": "Ravi", "phone": "+91 98765 43210",
 	}, http.StatusCreated)
 	driverID := str(driver, "id")
 

@@ -5,10 +5,11 @@ import (
 	"testing"
 )
 
-func makeDriver(t *testing.T, admin *client, name, phone, pin string) string {
+// The pin argument is gone — an owner adds a person, not a credential.
+func makeDriver(t *testing.T, admin *client, name, phone string) string {
 	t.Helper()
 	d := admin.mustDo(http.MethodPost, "/api/v1/drivers", map[string]any{
-		"name": name, "phone": phone, "pin": pin,
+		"name": name, "phone": phone,
 	}, http.StatusCreated)
 	return str(d, "id")
 }
@@ -20,7 +21,7 @@ func TestAssigningADriverSetsTheRoutesEndPoint(t *testing.T) {
 	day := admin.mustDo(http.MethodPost, "/api/v1/routes/plan", map[string]any{"count": 1}, http.StatusOK)
 	routeID := routeIDs(t, day)[0]
 
-	driverID := makeDriver(t, admin, "Ravi", "+91 98765 43210", "481920")
+	driverID := makeDriver(t, admin, "Ravi", "+91 98765 43210")
 	admin.mustDo(http.MethodPost, "/api/v1/drivers/"+driverID+"/home",
 		map[string]any{"home_lat": 12.9900, "home_lng": 77.6100}, http.StatusOK)
 
@@ -42,7 +43,7 @@ func TestUnassigningClearsTheEndPoint(t *testing.T) {
 	day := admin.mustDo(http.MethodPost, "/api/v1/routes/plan", map[string]any{"count": 1}, http.StatusOK)
 	routeID := routeIDs(t, day)[0]
 
-	driverID := makeDriver(t, admin, "Ravi", "+91 98765 43210", "481920")
+	driverID := makeDriver(t, admin, "Ravi", "+91 98765 43210")
 	admin.mustDo(http.MethodPost, "/api/v1/drivers/"+driverID+"/home",
 		map[string]any{"home_lat": 12.9900, "home_lng": 77.6100}, http.StatusOK)
 	admin.mustDo(http.MethodPost, "/api/v1/routes/"+routeID+"/assign",
@@ -65,7 +66,7 @@ func TestDriversHomeChangesWhichStopIsLast(t *testing.T) {
 		day := admin.mustDo(http.MethodPost, "/api/v1/routes/plan", map[string]any{"count": 1}, http.StatusOK)
 		routeID := routeIDs(t, day)[0]
 
-		driverID := makeDriver(t, admin, "Ravi", "+91 98765 43210", "481920")
+		driverID := makeDriver(t, admin, "Ravi", "+91 98765 43210")
 		admin.mustDo(http.MethodPost, "/api/v1/drivers/"+driverID+"/home",
 			map[string]any{"home_lat": homeLat, "home_lng": 77.5946}, http.StatusOK)
 		admin.mustDo(http.MethodPost, "/api/v1/routes/"+routeID+"/assign",
@@ -105,7 +106,7 @@ func TestChangingDriverHomeReordersTheirCurrentRoute(t *testing.T) {
 	day := admin.mustDo(http.MethodPost, "/api/v1/routes/plan", map[string]any{"count": 1}, http.StatusOK)
 	routeID := routeIDs(t, day)[0]
 
-	driverID := makeDriver(t, admin, "Ravi", "+91 98765 43210", "481920")
+	driverID := makeDriver(t, admin, "Ravi", "+91 98765 43210")
 	admin.mustDo(http.MethodPost, "/api/v1/routes/"+routeID+"/assign",
 		map[string]any{"driver_id": driverID}, http.StatusOK)
 
@@ -127,7 +128,7 @@ func TestChangingDriverHomeReordersTheirCurrentRoute(t *testing.T) {
 func TestSetDriverHomeRejectsBadCoordinates(t *testing.T) {
 	server := newTestServer(t)
 	admin := adminClient(t, server)
-	driverID := makeDriver(t, admin, "Ravi", "+91 98765 43210", "481920")
+	driverID := makeDriver(t, admin, "Ravi", "+91 98765 43210")
 
 	admin.mustDo(http.MethodPost, "/api/v1/drivers/"+driverID+"/home",
 		map[string]any{"home_lat": 200, "home_lng": 77.6}, http.StatusBadRequest)

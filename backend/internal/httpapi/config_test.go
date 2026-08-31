@@ -76,7 +76,7 @@ func TestSchoolVerticalRunsOnTheSameEngine(t *testing.T) {
 
 	createSubscription(t, admin, str(student, "id"), productID, 1)
 	driver := admin.mustDo(http.MethodPost, "/api/v1/drivers", map[string]any{
-		"name": "Ravi", "phone": "+919876543210", "pin": "481920",
+		"name": "Ravi", "phone": "+919876543210",
 	}, http.StatusCreated)
 
 	admin.mustDo(http.MethodPost, "/api/v1/day/generate", nil, http.StatusOK)
@@ -84,11 +84,7 @@ func TestSchoolVerticalRunsOnTheSameEngine(t *testing.T) {
 		"start_lat": 12.97, "start_lng": 77.59, "driver_id": str(driver, "id"),
 	}, http.StatusOK)
 
-	driverSession := &client{t: t, server: server}
-	login := driverSession.mustDo(http.MethodPost, "/api/v1/auth/driver-login", map[string]any{
-		"phone": "+919876543210", "pin": "481920",
-	}, http.StatusOK)
-	driverSession.token = str(login, "token")
+	driverSession := signInWithOTP(t, server, "+919876543210", nil)
 
 	today := driverSession.mustDo(http.MethodGet, "/api/v1/driver/today", nil, http.StatusOK)
 
@@ -147,7 +143,7 @@ func TestDairyStopClosesWithNoCaptures(t *testing.T) {
 	customer := createCustomer(t, admin, "Regular", 12.98, 77.59)
 	createSubscription(t, admin, customer, productID, 2)
 	driver := admin.mustDo(http.MethodPost, "/api/v1/drivers", map[string]any{
-		"name": "Ravi", "phone": "+919876543210", "pin": "481920",
+		"name": "Ravi", "phone": "+919876543210",
 	}, http.StatusCreated)
 
 	admin.mustDo(http.MethodPost, "/api/v1/day/generate", nil, http.StatusOK)
@@ -155,11 +151,7 @@ func TestDairyStopClosesWithNoCaptures(t *testing.T) {
 		"start_lat": 12.97, "start_lng": 77.59, "driver_id": str(driver, "id"),
 	}, http.StatusOK)
 
-	driverSession := &client{t: t, server: server}
-	login := driverSession.mustDo(http.MethodPost, "/api/v1/auth/driver-login", map[string]any{
-		"phone": "+919876543210", "pin": "481920",
-	}, http.StatusOK)
-	driverSession.token = str(login, "token")
+	driverSession := signInWithOTP(t, server, "+919876543210", nil)
 
 	driverSession.mustDo(http.MethodPost, "/api/v1/driver/stops/"+str(stopsOf(t, built)[0], "id")+"/status",
 		map[string]any{"status": "delivered"}, http.StatusOK)
@@ -270,14 +262,10 @@ func TestDriverCanReadConfigButNotChangeIt(t *testing.T) {
 	server := newTestServer(t)
 	admin := adminForVertical(t, server, "school")
 	admin.mustDo(http.MethodPost, "/api/v1/drivers", map[string]any{
-		"name": "Ravi", "phone": "+919876543210", "pin": "481920",
+		"name": "Ravi", "phone": "+919876543210",
 	}, http.StatusCreated)
 
-	driverSession := &client{t: t, server: server}
-	login := driverSession.mustDo(http.MethodPost, "/api/v1/auth/driver-login", map[string]any{
-		"phone": "+919876543210", "pin": "481920",
-	}, http.StatusOK)
-	driverSession.token = str(login, "token")
+	driverSession := signInWithOTP(t, server, "+919876543210", nil)
 
 	config := configOf(t, driverSession)
 	if config["stop_captures"] == nil {

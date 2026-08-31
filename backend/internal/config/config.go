@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -13,14 +14,18 @@ type Config struct {
 	DatabaseURL string
 	JWTSecret   string
 	TokenTTL    time.Duration
-	// GoogleClientID, when set, enables POST /api/v1/auth/google (admin
-	// sign-in) — the OAuth 2.0 Web client ID from Google Cloud Console,
-	// used as the required audience when verifying ID tokens. Left empty,
-	// the endpoint returns a clear "not configured" error rather than
-	// failing startup: drivers sign in with phone + PIN and don't need
-	// Google configured at all, so a business can be run end-to-end on a
-	// dev-login admin session before Google is wired up.
+	// GoogleClientID is retained only so an existing deployment's env
+	// file doesn't become invalid overnight. Nothing reads it since
+	// sign-in became phone + OTP for everyone (see httpapi/otpauth.go).
 	GoogleClientID string
+	// AllowLogOTPSender permits the development OTP sender — which
+	// writes codes to the server log instead of texting them — to run
+	// under APP_ENV=prod. Off by default and deliberately awkward to
+	// turn on: with it enabled, anyone who can read the logs can sign in
+	// as anyone. It exists because this product is currently deployed as
+	// a private demo with no SMS provider; it must come off in the same
+	// change that wires a real one.
+	AllowLogOTPSender bool
 	AllowedOrigin  string
 	// DefaultTimezone is the IANA zone new businesses get when signup
 	// doesn't specify one. Every "today" in this product resolves in the
@@ -31,6 +36,11 @@ type Config struct {
 
 func Load() (Config, error) {
 	environment, defaults := defaultsForEnvironment(lower(stringFromEnv("APP_ENV", EnvironmentLocal)))
+	// Sessions are long on purpose. Sign-in costs an SMS now, so asking
+	// for one every twelve hours would be both expensive and infuriating
+	// for someone opening the app each morning. The token is refreshed on
+	// use (see httpapi's auth middleware), so this is really an *idle*
+	// timeout: it only bites after a genuine absence.
 	tokenHours := intFromEnv("TOKEN_TTL_HOURS", defaults.TokenTTLHours)
 
 	cfg := Config{
@@ -38,7 +48,8 @@ func Load() (Config, error) {
 		Addr:            stringFromEnv("ADDR", defaults.Addr),
 		DatabaseURL:     stringFromEnv("DATABASE_URL", defaults.DatabaseURL),
 		JWTSecret:       stringFromEnv("JWT_SECRET", defaults.JWTSecret),
-		TokenTTL:        time.Duration(tokenHours) * time.Hour,
+		TokenTTL:          time.Duration(tokenHours) * time.Hour,
+		AllowLogOTPSender: boolFromEnv("OTP_ALLOW_LOG_SENDER", false),
 		GoogleClientID:  stringFromEnv("GOOGLE_CLIENT_ID", ""),
 		AllowedOrigin:   stringFromEnv("ALLOWED_ORIGIN", defaults.AllowedOrigin),
 		DefaultTimezone: stringFromEnv("DEFAULT_TIMEZONE", "Asia/Kolkata"),
@@ -88,4 +99,16 @@ func lower(s string) string {
 		}
 	}
 	return string(out)
+}
+
+func boolFromEnv(key string, fallback bool) bool {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		return fallback
+	}
+	return value
 }

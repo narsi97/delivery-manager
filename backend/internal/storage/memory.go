@@ -31,6 +31,7 @@ type MemoryStore struct {
 	daily        map[string]domain.DailyOrder
 	routes       map[string]domain.Route
 	events       []domain.DeliveryEvent
+	otps         map[string]domain.OTPChallenge
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -44,6 +45,7 @@ func NewMemoryStore() *MemoryStore {
 		recurring:    map[string]domain.RecurringOrder{},
 		daily:        map[string]domain.DailyOrder{},
 		routes:       map[string]domain.Route{},
+		otps:         map[string]domain.OTPChallenge{},
 	}
 }
 
@@ -653,4 +655,53 @@ func copyFields(values domain.FieldValues) domain.FieldValues {
 		copied[key] = value
 	}
 	return copied
+}
+
+func (s *MemoryStore) GetUserByPhone(_ context.Context, phone string) (domain.User, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	phone = strings.TrimSpace(phone)
+	for _, u := range s.users {
+		if u.Phone != "" && u.Phone == phone {
+			return u, nil
+		}
+	}
+	return domain.User{}, ErrNotFound
+}
+
+func (s *MemoryStore) PutOTPChallenge(_ context.Context, c domain.OTPChallenge) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.otps[c.Phone] = c
+	return nil
+}
+
+func (s *MemoryStore) GetOTPChallenge(_ context.Context, phone string) (domain.OTPChallenge, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	c, ok := s.otps[phone]
+	if !ok {
+		return domain.OTPChallenge{}, ErrNotFound
+	}
+	return c, nil
+}
+
+func (s *MemoryStore) BumpOTPAttempts(_ context.Context, phone string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.otps[phone]
+	if !ok {
+		return 0, ErrNotFound
+	}
+	c.Attempts++
+	s.otps[phone] = c
+	return c.Attempts, nil
+}
+
+func (s *MemoryStore) DeleteOTPChallenge(_ context.Context, phone string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.otps, phone)
+	return nil
 }

@@ -1,9 +1,10 @@
 package httpapi
 
 import (
+	"context"
+	"sync"
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -29,7 +30,68 @@ func newTestServer(t *testing.T) *Server {
 		// runs; the timezone behaviour itself is covered separately.
 		DefaultTimezone: "UTC",
 	}
-	return NewServer(storage.NewMemoryStore(), auth.NewService(cfg.JWTSecret, cfg.TokenTTL), cfg)
+	server := NewServer(storage.NewMemoryStore(), auth.NewService(cfg.JWTSecret, cfg.TokenTTL), cfg)
+	// Tests need to read the code that was "sent", which the logging
+	// sender only writes to stdout. Swapping in a capturing one is the
+	// whole reason Sender is an interface.
+	server.otpSender = newCapturingSender()
+	return server
+}
+
+// capturingSender keeps the last code sent to each number, so a test can
+// complete a sign-in the same way a person would — by typing the code
+// they received — rather than by reaching past the auth flow.
+type capturingSender struct {
+	mu    sync.Mutex
+	codes map[string]string
+}
+
+func newCapturingSender() *capturingSender {
+	return &capturingSender{codes: map[string]string{}}
+}
+
+func (c *capturingSender) SendOTP(_ context.Context, phone, code string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.codes[phone] = code
+	return nil
+}
+
+func (c *capturingSender) codeFor(phone string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.codes[phone]
+}
+
+// signInWithOTP performs the whole real flow: ask for a code, read what
+// was sent, hand it back. Used by every test that needs a session.
+func signInWithOTP(t *testing.T, server *Server, phone string, extra map[string]any) *client {
+	t.Helper()
+	c := &client{t: t, server: server}
+
+	body := map[string]any{"phone": phone}
+	for k, v := range extra {
+		body[k] = v
+	}
+	c.mustDo(http.MethodPost, "/api/v1/auth/otp/request", body, http.StatusOK)
+
+	sender, ok := server.otpSender.(*capturingSender)
+	if !ok {
+		t.Fatal("test server is not using the capturing OTP sender")
+	}
+	code := sender.codeFor(domain.NormalizePhone(phone))
+	if code == "" {
+		t.Fatalf("no code was sent to %s", phone)
+	}
+
+	session := c.mustDo(http.MethodPost, "/api/v1/auth/otp/verify", map[string]any{
+		"phone": phone, "code": code,
+	}, http.StatusOK)
+	c.token = str(session, "token")
+	if c.token == "" {
+		t.Fatalf("verifying the code for %s returned no token", phone)
+	}
+	return c
 }
 
 type client struct {
@@ -245,17 +307,9 @@ func TestFullDeliveryDay(t *testing.T) {
 		t.Fatalf("route status = %q, want %q once a driver is set", got, domain.RouteAssigned)
 	}
 
-	// The driver signs in with the phone and PIN the admin issued, typed
-	// without the spaces the admin used.
-	driverSession := &client{t: t, server: server}
-	login := driverSession.mustDo(http.MethodPost, "/api/v1/auth/driver-login", map[string]any{
-		"phone": "9876543210",
-		"pin":   "481920",
-	}, http.StatusOK)
-	driverSession.token = str(login, "token")
-	if driverSession.token == "" {
-		t.Fatal("driver login returned no token")
-	}
+	// The driver signs in with a code sent to the number the admin
+	// registered, typed without the spaces the admin used.
+	driverSession := signInWithOTP(t, server, "9876543210", nil)
 
 	today := driverSession.mustDo(http.MethodGet, "/api/v1/driver/today", nil, http.StatusOK)
 	if got := num(today, "remaining"); got != 2 {
@@ -391,21 +445,17 @@ func TestBusinessesCannotSeeEachOthersData(t *testing.T) {
 
 	// A driver of the *same* business still can't reach admin endpoints.
 	first.mustDo(http.MethodPost, "/api/v1/drivers", map[string]any{
-		"name": "Ravi", "phone": "+919876543210", "pin": "481920",
+		"name": "Ravi", "phone": "+919876543210",
 	}, http.StatusCreated)
 
-	driverSession := &client{t: t, server: server}
-	login := driverSession.mustDo(http.MethodPost, "/api/v1/auth/driver-login", map[string]any{
-		"phone": "+919876543210", "pin": "481920",
-	}, http.StatusOK)
-	driverSession.token = str(login, "token")
+	driverSession := signInWithOTP(t, server, "+919876543210", nil)
 
 	rec, _ = driverSession.do(http.MethodGet, "/api/v1/customers", nil)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("driver reading the customer list = %d, want 403", rec.Code)
 	}
 	rec, _ = driverSession.do(http.MethodPost, "/api/v1/drivers", map[string]any{
-		"name": "Someone", "phone": "+919000000001", "pin": "481921",
+		"name": "Someone", "phone": "+919000000001",
 	})
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("driver creating a driver = %d, want 403", rec.Code)
@@ -423,10 +473,10 @@ func TestDriverCannotCompleteAnotherDriversStop(t *testing.T) {
 	createSubscription(t, admin, customer, productID, 1)
 
 	working := admin.mustDo(http.MethodPost, "/api/v1/drivers", map[string]any{
-		"name": "Working", "phone": "+919000000011", "pin": "481920",
+		"name": "Working", "phone": "+919000000011",
 	}, http.StatusCreated)
 	admin.mustDo(http.MethodPost, "/api/v1/drivers", map[string]any{
-		"name": "Idle", "phone": "+919000000022", "pin": "481921",
+		"name": "Idle", "phone": "+919000000022",
 	}, http.StatusCreated)
 
 	admin.mustDo(http.MethodPost, "/api/v1/day/generate", nil, http.StatusOK)
@@ -435,11 +485,7 @@ func TestDriverCannotCompleteAnotherDriversStop(t *testing.T) {
 	}, http.StatusOK)
 	stopID := str(stopsOf(t, built)[0], "id")
 
-	idle := &client{t: t, server: server}
-	login := idle.mustDo(http.MethodPost, "/api/v1/auth/driver-login", map[string]any{
-		"phone": "+919000000022", "pin": "481921",
-	}, http.StatusOK)
-	idle.token = str(login, "token")
+	idle := signInWithOTP(t, server, "+919000000022", nil)
 
 	rec, _ := idle.do(http.MethodPost, "/api/v1/driver/stops/"+stopID+"/status", map[string]any{"status": "delivered"})
 	if rec.Code != http.StatusForbidden {
@@ -455,14 +501,10 @@ func TestDeactivatingADriverInvalidatesTheirSession(t *testing.T) {
 	admin := adminClient(t, server)
 
 	driver := admin.mustDo(http.MethodPost, "/api/v1/drivers", map[string]any{
-		"name": "Ravi", "phone": "+919876543210", "pin": "481920",
+		"name": "Ravi", "phone": "+919876543210",
 	}, http.StatusCreated)
 
-	driverSession := &client{t: t, server: server}
-	login := driverSession.mustDo(http.MethodPost, "/api/v1/auth/driver-login", map[string]any{
-		"phone": "+919876543210", "pin": "481920",
-	}, http.StatusOK)
-	driverSession.token = str(login, "token")
+	driverSession := signInWithOTP(t, server, "+919876543210", nil)
 	driverSession.mustDo(http.MethodGet, "/api/v1/driver/today", nil, http.StatusOK)
 
 	admin.mustDo(http.MethodPost, "/api/v1/drivers/"+str(driver, "id")+"/active",
@@ -473,38 +515,86 @@ func TestDeactivatingADriverInvalidatesTheirSession(t *testing.T) {
 		t.Fatalf("deactivated driver's existing session = %d, want 403", rec.Code)
 	}
 
-	rec, _ = driverSession.do(http.MethodPost, "/api/v1/auth/driver-login", map[string]any{
-		"phone": "+919876543210", "pin": "481920",
+	// And the front door is shut too: a deactivated number can't even
+	// ask for a code, let alone use one.
+	rec, _ = driverSession.do(http.MethodPost, "/api/v1/auth/otp/request", map[string]any{
+		"phone": "+919876543210",
 	})
 	if rec.Code != http.StatusForbidden {
-		t.Fatalf("deactivated driver signing in again = %d, want 403", rec.Code)
+		t.Fatalf("deactivated driver requesting a code = %d, want 403", rec.Code)
 	}
 }
 
-// PIN guessing must be bounded, since the search space is only a million
-// wide.
-func TestDriverLoginIsRateLimited(t *testing.T) {
+// Guessing a code must be bounded — six digits is only a million wide,
+// and unlimited tries would make that a formality. Two separate limits
+// do the work: how many codes you can *ask* for, and how many times you
+// can be wrong about one.
+func TestAskingForCodesIsRateLimited(t *testing.T) {
 	server := newTestServer(t)
 	admin := adminClient(t, server)
 	admin.mustDo(http.MethodPost, "/api/v1/drivers", map[string]any{
-		"name": "Ravi", "phone": "+919876543210", "pin": "481920",
+		"name": "Ravi", "phone": "+919876543210",
 	}, http.StatusCreated)
 
-	guesser := &client{t: t, server: server}
-	for i := 0; i < driverLoginLimit; i++ {
-		rec, _ := guesser.do(http.MethodPost, "/api/v1/auth/driver-login", map[string]any{
-			"phone": "+919876543210", "pin": fmt.Sprintf("%06d", 100000+i),
+	asker := &client{t: t, server: server}
+	for i := 0; i < otpRequestBurst; i++ {
+		rec, _ := asker.do(http.MethodPost, "/api/v1/auth/otp/request", map[string]any{
+			"phone": "+919876543210",
 		})
-		if rec.Code != http.StatusUnauthorized {
-			t.Fatalf("guess %d = %d, want 401", i, rec.Code)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d = %d, want 200", i, rec.Code)
 		}
 	}
 
-	rec, _ := guesser.do(http.MethodPost, "/api/v1/auth/driver-login", map[string]any{
-		"phone": "+919876543210", "pin": "481920",
+	rec, _ := asker.do(http.MethodPost, "/api/v1/auth/otp/request", map[string]any{
+		"phone": "+919876543210",
 	})
 	if rec.Code != http.StatusTooManyRequests {
-		t.Fatalf("attempt past the limit = %d, want 429", rec.Code)
+		t.Fatalf("request past the burst = %d, want 429 — an unlimited endpoint can text someone forever", rec.Code)
+	}
+}
+
+// A wrong code is worth a small number of tries and then nothing: the
+// code is burned rather than left alive for the rest of its five minutes.
+func TestAWrongCodeIsBurnedAfterTooManyTries(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+	admin.mustDo(http.MethodPost, "/api/v1/drivers", map[string]any{
+		"name": "Ravi", "phone": "+919876543210",
+	}, http.StatusCreated)
+
+	guesser := &client{t: t, server: server}
+	guesser.mustDo(http.MethodPost, "/api/v1/auth/otp/request",
+		map[string]any{"phone": "+919876543210"}, http.StatusOK)
+
+	real := server.otpSender.(*capturingSender).codeFor("+919876543210")
+	wrong := "000000"
+	if real == wrong {
+		wrong = "111111"
+	}
+
+	for i := 0; i < auth.OTPMaxAttempts-1; i++ {
+		rec, _ := guesser.do(http.MethodPost, "/api/v1/auth/otp/verify", map[string]any{
+			"phone": "+919876543210", "code": wrong,
+		})
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("wrong guess %d = %d, want 401", i, rec.Code)
+		}
+	}
+
+	rec, _ := guesser.do(http.MethodPost, "/api/v1/auth/otp/verify", map[string]any{
+		"phone": "+919876543210", "code": wrong,
+	})
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("guess past the limit = %d, want 429", rec.Code)
+	}
+
+	// And the real code is now worthless — this is the part that matters.
+	rec, _ = guesser.do(http.MethodPost, "/api/v1/auth/otp/verify", map[string]any{
+		"phone": "+919876543210", "code": real,
+	})
+	if rec.Code == http.StatusOK {
+		t.Fatal("the correct code still worked after the code was burned")
 	}
 }
 
@@ -631,8 +721,9 @@ func TestInvalidInputsAreRejected(t *testing.T) {
 	}{
 		{"customer with no name", http.MethodPost, "/api/v1/customers", map[string]any{"lat": 12.9, "lng": 77.5}, http.StatusBadRequest},
 		{"customer off the globe", http.MethodPost, "/api/v1/customers", map[string]any{"name": "X", "lat": 991.0, "lng": 77.5}, http.StatusBadRequest},
-		{"driver with a guessable pin", http.MethodPost, "/api/v1/drivers", map[string]any{"name": "D", "phone": "+919000000099", "pin": "111111"}, http.StatusBadRequest},
-		{"driver with a short pin", http.MethodPost, "/api/v1/drivers", map[string]any{"name": "D", "phone": "+919000000098", "pin": "123"}, http.StatusBadRequest},
+		{"driver with no phone", http.MethodPost, "/api/v1/drivers", map[string]any{"name": "D"}, http.StatusBadRequest},
+		{"driver with a phone that is too short", http.MethodPost, "/api/v1/drivers", map[string]any{"name": "D", "phone": "12345"}, http.StatusBadRequest},
+		{"driver with no name", http.MethodPost, "/api/v1/drivers", map[string]any{"phone": "+919000000098"}, http.StatusBadRequest},
 		{"subscription with no weekdays", http.MethodPost, "/api/v1/recurring-orders", map[string]any{"customer_id": customer, "product_id": productID, "quantity": 1, "weekdays": []int{}}, http.StatusBadRequest},
 		{"subscription with zero quantity", http.MethodPost, "/api/v1/recurring-orders", map[string]any{"customer_id": customer, "product_id": productID, "quantity": 0, "weekdays": everyWeekday}, http.StatusBadRequest},
 		{"subscription for an unknown customer", http.MethodPost, "/api/v1/recurring-orders", map[string]any{"customer_id": "nope", "product_id": productID, "quantity": 1, "weekdays": everyWeekday}, http.StatusNotFound},
@@ -657,7 +748,7 @@ func TestDuplicateDriverPhoneIsRejected(t *testing.T) {
 	admin := adminClient(t, server)
 
 	admin.mustDo(http.MethodPost, "/api/v1/drivers", map[string]any{
-		"name": "Ravi", "phone": "+919876543210", "pin": "481920",
+		"name": "Ravi", "phone": "+919876543210",
 	}, http.StatusCreated)
 
 	rec, _ := admin.do(http.MethodPost, "/api/v1/drivers", map[string]any{
@@ -671,19 +762,97 @@ func TestDuplicateDriverPhoneIsRejected(t *testing.T) {
 // Google endpoints must fail closed, with a clear reason, when the server
 // has no client ID configured — never fall through to an unauthenticated
 // session.
-func TestGoogleEndpointsRefuseWhenUnconfigured(t *testing.T) {
+// The old ways in are gone, not merely unadvertised. A route that still
+// answered would be a second front door nobody was maintaining.
+func TestRetiredAuthEndpointsAreGone(t *testing.T) {
 	server := newTestServer(t)
 	anonymous := &client{t: t, server: server}
 
-	for _, path := range []string{"/api/v1/auth/google", "/api/v1/auth/signup"} {
-		rec, decoded := anonymous.do(http.MethodPost, path, map[string]any{
-			"id_token": "whatever", "business_name": "Test Dairy", "business_type": "dairy",
+	for _, path := range []string{"/api/v1/auth/google", "/api/v1/auth/signup", "/api/v1/auth/driver-login"} {
+		rec, _ := anonymous.do(http.MethodPost, path, map[string]any{
+			"id_token": "whatever", "phone": "+919876543210", "pin": "481920",
 		})
-		if rec.Code != http.StatusServiceUnavailable {
-			t.Fatalf("%s with no GOOGLE_CLIENT_ID = %d, want 503", path, rec.Code)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s = %d, want 404 — it should not exist any more", path, rec.Code)
 		}
-		if str(decoded, "code") != "google_not_configured" {
-			t.Fatalf("%s error code = %q, want google_not_configured", path, str(decoded, "code"))
-		}
+	}
+}
+
+// Signing up creates the business only once the number is proven, so a
+// code that is never used must leave nothing behind.
+func TestAbandonedSignupCreatesNothing(t *testing.T) {
+	server := newTestServer(t)
+	anonymous := &client{t: t, server: server}
+
+	anonymous.mustDo(http.MethodPost, "/api/v1/auth/otp/request", map[string]any{
+		"phone": "+919000000123", "business_name": "Ghost Dairy", "business_type": "dairy",
+	}, http.StatusOK)
+
+	// Walk away. Nothing should be able to sign in as that business.
+	rec, _ := anonymous.do(http.MethodPost, "/api/v1/auth/otp/verify", map[string]any{
+		"phone": "+919000000123", "code": "000000",
+	})
+	if rec.Code == http.StatusOK {
+		t.Fatal("a guessed code completed a signup")
+	}
+}
+
+// A whole business is created from one proven phone number.
+func TestSignupCreatesABusinessAndSignsTheOwnerIn(t *testing.T) {
+	server := newTestServer(t)
+	owner := signInWithOTP(t, server, "+919000000124", map[string]any{
+		"business_name": "Kodad Dairy", "business_type": "dairy", "owner_name": "Narsi",
+	})
+
+	me := owner.mustDo(http.MethodGet, "/api/v1/auth/me", nil, http.StatusOK)
+	business, _ := me["business"].(map[string]any)
+	if got := str(business, "name"); got != "Kodad Dairy" {
+		t.Fatalf("business name = %q, want Kodad Dairy", got)
+	}
+	user, _ := me["user"].(map[string]any)
+	if got := str(user, "role"); got != string(domain.RoleAdminDriver) {
+		t.Fatalf("owner role = %q, want %q", got, domain.RoleAdminDriver)
+	}
+	// The starter products a business type comes with should be there.
+	products := owner.mustDo(http.MethodGet, "/api/v1/products", nil, http.StatusOK)
+	if list, _ := products["products"].([]any); len(list) == 0 {
+		t.Fatal("a new dairy was seeded with no starter products")
+	}
+}
+
+// The same number signing in again lands on the same business, rather
+// than creating a second one.
+func TestSigningInAgainReturnsTheSameBusiness(t *testing.T) {
+	server := newTestServer(t)
+	first := signInWithOTP(t, server, "+919000000125", map[string]any{
+		"business_name": "Repeat Dairy", "business_type": "dairy",
+	})
+	firstMe := first.mustDo(http.MethodGet, "/api/v1/auth/me", nil, http.StatusOK)
+	firstBusiness := str(firstMe["business"].(map[string]any), "id")
+
+	second := signInWithOTP(t, server, "+919000000125", nil)
+	secondMe := second.mustDo(http.MethodGet, "/api/v1/auth/me", nil, http.StatusOK)
+	if got := str(secondMe["business"].(map[string]any), "id"); got != firstBusiness {
+		t.Fatalf("signing in again landed on business %q, want the original %q", got, firstBusiness)
+	}
+}
+
+// A code is single-use: reading one over someone's shoulder is worthless
+// the moment they have used it.
+func TestACodeCannotBeUsedTwice(t *testing.T) {
+	server := newTestServer(t)
+	anonymous := &client{t: t, server: server}
+	anonymous.mustDo(http.MethodPost, "/api/v1/auth/otp/request", map[string]any{
+		"phone": "+919000000126", "business_name": "Once Dairy", "business_type": "dairy",
+	}, http.StatusOK)
+	code := server.otpSender.(*capturingSender).codeFor("9000000126")
+
+	anonymous.mustDo(http.MethodPost, "/api/v1/auth/otp/verify",
+		map[string]any{"phone": "+919000000126", "code": code}, http.StatusOK)
+
+	rec, _ := anonymous.do(http.MethodPost, "/api/v1/auth/otp/verify",
+		map[string]any{"phone": "+919000000126", "code": code})
+	if rec.Code == http.StatusOK {
+		t.Fatal("the same code minted a second session")
 	}
 }

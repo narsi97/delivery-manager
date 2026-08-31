@@ -192,6 +192,42 @@ type ServiceArea struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+// OTPChallenge is a sign-in or sign-up in progress: someone has asked
+// for a code, and it has not been used yet.
+//
+// Keyed by phone, one live challenge per number — asking for a new code
+// replaces the old one rather than leaving several valid at once, which
+// is both what a person expects when they press "resend" and one fewer
+// live credential per number.
+//
+// The signup fields carry what was typed *before* the number was proven,
+// so the business is only created once the code comes back correct. That
+// ordering matters: it means an unverified phone number can never leave
+// a business record behind.
+type OTPChallenge struct {
+	Phone    string    `json:"phone"`
+	CodeHash string    `json:"-"`
+	Purpose  string    `json:"purpose"`
+	Attempts int       `json:"attempts"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// Set for Purpose == OTPPurposeSignup only.
+	BusinessName string       `json:"business_name,omitempty"`
+	BusinessType BusinessType `json:"business_type,omitempty"`
+	OwnerName    string       `json:"owner_name,omitempty"`
+}
+
+const (
+	OTPPurposeSignup = "signup"
+	OTPPurposeSignIn = "signin"
+)
+
+// Expired reports whether this challenge is past its life. Checked
+// before the code is compared, so an expired code is never "wrong" —
+// it is expired, which is a different thing to tell someone.
+func (c OTPChallenge) Expired(now time.Time) bool { return now.After(c.ExpiresAt) }
+
 type Product struct {
 	ID         string `json:"id"`
 	BusinessID string `json:"business_id"`
@@ -446,6 +482,15 @@ func NewID() string {
 // the wrong person in. The fix when it ever matters is to store an
 // explicit country/dial code per business and normalize against it,
 // which is a change to this one function plus a backfill.
+// ValidPhone reports whether a number, once normalized, is a usable
+// subscriber number. Sits next to NormalizePhone deliberately: the two
+// have to agree about what a phone number *is*, and an auth package
+// growing its own second opinion is how a lookup silently stops matching
+// the row it wrote.
+func ValidPhone(phone string) bool {
+	return len(NormalizePhone(phone)) == 10
+}
+
 func NormalizePhone(phone string) string {
 	var digits strings.Builder
 	for _, r := range phone {

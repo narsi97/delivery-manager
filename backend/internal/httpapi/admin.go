@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"delivery-manager/internal/auth"
 	"delivery-manager/internal/domain"
 	"delivery-manager/internal/extensions"
 	"delivery-manager/internal/route"
@@ -358,21 +357,19 @@ func (s *Server) handleCreateDriver(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name  string `json:"name"`
 		Phone string `json:"phone"`
-		PIN   string `json:"pin"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
 
+	// The owner adds the person, not a credential. There is no PIN to
+	// choose, tell them, or reset — the driver proves the number itself
+	// with a code the first time they sign in (see httpapi/otpauth.go),
+	// which also means the owner never handles a secret belonging to
+	// someone else.
 	phone := domain.NormalizePhone(req.Phone)
-	if strings.TrimSpace(req.Name) == "" || phone == "" {
-		writeError(w, http.StatusBadRequest, "name and phone are both required", "missing_fields")
-		return
-	}
-
-	pinHash, err := auth.HashPIN(req.PIN)
-	if err != nil {
-		writePINError(w, err)
+	if strings.TrimSpace(req.Name) == "" || !domain.ValidPhone(phone) {
+		writeError(w, http.StatusBadRequest, "a name and a valid phone number are both required", "missing_fields")
 		return
 	}
 
@@ -383,9 +380,9 @@ func (s *Server) handleCreateDriver(w http.ResponseWriter, r *http.Request) {
 		Name:       strings.TrimSpace(req.Name),
 		Phone:      phone,
 		Active:     true,
-	}, pinHash)
+	}, "")
 	if errors.Is(err, storage.ErrConflict) {
-		writeError(w, http.StatusConflict, "that phone number is already registered to a driver", "phone_taken")
+		writeError(w, http.StatusConflict, "that phone number already has an account", "phone_taken")
 		return
 	}
 	if err != nil {
@@ -393,38 +390,6 @@ func (s *Server) handleCreateDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, created)
-}
-
-func (s *Server) handleResetDriverPIN(w http.ResponseWriter, r *http.Request) {
-	sess := sessionFrom(r.Context())
-
-	var req struct {
-		PIN string `json:"pin"`
-	}
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-
-	driver, err := s.store.GetUserByID(r.Context(), sess.Business.ID, r.PathValue("id"))
-	if err != nil {
-		writeStoreError(w, err, "driver")
-		return
-	}
-	if !driver.Role.CanDrive() {
-		writeError(w, http.StatusBadRequest, "that account is not a driver", "not_a_driver")
-		return
-	}
-
-	pinHash, err := auth.HashPIN(req.PIN)
-	if err != nil {
-		writePINError(w, err)
-		return
-	}
-	if err := s.store.SetUserPIN(r.Context(), sess.Business.ID, driver.ID, pinHash); err != nil {
-		writeStoreError(w, err, "driver")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 
 // handleSetDriverHome records where a driver finishes their day.
@@ -510,18 +475,6 @@ func (s *Server) handleSetDriverActive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
-}
-
-func writePINError(w http.ResponseWriter, err error) {
-	switch {
-	case errors.Is(err, auth.ErrWeakPIN):
-		writeError(w, http.StatusBadRequest, "choose a less guessable PIN — not all the same digit or a run like 123456", "weak_pin")
-	case errors.Is(err, auth.ErrPINFormat):
-		writeError(w, http.StatusBadRequest, "pin must be exactly 6 digits", "invalid_pin")
-	default:
-		log.Printf("hash pin: %v", err)
-		writeError(w, http.StatusInternalServerError, "could not set the PIN", "")
-	}
 }
 
 // ---------- recurring orders ----------

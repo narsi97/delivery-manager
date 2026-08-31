@@ -64,6 +64,21 @@ type Store interface {
 	// never part of domain.User: keeping it out of the struct means it
 	// can't be accidentally serialized into an API response.
 	GetDriverByPhone(ctx context.Context, phone string) (domain.User, string, error)
+	// GetUserByPhone is the same lookup for *any* role, which is what
+	// sign-in needs now that owners and drivers both identify by phone
+	// and the screen has no idea which it is dealing with until the
+	// number resolves.
+	GetUserByPhone(ctx context.Context, phone string) (domain.User, error)
+
+	// A one-time code in flight, keyed by phone. PutOTPChallenge
+	// replaces any existing challenge for that number rather than
+	// adding a second — see domain.OTPChallenge.
+	PutOTPChallenge(ctx context.Context, c domain.OTPChallenge) error
+	GetOTPChallenge(ctx context.Context, phone string) (domain.OTPChallenge, error)
+	// BumpOTPAttempts records a wrong guess and returns the new total, so
+	// the caller can burn the code once it has been guessed at too often.
+	BumpOTPAttempts(ctx context.Context, phone string) (int, error)
+	DeleteOTPChallenge(ctx context.Context, phone string) error
 
 	// CreateUser adds a driver (or a second admin) to an existing
 	// business. pinHash may be empty for admins, who authenticate with

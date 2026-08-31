@@ -194,4 +194,24 @@ var schemaStatements = []string{
 		created_at timestamptz not null default now()
 	)`,
 	`create index if not exists delivery_events_order_idx on delivery_events(daily_order_id)`,
+
+	// A one-time code in flight. Keyed by phone so asking again replaces
+	// the live code rather than leaving several valid at once.
+	//
+	// Rows are disposable: they are deleted the moment a code is used,
+	// and any that outlive their expiry are swept on the next request
+	// for the same number. No background job — an abandoned challenge is
+	// a few bytes, and a cron to tidy them would be more moving parts
+	// than the problem deserves.
+	`create table if not exists otp_challenges (
+		phone text primary key,
+		code_hash text not null,
+		purpose text not null,
+		attempts integer not null default 0,
+		expires_at timestamptz not null,
+		created_at timestamptz not null default now(),
+		business_name text not null default '',
+		business_type text not null default '',
+		owner_name text not null default ''
+	)`,
 }
