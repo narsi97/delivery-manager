@@ -200,9 +200,7 @@ function HeadingAddButton({ open, onPress, label }) {
 // boxes of whitespace between them.
 function DriverRow({ driver, token, business, isSelf, isFirst, onChanged, onError, onNotice }) {
   const [optionsOpen, setOptionsOpen] = useState(false);
-  const [resetting, setResetting] = useState(false);
   const [editingHome, setEditingHome] = useState(false);
-  const [newPin, setNewPin] = useState('');
   const [busy, setBusy] = useState(false);
 
   const act = async (action, after) => {
@@ -258,44 +256,7 @@ function DriverRow({ driver, token, business, isSelf, isFirst, onChanged, onErro
           above it rather than as the next entry down. */}
       {optionsOpen ? (
         <View style={styles.optionsPanel}>
-          {resetting ? (
-            <View>
-              <Field
-                label="New PIN"
-                size="xs"
-                value={newPin}
-                onChangeText={setNewPin}
-                keyboardType="number-pad"
-                maxLength={6}
-              />
-              <View style={styles.buttonRow}>
-                <Button
-                  title="Set PIN"
-                  busy={busy}
-                  disabled={newPin.length !== 6}
-                  onPress={() =>
-                    act(
-                      () => api.resetDriverPin(token, driver.id, newPin),
-                      () => {
-                        onNotice(`${driver.name}'s PIN is now ${newPin}.`);
-                        setResetting(false);
-                        setNewPin('');
-                        setOptionsOpen(false);
-                      }
-                    )
-                  }
-                  style={styles.flexButton}
-                />
-                <Button
-                  title="Cancel"
-                  variant="secondary"
-                  onPress={() => setResetting(false)}
-                  style={styles.flexButton}
-                />
-              </View>
-            </View>
-          ) : (
-            <View>
+          <View>
               <Disclosure compact open={editingHome} onToggle={() => setEditingHome((prev) => !prev)}>
                 {hasHome ? 'Change where they finish' : 'Set where they finish'}
               </Disclosure>
@@ -325,13 +286,10 @@ function DriverRow({ driver, token, business, isSelf, isFirst, onChanged, onErro
                 </View>
               ) : null}
 
+              {/* No "reset PIN" any more — there is no PIN. A driver who
+                  can't get in asks for a code like anyone else, which is
+                  one fewer secret for the owner to be responsible for. */}
               <View style={styles.buttonRow}>
-                <Button
-                  title="Reset PIN"
-                  variant="secondary"
-                  onPress={() => setResetting(true)}
-                  style={styles.flexButton}
-                />
                 {!isSelf ? (
                   <Button
                     title={driver.active ? 'Deactivate' : 'Reactivate'}
@@ -351,8 +309,7 @@ function DriverRow({ driver, token, business, isSelf, isFirst, onChanged, onErro
                   hand.
                 </Text>
               )}
-            </View>
-          )}
+          </View>
         </View>
       ) : null}
     </View>

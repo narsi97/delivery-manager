@@ -61,6 +61,16 @@ function AppShell() {
   const [accountOpen, setAccountOpen] = useState(false);
   const { t } = useLanguage();
 
+  // The server slides the session forward on use (see api.js). Persist
+  // whatever it hands back, so a daily user's token keeps moving and the
+  // code screen only reappears after a real absence.
+  useEffect(() => {
+    api.setTokenRefreshHandler((token) => {
+      saveSession({ token });
+      setSession((prev) => (prev ? { ...prev, token } : prev));
+    });
+  }, []);
+
   // Restore a stored token on load, but only after the server confirms it
   // is still good — a token whose account has since been deactivated must
   // not produce a UI that looks signed in and fails on every action.

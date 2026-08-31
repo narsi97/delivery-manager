@@ -2,6 +2,21 @@ import { getFrontendConfig } from './config/environments';
 
 const API_BASE_URL = getFrontendConfig().apiBaseUrl;
 
+// The server slides the session forward: any authenticated request made
+// with a token more than a day old comes back with a fresh one in
+// X-Refreshed-Token. Handing it straight to whoever is holding the
+// session keeps a daily user signed in forever without a refresh
+// endpoint, a refresh token, or any screen knowing this happens.
+//
+// Set once by App.js. Requests made before then (there are none — every
+// authenticated call happens after sign-in) simply drop the new token,
+// which costs a re-issue on the next request rather than anything worse.
+let onTokenRefreshed = null;
+
+export function setTokenRefreshHandler(handler) {
+  onTokenRefreshed = handler;
+}
+
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
@@ -11,6 +26,11 @@ async function request(path, options = {}) {
       ...(options.headers || {}),
     },
   });
+
+  const refreshed = response.headers.get('X-Refreshed-Token');
+  if (refreshed && onTokenRefreshed) {
+    onTokenRefreshed(refreshed);
+  }
 
   const text = await response.text();
 
@@ -50,36 +70,38 @@ async function request(path, options = {}) {
 
 // ---------- auth ----------
 
-export function signUpBusiness(idToken, businessName, businessType, timezone) {
-  return request('/api/v1/auth/signup', {
+// Ask for a one-time code.
+//
+// The same call covers signing in and signing up: a number the server
+// already knows gets a sign-in code, and one it doesn't gets a signup
+// code — but only if the business details come with it, since there
+// would otherwise be nothing to create. Rejecting with `no_account` is
+// how the screen learns to show the signup fields.
+export function requestOTP({ phone, businessName, businessType, ownerName }) {
+  return request('/api/v1/auth/otp/request', {
     method: 'POST',
     body: JSON.stringify({
-      id_token: idToken,
-      business_name: businessName,
-      business_type: businessType,
-      timezone: timezone,
+      phone,
+      business_name: businessName || undefined,
+      business_type: businessType || undefined,
+      owner_name: ownerName || undefined,
     }),
   });
 }
 
-export function googleSignIn(idToken) {
-  return request('/api/v1/auth/google', {
+// Exchange a code for a session. Creates the business too, if this was a
+// signup — see handleVerifyOTP.
+export function verifyOTP(phone, code) {
+  return request('/api/v1/auth/otp/verify', {
     method: 'POST',
-    body: JSON.stringify({ id_token: idToken }),
-  });
-}
-
-// Drivers never touch Google — an admin issues them a phone number and a
-// 6-digit PIN. See backend/internal/auth/pin.go.
-export function driverSignIn(phone, pin) {
-  return request('/api/v1/auth/driver-login', {
-    method: 'POST',
-    body: JSON.stringify({ phone, pin }),
+    body: JSON.stringify({ phone, code }),
   });
 }
 
 // Local-dev-only bypass — see backend/internal/httpapi/server.go
 // handleDevLogin. The route isn't registered in prod, so this 404s there.
+// Kept through the move to phone + OTP precisely so a demo needs neither
+// a phone number nor a code.
 export function devLogin() {
   return request('/api/v1/auth/dev-login', { method: 'POST' });
 }
@@ -187,9 +209,6 @@ export function setDriverHome(token, id, lat, lng) {
   });
 }
 
-export function resetDriverPin(token, id, pin) {
-  return request(`/api/v1/drivers/${id}/pin`, { method: 'POST', token, body: JSON.stringify({ pin }) });
-}
 
 export function setDriverActive(token, id, active) {
   return request(`/api/v1/drivers/${id}/active`, { method: 'POST', token, body: JSON.stringify({ active }) });
