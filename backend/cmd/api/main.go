@@ -44,9 +44,12 @@ func main() {
 
 	authService := auth.NewService(cfg.JWTSecret, cfg.TokenTTL)
 
-	if cfg.GoogleClientID == "" {
-		log.Println("GOOGLE_CLIENT_ID not set; admin Google Sign-In and signup are disabled (drivers can still sign in with phone + PIN)")
-	}
+	// Sign-in is a phone number and a code, for owners and drivers alike
+	// — there is nothing to configure for it to work, but there *is*
+	// something to configure before codes actually reach a handset. Say
+	// which of those two states this process is in, loudly, because the
+	// difference is "anyone with log access can sign in as anyone".
+	log.Printf("sign-in: phone + one-time code; sessions last %s and refresh on use", cfg.TokenTTL)
 	log.Printf("new businesses default to timezone %s", cfg.DefaultTimezone)
 
 	api := httpapi.NewServer(store, authService, cfg)
