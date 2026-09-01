@@ -163,7 +163,7 @@ func (s *Server) reorderRoute(
 			unpinned = append(unpinned, id)
 			continue
 		}
-		points = append(points, route.Point{ID: id, Lat: customer.Lat, Lng: customer.Lng, Band: customer.Priority.Rank()})
+		points = append(points, route.Point{ID: id, Lat: customer.Lat, Lng: customer.Lng, Band: customer.RouteBand()})
 	}
 
 	// A route with a finish point is a different problem from one

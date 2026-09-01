@@ -193,7 +193,7 @@ func (s *Server) handleSetAreaDrivers(w http.ResponseWriter, r *http.Request) {
 		if found, ok := areaContaining(customer.Lat, customer.Lng, areas); !ok || found.ID != area.ID {
 			continue
 		}
-		points = append(points, route.Point{ID: o.ID, Lat: customer.Lat, Lng: customer.Lng, Band: customer.Priority.Rank()})
+		points = append(points, route.Point{ID: o.ID, Lat: customer.Lat, Lng: customer.Lng, Band: customer.RouteBand()})
 	}
 
 	start := route.Point{Lat: area.Lat, Lng: area.Lng}

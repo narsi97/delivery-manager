@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import * as api from '../api';
 import {
+  AddButton,
   Banner,
   Button,
   Card,
@@ -18,7 +19,7 @@ import {
 import EntityMapPanel from '../EntityMapPanel';
 import { customFieldsFor, labelsFor, lower } from '../labels';
 import LocationPicker from '../LocationPicker';
-import PriorityPicker, { PriorityBadge } from '../PriorityPicker';
+import PriorityPicker, { PriorityBadge, priorityRank } from '../PriorityPicker';
 import ProductQuantities, { chosenProducts } from '../ProductQuantities';
 import { nearestAreaFor } from '../serviceAreas';
 import { colors, radius, spacing } from '../theme';
@@ -51,6 +52,11 @@ export default function CustomersScreen({ token, business }) {
   // the day fetch below now carries) slot in later as more modes without
   // reshaping this screen again.
   const [groupBy, setGroupBy] = useState('city');
+  // How each group is ordered. "priority" is the order deliveries are
+  // actually driven in, which is why it is the default and the only one
+  // that can be dragged — see sortCustomers.
+  const [sortBy, setSortBy] = useState('priority');
+  const [reordering, setReordering] = useState('');
   const [adding, setAdding] = useState(false);
   // The same customers, two ways of looking at them — see ViewToggle.
   const [view, setView] = useState('list');
@@ -122,22 +128,22 @@ export default function CustomersScreen({ token, business }) {
 
       <Card>
         <SectionTitle
+          after={
+            <AddButton
+              open={adding}
+              onPress={() => setAdding((prev) => !prev)}
+              label={adding ? `Cancel adding a ${lower(labels.customer)}` : `Add a ${lower(labels.customer)}`}
+            />
+          }
           right={
-            <View style={styles.headingActions}>
-              <ViewToggle
-                value={view}
-                onChange={setView}
-                options={[
-                  { value: 'list', label: 'List' },
-                  { value: 'map', label: 'Map' },
-                ]}
-              />
-              <HeadingAddButton
-                open={adding}
-                onPress={() => setAdding((prev) => !prev)}
-                label={adding ? `Cancel adding a ${lower(labels.customer)}` : `Add a ${lower(labels.customer)}`}
-              />
-            </View>
+            <ViewToggle
+              value={view}
+              onChange={setView}
+              options={[
+                { value: 'list', label: 'List' },
+                { value: 'map', label: 'Map' },
+              ]}
+            />
           }
         >
           {labels.customer_plural} ({visibleCustomers.length}
@@ -178,6 +184,13 @@ export default function CustomersScreen({ token, business }) {
                   <option value="city">Cities</option>
                 </select>
               </View>
+              <View style={styles.groupByField}>
+                <Text style={styles.groupByLabel}>Sort by</Text>
+                <select value={sortBy} style={groupBySelectStyle} onChange={(event) => setSortBy(event.target.value)}>
+                  <option value="priority">Delivery order</option>
+                  <option value="name">Name</option>
+                </select>
+              </View>
             </View>
 
             {customers.length === 0 ? (
@@ -202,6 +215,20 @@ export default function CustomersScreen({ token, business }) {
                   labels={labels}
                   fieldSpecs={fieldSpecs}
                   home={home}
+                  sortBy={sortBy}
+                  busy={reordering === group.key}
+                  onReorder={async (orderedIds, options) => {
+                    setReordering(group.key);
+                    setError('');
+                    try {
+                      await api.setCustomerOrder(token, orderedIds, options);
+                      await refresh();
+                    } catch (err) {
+                      setError(err.message);
+                    } finally {
+                      setReordering('');
+                    }
+                  }}
                   onChanged={refresh}
                   onError={setError}
                 />
@@ -305,11 +332,44 @@ function CustomerGroup({
   labels,
   fieldSpecs,
   home,
+  sortBy,
+  busy,
+  onReorder,
   onChanged,
   onError,
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
+  // Which row is being dragged, and which one it is currently over.
+  // Held here rather than per-row so the list can render the gap in the
+  // right place without every row knowing about every other one.
+  //
+  // The dragged id is also kept in a ref, and that is the copy the drop
+  // reads. A drop handler closes over the state as it was when the row
+  // rendered, and nothing guarantees a render happened between picking a
+  // row up and letting it go — so reading state there means a drop that
+  // sometimes does nothing. The ref is always current.
+  const [dragging, setDragging] = useState(null);
+  const draggingRef = useRef(null);
+  const [over, setOver] = useState(null);
   const isExpanded = expanded || forceExpanded;
+
+  const ordered = sortCustomers(sortBy, customers);
+  const canReorder = sortBy === 'priority';
+  const anyRanked = customers.some((customer) => customer.rank > 0);
+
+  // Moving a row is the same operation whether it came from a drag or an
+  // arrow: take the list as shown, move one entry, send the whole thing.
+  // The server numbers them 1..N, so what the admin sees is what gets
+  // driven — see handleSetCustomerOrder.
+  const moveTo = (from, to) => {
+    if (from === to || to < 0 || to >= ordered.length) {
+      return;
+    }
+    const next = [...ordered];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    onReorder(next.map((customer) => customer.id));
+  };
 
   return (
     <View style={styles.group}>
@@ -320,10 +380,56 @@ function CustomerGroup({
       >
         {name}
       </Disclosure>
+      {isExpanded && canReorder ? (
+        <View style={styles.orderHintRow}>
+          <Text style={styles.orderHint}>
+            {anyRanked
+              ? 'Delivered in this order. Drag a row, or use the arrows, to change it.'
+              : 'Ordered by the shortest route. Drag a row to set your own order instead.'}
+          </Text>
+          {anyRanked ? (
+            <Pressable
+              onPress={() => onReorder(customers.map((customer) => customer.id), { clear: true })}
+              accessibilityRole="button"
+              style={styles.resetOrder}
+            >
+              <Text style={styles.resetOrderText}>Use shortest route</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
       {isExpanded
-        ? customers.map((customer) => (
-            <CustomerCard
+        ? ordered.map((customer, index) => (
+            <SortableRow
               key={customer.id}
+              position={index + 1}
+              draggable={canReorder && !busy}
+              isDragging={dragging === customer.id}
+              isOver={over === customer.id && dragging !== customer.id}
+              onDragStart={() => {
+                draggingRef.current = customer.id;
+                setDragging(customer.id);
+              }}
+              onDragEnter={() => setOver(customer.id)}
+              onDragEnd={() => {
+                draggingRef.current = null;
+                setDragging(null);
+                setOver(null);
+              }}
+              onDrop={() => {
+                const picked = draggingRef.current;
+                draggingRef.current = null;
+                setDragging(null);
+                setOver(null);
+                const from = ordered.findIndex((c) => c.id === picked);
+                if (from !== -1) {
+                  moveTo(from, index);
+                }
+              }}
+              onUp={index > 0 ? () => moveTo(index, index - 1) : null}
+              onDown={index < ordered.length - 1 ? () => moveTo(index, index + 1) : null}
+            >
+            <CustomerCard
               customer={customer}
               products={products}
               // Active only. A standing order that was replaced or stood
@@ -341,10 +447,120 @@ function CustomerGroup({
               onChanged={onChanged}
               onError={onError}
             />
+            </SortableRow>
           ))
         : null}
     </View>
   );
+}
+
+// One row of the roster, with the controls for moving it.
+//
+// Two ways to move the same thing, on purpose. Dragging is what an admin
+// reaches for with a mouse and a list they can see all of; the arrows
+// are what works on a phone, with a keyboard, and with a screen reader —
+// and dragging in a scrolling list on a touch screen is the thing that
+// has never once worked well. Neither is the "real" one.
+//
+// A raw <div> because RN's View has no drag events on web; same reason
+// the <select>s and coordinate boxes in this app are raw elements.
+function SortableRow({
+  children,
+  position,
+  draggable,
+  isDragging,
+  isOver,
+  onDragStart,
+  onDragEnter,
+  onDragEnd,
+  onDrop,
+  onUp,
+  onDown,
+}) {
+  if (!draggable) {
+    return <View style={styles.plainRow}>{children}</View>;
+  }
+  return (
+    <div
+      draggable
+      onDragStart={onDragStart}
+      onDragEnter={onDragEnter}
+      onDragOver={(event) => event.preventDefault()}
+      onDragEnd={onDragEnd}
+      onDrop={(event) => {
+        event.preventDefault();
+        onDrop();
+      }}
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 8,
+        opacity: isDragging ? 0.4 : 1,
+        borderTop: isOver ? `2px solid ${colors.accent}` : '2px solid transparent',
+        cursor: 'grab',
+      }}
+    >
+      <View style={styles.orderControls}>
+        {/* The eight dots are the universal "you can pick this up".
+            Decorative — every action it hints at is also on the two
+            buttons below, which is what keeps this usable without a
+            mouse. */}
+        <Text style={styles.grip} accessibilityElementsHidden importantForAccessibility="no">
+          ⠿
+        </Text>
+        <Text style={styles.position}>{position}</Text>
+        <Pressable
+          onPress={onUp || undefined}
+          disabled={!onUp}
+          accessibilityRole="button"
+          accessibilityLabel="Move up"
+          style={[styles.moveButton, !onUp && styles.moveButtonOff]}
+        >
+          <Text style={[styles.moveGlyph, !onUp && styles.moveGlyphOff]}>↑</Text>
+        </Pressable>
+        <Pressable
+          onPress={onDown || undefined}
+          disabled={!onDown}
+          accessibilityRole="button"
+          accessibilityLabel="Move down"
+          style={[styles.moveButton, !onDown && styles.moveButtonOff]}
+        >
+          <Text style={[styles.moveGlyph, !onDown && styles.moveGlyphOff]}>↓</Text>
+        </Pressable>
+      </View>
+      <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
+    </div>
+  );
+}
+
+// The order a group is shown in.
+//
+// "Delivery order" is not a display preference — it is what the driver
+// will actually do, so it mirrors the backend exactly: tier first, then
+// the admin's own rank, then name for anything still tied. Sorting by
+// name is a way to *find* somebody, and deliberately turns dragging off:
+// a drag in an alphabetical list would mean nothing.
+function sortCustomers(sortBy, customers) {
+  const list = [...customers];
+  if (sortBy === 'name') {
+    return list.sort((a, b) => a.name.localeCompare(b.name));
+  }
+  return list.sort((a, b) => {
+    const tierA = priorityRank(a.priority);
+    const tierB = priorityRank(b.priority);
+    if (tierA !== tierB) {
+      return tierA - tierB;
+    }
+    // Unranked sorts after everyone the admin has actually placed —
+    // mirrors domain.Customer.RouteBand, where unranked shares the last
+    // band in its tier.
+    const rankA = a.rank > 0 ? a.rank : Number.MAX_SAFE_INTEGER;
+    const rankB = b.rank > 0 ? b.rank : Number.MAX_SAFE_INTEGER;
+    if (rankA !== rankB) {
+      return rankA - rankB;
+    }
+    return a.name.localeCompare(b.name);
+  });
 }
 
 // The add form lives inside the roster card, revealed by the "+" on its
@@ -411,13 +627,10 @@ function NewCustomerForm({ token, labels, fieldSpecs, home, areas, products, onC
           placeholder="98765 43210"
         />
       </FieldRow>
-      <Field
-        label="Address"
-        size="md"
-        value={form.address}
-        onChangeText={set('address')}
-        placeholder="12, 3rd Cross, Jayanagar"
-      />
+      {/* Where comes before what it's called. The pin is what routes
+          the delivery; the written address is a note for a human who is
+          already standing there, so it reads better as a caption under
+          the map than as a question asked before it. */}
       <LocationPicker
         label="Where do we deliver?"
         hint="Leave it unset if you're not at the door yet — you can drop the pin later."
@@ -426,6 +639,13 @@ function NewCustomerForm({ token, labels, fieldSpecs, home, areas, products, onC
         onChange={(newLat, newLng) => setForm((prev) => ({ ...prev, lat: newLat.toFixed(6), lng: newLng.toFixed(6) }))}
         home={home}
         areas={areas}
+      />
+      <Field
+        label="Address"
+        size="md"
+        value={form.address}
+        onChangeText={set('address')}
+        placeholder="12, 3rd Cross, Jayanagar"
       />
       <PriorityPicker value={form.priority} onChange={set('priority')} />
       <Field
@@ -475,16 +695,6 @@ function NewCustomerForm({ token, labels, fieldSpecs, home, areas, products, onC
         disabled={!form.name.trim() || (chosen.length > 0 && weekdays.length === 0)}
       />
     </View>
-  );
-}
-
-// The "+" that reveals the add form, on the roster card's own heading.
-// Same control as the Drivers and Business tabs.
-function HeadingAddButton({ open, onPress, label }) {
-  return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={styles.addButton}>
-      <Text style={styles.addButtonGlyph}>{open ? '×' : '+'}</Text>
-    </Pressable>
   );
 }
 
@@ -968,17 +1178,6 @@ const styles = StyleSheet.create({
     marginTop: -spacing.sm,
     marginBottom: spacing.md,
   },
-  addButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addButtonGlyph: { fontSize: 18, fontWeight: '700', color: colors.link, lineHeight: 20 },
   inlineForm: { marginBottom: spacing.md },
   orderSection: {
     marginTop: spacing.sm,
@@ -990,6 +1189,37 @@ const styles = StyleSheet.create({
   headingActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   toolsRow: { flexDirection: 'row', alignItems: 'flex-end', flexWrap: 'wrap', gap: spacing.md },
   groupByField: { marginBottom: spacing.md },
+  plainRow: { width: '100%' },
+  orderHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+    marginBottom: spacing.sm,
+  },
+  orderHint: { fontSize: 12, color: colors.hint, lineHeight: 17, flexShrink: 1 },
+  resetOrder: { paddingVertical: 2 },
+  resetOrderText: { fontSize: 12, fontWeight: '700', color: colors.link },
+  // A narrow rail beside the card rather than controls inside it: the
+  // card is about the customer, this is about where they sit in the
+  // round, and mixing the two made every row look like a form.
+  orderControls: { alignItems: 'center', paddingTop: spacing.md, gap: 2, width: 30 },
+  grip: { fontSize: 16, color: colors.hint, lineHeight: 17 },
+  position: { fontSize: 12, fontWeight: '700', color: colors.subtitle, marginBottom: 2 },
+  moveButton: {
+    width: 26,
+    height: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  moveButtonOff: { opacity: 0.35 },
+  moveGlyph: { fontSize: 12, fontWeight: '700', color: colors.link, lineHeight: 14 },
+  moveGlyphOff: { color: colors.hint },
   groupByLabel: { fontSize: 13, fontWeight: '600', color: colors.label, marginBottom: spacing.xs },
   todayLine: { fontSize: 13, color: colors.label, marginBottom: spacing.md, fontWeight: '600' },
   note: { fontSize: 12, color: colors.hint, marginTop: spacing.sm, marginBottom: spacing.md, lineHeight: 17 },

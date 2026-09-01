@@ -244,6 +244,36 @@ func (s *MemoryStore) UpdateCustomer(ctx context.Context, c domain.Customer) (do
 	return c, nil
 }
 
+func (s *MemoryStore) SetCustomerOrder(_ context.Context, businessID string, ids []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for i, id := range ids {
+		c, ok := s.customers[id]
+		if !ok || c.BusinessID != businessID {
+			continue
+		}
+		c.Rank = i + 1
+		s.customers[id] = c
+	}
+	return nil
+}
+
+func (s *MemoryStore) ClearCustomerOrder(_ context.Context, businessID string, ids []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, id := range ids {
+		c, ok := s.customers[id]
+		if !ok || c.BusinessID != businessID {
+			continue
+		}
+		c.Rank = 0
+		s.customers[id] = c
+	}
+	return nil
+}
+
 func (s *MemoryStore) GetCustomer(ctx context.Context, businessID string, id string) (domain.Customer, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

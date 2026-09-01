@@ -1144,7 +1144,7 @@ func (s *Server) handleBuildRoute(w http.ResponseWriter, r *http.Request) {
 	points := make([]route.Point, 0, len(candidates))
 	for _, o := range candidates {
 		c := customersByID[o.CustomerID]
-		points = append(points, route.Point{ID: o.ID, Lat: c.Lat, Lng: c.Lng, Band: c.Priority.Rank()})
+		points = append(points, route.Point{ID: o.ID, Lat: c.Lat, Lng: c.Lng, Band: c.RouteBand()})
 	}
 	ordered, meters := route.OptimizePrioritised(route.Point{Lat: req.StartLat, Lng: req.StartLng}, points, nil)
 
@@ -1224,7 +1224,7 @@ func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date
 		}
 		if area, ok := areaContaining(customer.Lat, customer.Lng, areas); ok {
 			areaOfOrder[o.ID] = area.ID
-			pinOfOrder[o.ID] = route.Point{Lat: customer.Lat, Lng: customer.Lng, Band: customer.Priority.Rank()}
+			pinOfOrder[o.ID] = route.Point{Lat: customer.Lat, Lng: customer.Lng, Band: customer.RouteBand()}
 			needsRound[area.ID] = true
 		}
 	}
@@ -1450,8 +1450,8 @@ func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date
 			continue
 		}
 		heldBy[*o.RouteID]++
-		if c, known := customersByID[o.CustomerID]; known && c.Priority.Rank() > worstBandOn[*o.RouteID] {
-			worstBandOn[*o.RouteID] = c.Priority.Rank()
+		if c, known := customersByID[o.CustomerID]; known && c.RouteBand() > worstBandOn[*o.RouteID] {
+			worstBandOn[*o.RouteID] = c.RouteBand()
 		}
 	}
 	hasRoom := func(routeID string) bool {
@@ -1570,7 +1570,7 @@ func (s *Server) orderRound(
 			continue
 		}
 		c := customersByID[o.CustomerID]
-		points = append(points, route.Point{ID: o.ID, Lat: c.Lat, Lng: c.Lng, Band: c.Priority.Rank()})
+		points = append(points, route.Point{ID: o.ID, Lat: c.Lat, Lng: c.Lng, Band: c.RouteBand()})
 	}
 
 	// A route a human arranged by hand is left alone: new stops are

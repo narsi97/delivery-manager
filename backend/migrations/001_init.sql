@@ -206,6 +206,9 @@ alter table users add column if not exists max_stops int not null default 0;
 -- Who gets visited first, ahead of what the shortest path would say.
 alter table customers add column if not exists priority text not null default 'normal';
 
+-- The admin's own visiting order within a tier. Zero means unset.
+alter table customers add column if not exists sort_rank int not null default 0;
+
 -- A driver's start of day: what they counted at the farm, and whether
 -- somebody agreed. One per driver per date.
 create table if not exists checkins (

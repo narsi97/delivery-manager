@@ -236,16 +236,48 @@ type Customer struct {
 	// children leave for school are not "a stop like any other", and a
 	// route that is optimal in kilometres but arrives after the child has
 	// gone is not optimal at all. See PriorityTier.
-	Priority  PriorityTier `json:"priority"`
-	AccountID *string      `json:"account_id"`
-	Active    bool         `json:"active"`
-	CreatedAt time.Time    `json:"created_at"`
+	Priority PriorityTier `json:"priority"`
+	// Rank is the admin's own visiting order, 1-based within a priority
+	// tier. Zero means they never said, which is where every customer
+	// starts.
+	//
+	// Priority says which group somebody belongs to; Rank says where
+	// they sit inside it. A dairy driving the same streets in the same
+	// order every morning has an order in their head that no
+	// shortest-path calculation can know about, and this is where it
+	// goes. See RouteBand.
+	Rank      int       `json:"rank"`
+	AccountID *string   `json:"account_id"`
+	Active    bool      `json:"active"`
+	CreatedAt time.Time `json:"created_at"`
 	// CustomFields holds whatever extra information this business
 	// declared it keeps about a customer — a student's class and
 	// guardian, a gate code. Validated against the declared specs on the
 	// way in (see ValidateFieldValues), so it can only ever contain keys
 	// the business actually set up.
 	CustomFields FieldValues `json:"custom_fields,omitempty"`
+}
+
+// rankSpan is how much room each priority tier gets for hand-ordered
+// customers. Bigger than any real customer list, so a ranked customer in
+// one tier can never collide with a ranked customer in the next.
+const rankSpan = 10000
+
+// RouteBand is the band this customer's stops are ordered in — see
+// route.OptimizePrioritised. The tier decides the broad group; within
+// it, a hand-ranked customer gets a band of their own (so the order the
+// admin dragged is the order driven) and everyone unranked shares the
+// last band in the tier, where the shortest path still decides.
+//
+// That is what keeps hand-ordering from quietly costing a business its
+// route optimization: order the six stops you care about and the other
+// ninety-four are routed exactly as they were.
+func (c Customer) RouteBand() int {
+	tier := c.Priority.Rank() * rankSpan
+	if c.Rank > 0 && c.Rank < rankSpan-1 {
+		return tier + c.Rank
+	}
+	return tier + rankSpan - 1
 }
 
 // HasPin reports whether this customer can be routed. A customer with no

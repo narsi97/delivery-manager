@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import * as api from '../api';
-import { Banner, Button, Card, Disclosure, Empty, Field, FieldRow, Pill, SectionTitle } from '../components';
+import { AddButton, Banner, Button, Card, Disclosure, Empty, Field, FieldRow, Pill, SectionTitle } from '../components';
 import LocationPicker, { InlineLocationEditor } from '../LocationPicker';
 import { colors, radius, spacing } from '../theme';
 
@@ -89,10 +89,22 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
         onError={setError}
       />
 
+      <ProductCatalogCard
+        token={token}
+        products={products}
+        demand={demand}
+        onChanged={refresh}
+        onCreated={async (name) => {
+          setNotice(`Added ${name} to your products.`);
+          await refresh();
+        }}
+        onError={setError}
+      />
+
       <Card>
         <SectionTitle
-          right={
-            <HeadingAddButton
+          after={
+            <AddButton
               open={addingArea}
               onPress={() => {
                 setPrefill(null);
@@ -146,18 +158,6 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
           ))
         )}
       </Card>
-
-      <ProductCatalogCard
-        token={token}
-        products={products}
-        demand={demand}
-        onChanged={refresh}
-        onCreated={async (name) => {
-          setNotice(`Added ${name} to your products.`);
-          await refresh();
-        }}
-        onError={setError}
-      />
     </ScrollView>
   );
 }
@@ -503,8 +503,8 @@ function ProductCatalogCard({ token, products, demand, onChanged, onCreated, onE
   return (
     <Card>
       <SectionTitle
-        right={
-          <HeadingAddButton
+        after={
+          <AddButton
             open={expanded}
             onPress={() => setExpanded((prev) => !prev)}
             label={expanded ? 'Close add a product' : 'Add a product'}
@@ -689,14 +689,6 @@ function SuggestedAreas({ suggestions, onAccept }) {
   );
 }
 
-function HeadingAddButton({ open, onPress, label }) {
-  return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={styles.addButton}>
-      <Text style={styles.addButtonGlyph}>{open ? '×' : '+'}</Text>
-    </Pressable>
-  );
-}
-
 function ServiceAreaRow({ area, home, token, onChanged, onError }) {
   const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState(area.name);
@@ -807,17 +799,6 @@ const styles = StyleSheet.create({
   productMeta: { fontSize: 13, color: colors.subtitle },
   cardSection: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs },
   headingDivider: { borderBottomWidth: 1, borderBottomColor: colors.border, marginTop: -spacing.sm, marginBottom: spacing.md },
-  addButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addButtonGlyph: { fontSize: 18, fontWeight: '700', color: colors.link, lineHeight: 20 },
   inlineForm: { marginBottom: spacing.md },
   coverage: { fontSize: 14, fontWeight: '700', color: colors.accent, marginTop: spacing.xs },
   suggestBox: {

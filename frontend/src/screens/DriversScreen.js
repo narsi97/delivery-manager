@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import * as api from '../api';
-import { Banner, Button, Card, Disclosure, Empty, Field, Pill, SectionTitle, ViewToggle } from '../components';
+import { AddButton, Banner, Button, Card, Disclosure, Empty, Field, Pill, SectionTitle, ViewToggle } from '../components';
 import EntityMapPanel from '../EntityMapPanel';
 import LocationPicker, { InlineLocationEditor } from '../LocationPicker';
 import { colors, radius, spacing } from '../theme';
@@ -56,6 +56,13 @@ export default function DriversScreen({ token, currentUserId, business }) {
 
       <Card>
         <SectionTitle
+          after={
+            <AddButton
+              open={adding}
+              onPress={() => setAdding((prev) => !prev)}
+              label={adding ? 'Cancel adding a driver' : 'Add a driver'}
+            />
+          }
           right={
             <View style={styles.headingActions}>
               <ViewToggle
@@ -65,11 +72,6 @@ export default function DriversScreen({ token, currentUserId, business }) {
                   { value: 'list', label: 'List' },
                   { value: 'map', label: 'Map' },
                 ]}
-              />
-              <HeadingAddButton
-                open={adding}
-                onPress={() => setAdding((prev) => !prev)}
-                label={adding ? 'Cancel adding a driver' : 'Add a driver'}
               />
             </View>
           }
@@ -163,17 +165,6 @@ function NewDriverForm({ token, onCreated, onError }) {
         They sign in with this number and a code sent to it — nothing for you to issue, tell them, or reset.
       </Text>
     </View>
-  );
-}
-
-// The "+" that reveals the add form, on the card's own heading rather
-// than in a card of its own. Same control as the Business tab's Service
-// areas and Products headings.
-function HeadingAddButton({ open, onPress, label }) {
-  return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={styles.addButton}>
-      <Text style={styles.addButtonGlyph}>{open ? '×' : '+'}</Text>
-    </Pressable>
   );
 }
 
@@ -442,17 +433,6 @@ const styles = StyleSheet.create({
     marginTop: -spacing.sm,
     marginBottom: spacing.md,
   },
-  addButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addButtonGlyph: { fontSize: 18, fontWeight: '700', color: colors.link, lineHeight: 20 },
   inlineForm: { marginBottom: spacing.md },
   headingActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   finishLabel: { fontSize: 13, fontWeight: '600', color: colors.label, marginBottom: spacing.xs },

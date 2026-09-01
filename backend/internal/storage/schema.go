@@ -223,6 +223,10 @@ var schemaStatements = []string{
 	// priorities did sorts exactly where it always has.
 	`alter table customers add column if not exists priority text not null default 'normal'`,
 
+	// The admin's own visiting order within a tier. Zero means they never
+	// said, which is every customer until somebody drags a row.
+	`alter table customers add column if not exists sort_rank int not null default 0`,
+
 	// A driver's start of day: what they counted at the farm, and whether
 	// somebody agreed. One per driver per date — reporting again replaces
 	// the previous attempt rather than queueing a second.

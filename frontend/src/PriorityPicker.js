@@ -20,6 +20,14 @@ export const PRIORITY_TIERS = [
   { value: 'normal', label: 'Any time', hint: 'The usual' },
 ];
 
+// Where a tier sorts: 0 first. Mirrors domain.PriorityTier.Rank exactly
+// — the roster shows the order the backend will actually drive, so the
+// two have to agree about which tier wins.
+export function priorityRank(value) {
+  const index = PRIORITY_TIERS.findIndex((tier) => tier.value === (value || 'normal'));
+  return index === -1 ? PRIORITY_TIERS.length - 1 : index;
+}
+
 export default function PriorityPicker({ value, onChange, label = 'When do they need it?' }) {
   const current = value || 'normal';
   const chosen = PRIORITY_TIERS.find((tier) => tier.value === current) || PRIORITY_TIERS[2];

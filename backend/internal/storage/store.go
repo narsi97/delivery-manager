@@ -108,6 +108,12 @@ type Store interface {
 
 	CreateCustomer(ctx context.Context, c domain.Customer) (domain.Customer, error)
 	UpdateCustomer(ctx context.Context, c domain.Customer) (domain.Customer, error)
+	// SetCustomerOrder records the admin's own visiting order: ids[0]
+	// becomes rank 1, and so on. Customers not listed keep the rank they
+	// had, so ordering one town leaves the rest alone. ClearCustomerOrder
+	// undoes it — see domain.Customer.Rank.
+	SetCustomerOrder(ctx context.Context, businessID string, ids []string) error
+	ClearCustomerOrder(ctx context.Context, businessID string, ids []string) error
 	GetCustomer(ctx context.Context, businessID string, id string) (domain.Customer, error)
 	ListCustomers(ctx context.Context, businessID string) ([]domain.Customer, error)
 

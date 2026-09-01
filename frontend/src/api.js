@@ -176,6 +176,18 @@ export function updateCustomer(token, id, changes) {
   return request(`/api/v1/customers/${id}`, { method: 'PATCH', token, body: JSON.stringify(changes) });
 }
 
+// The admin's own visiting order for a list of customers: the first id
+// becomes rank 1. Customers not in the list keep the rank they had, so
+// ordering one town says nothing about another. Pass clear:true to hand
+// the listed customers back to the shortest path.
+export function setCustomerOrder(token, customerIds, { clear = false } = {}) {
+  return request('/api/v1/customers/order', {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ customer_ids: customerIds, clear }),
+  });
+}
+
 export function listProducts(token) {
   return request('/api/v1/products', { method: 'GET', token });
 }

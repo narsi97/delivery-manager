@@ -9,14 +9,13 @@ import { colors, radius, spacing } from './theme';
 
 // How a location gets set, everywhere in this app.
 //
-// It used to be two text fields called Latitude and Longitude. Nobody
-// types coordinates — they are fifteen characters of decimal that mean
-// nothing to read back, can't be checked by eye, and are wrong in a way
-// you only discover when a driver is standing in the wrong street. They
-// were in this app because they were the easiest thing to build, not
-// because anyone wanted them.
+// This was once nothing but two text fields called Latitude and
+// Longitude, which is the app asking a human to be a geocoder. Nobody
+// *composes* a location out of decimals; you know where the gate is, and
+// fifteen characters of decimal are wrong in a way you only discover
+// when a driver is standing in the wrong street.
 //
-// Three ways in, in the order people actually have the information:
+// Four ways in, in the order people actually have the information:
 //
 //   - Drop the pin. Always available, needs nothing, and is the only one
 //     that works while standing in a field pointing at a gate.
@@ -24,10 +23,16 @@ import { colors, radius, spacing } from './theme';
 //     door, which is exactly when a customer gets added.
 //   - Paste a map link. How a location arrives in practice — someone
 //     sends a Google Maps link on WhatsApp. See mapLinks.js.
+//   - Type the coordinates. Last, and deliberately so — but a business
+//     that has been running a while already holds a list of them, from a
+//     previous system or a spreadsheet or a driver's phone, and telling
+//     them to re-drop ninety pins they already have is the app being
+//     precious. They also read back what the pin says, which makes them
+//     the only way to check a pin against a number someone sent you.
 //
-// The coordinates are still there underneath; they are just never the
-// interface. What's shown instead is whether a pin exists at all, since
-// that is the only part a human can act on.
+// Everything that sets the pin sits above the map, in that order, and
+// the map is the last thing — the big confirmation that whatever you
+// just did landed in the right street.
 export default function LocationPicker({
   lat,
   lng,
@@ -45,8 +50,42 @@ export default function LocationPicker({
   const [link, setLink] = useState('');
   const [error, setError] = useState('');
   const [pasting, setPasting] = useState(false);
+  // What is in the coordinate boxes while they are being typed in.
+  // Null means "show whatever the pin says" — which is every moment
+  // except the one where somebody is halfway through typing "17.0" and
+  // would not thank us for snapping the map to the equator.
+  const [typed, setTyped] = useState(null);
 
   const hasPin = Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0);
+  const shown = typed || {
+    lat: hasPin ? String(lat) : '',
+    lng: hasPin ? String(lng) : '',
+  };
+
+  // Committed on blur, not per keystroke: a coordinate is only a
+  // location once it is finished, and moving the pin to each prefix of
+  // what someone is typing is a map that jumps around under them.
+  const commitTyped = () => {
+    if (!typed) {
+      return;
+    }
+    const nextLat = Number(typed.lat);
+    const nextLng = Number(typed.lng);
+    setTyped(null);
+    if (typed.lat.trim() === '' && typed.lng.trim() === '') {
+      return;
+    }
+    if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) {
+      setError('Those coordinates are not numbers. A pin looks like 17.057500, 79.268400.');
+      return;
+    }
+    if (nextLat < -90 || nextLat > 90 || nextLng < -180 || nextLng > 180) {
+      setError('Latitude runs from -90 to 90 and longitude from -180 to 180 — those are the wrong way round, maybe?');
+      return;
+    }
+    setError('');
+    onChange(nextLat, nextLng);
+  };
 
   const useMyLocation = async () => {
     setError('');
@@ -82,22 +121,6 @@ export default function LocationPicker({
 
       <Banner message={error} />
 
-      <MapPicker
-        lat={lat}
-        lng={lng}
-        onChange={(newLat, newLng) => {
-          setError('');
-          onChange(newLat, newLng);
-        }}
-        home={home}
-        areas={areas}
-        drivers={drivers}
-        customers={customers}
-        previewRadiusMeters={previewRadiusMeters}
-        height={height}
-        onSelectReference={onSelectReference}
-      />
-
       <View style={styles.buttonRow}>
         <Button title="Use my current location" variant="secondary" onPress={useMyLocation} style={styles.flexButton} />
         <Button
@@ -127,6 +150,63 @@ export default function LocationPicker({
           </Text>
         </View>
       ) : null}
+
+      {/* Raw inputs rather than Field: two numbers on one line with a
+          label each, sized to the number that goes in them. Field's
+          block layout would give each of them a paragraph. */}
+      <View style={styles.coordRow}>
+        <View>
+          <Text style={styles.coordLabel}>Latitude</Text>
+          <input
+            value={shown.lat}
+            inputMode="decimal"
+            placeholder="17.057500"
+            aria-label="Latitude"
+            onChange={(event) => setTyped({ ...shown, lat: event.target.value })}
+            onBlur={commitTyped}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                commitTyped();
+              }
+            }}
+            style={coordInputStyle}
+          />
+        </View>
+        <View>
+          <Text style={styles.coordLabel}>Longitude</Text>
+          <input
+            value={shown.lng}
+            inputMode="decimal"
+            placeholder="79.268400"
+            aria-label="Longitude"
+            onChange={(event) => setTyped({ ...shown, lng: event.target.value })}
+            onBlur={commitTyped}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                commitTyped();
+              }
+            }}
+            style={coordInputStyle}
+          />
+        </View>
+      </View>
+
+      <MapPicker
+        lat={lat}
+        lng={lng}
+        onChange={(newLat, newLng) => {
+          setError('');
+          setTyped(null);
+          onChange(newLat, newLng);
+        }}
+        home={home}
+        areas={areas}
+        drivers={drivers}
+        customers={customers}
+        previewRadiusMeters={previewRadiusMeters}
+        height={height}
+        onSelectReference={onSelectReference}
+      />
 
       <Text style={styles.hint}>
         Tap or drag on the map to place the pin. The pin — not the written address — is what orders the route.
@@ -180,8 +260,25 @@ export function InlineLocationEditor({ lat, lng, onSave, home, areas, drivers, c
   );
 }
 
+const coordInputStyle = {
+  width: 130,
+  borderWidth: 1,
+  borderColor: colors.border,
+  borderRadius: radius.md,
+  paddingTop: 7,
+  paddingBottom: 7,
+  paddingLeft: spacing.sm,
+  paddingRight: spacing.sm,
+  fontSize: 14,
+  color: colors.text,
+  backgroundColor: colors.surface,
+  fontFamily: 'inherit',
+};
+
 const styles = StyleSheet.create({
   wrap: { marginBottom: spacing.md },
+  coordRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.sm },
+  coordLabel: { fontSize: 12, fontWeight: '600', color: colors.label, marginBottom: 3 },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xs },
   label: { fontSize: 13, fontWeight: '600', color: colors.label },
   status: { fontSize: 13, fontWeight: '700' },

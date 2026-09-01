@@ -108,18 +108,37 @@ reassignment — "3 deliveries won't fit; Kumar has room" — because moving
 someone's stops onto a driver who never agreed to them is exactly the
 overload this was built to prevent.
 
-### Reordering is up/down buttons, not drag
+### The hand order is per-customer, not per-day
 
-**Now:** each stop moves one place at a time, with a "move to position"
-for longer jumps.
+**Now:** `domain.Customer.Rank` — drag the roster into the order you
+drive it, and it sticks. A ranked customer gets a band of their own
+inside their tier (`RouteBand`), so the order is honoured; unranked
+customers share the last band and are still routed by shortest path.
 
-**Costs:** shuffling a stop from 40th to 2nd is tedious.
+**Costs:** it is one order, not one per day or per shift. A business
+that runs a different sequence on Saturdays has to either accept the
+weekday order or re-drag. Ranking is also global to the customer rather
+than to a route, so the same customer cannot sit third on one round and
+tenth on another.
 
-**To undo:** a gesture library (`react-native-draggable-flatlist`) or a
-hand-rolled `PanResponder`. The real work is stopping a drag inside a
-scrolling list from hijacking the scroll on a phone, which is why this
-was not the first version. The underlying model already supports it —
-dragging would write the same pinned sequence the buttons do.
+**To undo:** rank would have to move off the customer and onto whatever
+the "list served together" ends up being — see the note below on shifts,
+which is the same question arriving from the other direction.
+
+### Today's route reorders by button; only the roster drags
+
+**Now:** the customer roster drags (HTML5 drag events on a raw `<div>`,
+with arrows beside it for touch and keyboard). A stop on *today's* route
+still moves one place at a time with the arrows in `StopCard`.
+
+**Costs:** shuffling today's 40th stop to 2nd is tedious. The roster's
+drag is also mouse-only — on a phone it falls back to the arrows, which
+is the honest behaviour but not the same experience.
+
+**To undo:** the same drag treatment on `StopCard`, and a pointer-event
+implementation to replace HTML5 drag events for touch. The real work is
+stopping a drag inside a scrolling list from hijacking the scroll on a
+phone, which is why the arrows exist on both and are not going away.
 
 ---
 

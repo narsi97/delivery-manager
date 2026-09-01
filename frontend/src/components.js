@@ -7,12 +7,42 @@ export function Card({ children, style }) {
   return <View style={[styles.card, style]}>{children}</View>;
 }
 
-export function SectionTitle({ children, right }) {
+export function SectionTitle({ children, right, after }) {
   return (
     <View style={styles.sectionTitleRow}>
-      <Text style={styles.sectionTitle}>{children}</Text>
+      <View style={styles.sectionTitleLeft}>
+        <Text style={styles.sectionTitle}>{children}</Text>
+        {/* `after` sits with the title; `right` sits at the far end of
+            the row. The difference matters for an add button: a bare
+            "+" floating by the view toggle reads as another view
+            control, while "+ Add" beside "Customers (9)" reads as
+            "add a customer" without anything having to say so. */}
+        {after || null}
+      </View>
       {right ? <View>{right}</View> : null}
     </View>
+  );
+}
+
+// "+ Add", for the heading of any card that holds a list of things you
+// can add to — customers, drivers, products, service areas. One control,
+// one look, one place: beside the heading it belongs to.
+//
+// It was a bare "+" in a circle at the far right of the row, which put
+// it next to the List/Map toggle and made it read as a third view
+// option. The word is worth the space.
+export function AddButton({ open, onPress, label, addLabel = 'Add' }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={({ pressed }) => [styles.addButton, open && styles.addButtonOpen, pressed && styles.addButtonPressed]}
+    >
+      <Text style={[styles.addButtonText, open && styles.addButtonTextOpen]}>
+        {open ? '× Cancel' : `+ ${addLabel}`}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -315,6 +345,19 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm + 2,
   },
   sectionTitle: { fontSize: 17, fontWeight: '700', color: colors.text },
+  sectionTitleLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexShrink: 1 },
+  addButton: {
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  addButtonOpen: { backgroundColor: colors.surfaceAlt },
+  addButtonPressed: { opacity: 0.6 },
+  addButtonText: { fontSize: 13, fontWeight: '700', color: colors.link },
+  addButtonTextOpen: { color: colors.subtitle },
   // minHeight stays 44 — this is the tap target for expanding a section,
   // and shrinking it to save space would trade real usability for looks.
   disclosure: {
