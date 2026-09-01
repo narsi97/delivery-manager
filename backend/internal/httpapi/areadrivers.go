@@ -47,6 +47,11 @@ func (s *Server) handleSetAreaDrivers(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		DriverIDs []string `json:"driver_ids"`
 		Date      string   `json:"date"`
+		// MaxPerDriver caps how many stops a given driver will take,
+		// keyed by driver id. Absent or zero means no limit. This is how
+		// "I'll do ten on my way through and Ravi takes the rest" gets
+		// expressed — see route.PartitionCapped.
+		MaxPerDriver map[string]int `json:"max_per_driver"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -222,7 +227,16 @@ func (s *Server) handleSetAreaDrivers(w http.ResponseWriter, r *http.Request) {
 	case len(drivers) == 1:
 		driver := drivers[0]
 		finishLat, finishLng, _ := driver.FinishPoint(sess.Business)
-		ordered, meters := optimizeForDriver(start, points, driver, sess.Business)
+		// One driver with a cap still only takes that many — the rest is
+		// left for somebody who hasn't been named yet.
+		mine := points
+		if limit := req.MaxPerDriver[driver.ID]; limit > 0 && limit < len(points) {
+			capped, leftover := route.PartitionCapped(points, []route.Capped{{Max: limit}})
+			mine = capped[0]
+			log.Printf("area %s on %s: %s capped at %d, %d stops left unassigned",
+				area.Name, date, driver.Name, limit, len(leftover))
+		}
+		ordered, meters := optimizeForDriver(start, mine, driver, sess.Business)
 		plans = append(plans, planned{
 			name:       unique(area.Name + " route"),
 			driverID:   &drivers[0].ID,
@@ -232,10 +246,27 @@ func (s *Server) handleSetAreaDrivers(w http.ResponseWriter, r *http.Request) {
 		})
 
 	default:
-		groups := route.Partition(points, len(drivers))
+		// Cut geographically, then trim to whatever each driver will
+		// actually take. Anything nobody has room for is left unassigned
+		// rather than forced onto someone — it surfaces on the day screen
+		// under "not going out yet", which is the honest place for it.
+		caps := make([]route.Capped, len(drivers))
+		for i, d := range drivers {
+			caps[i] = route.Capped{Max: req.MaxPerDriver[d.ID]}
+		}
+		groups, leftover := route.PartitionCapped(points, caps)
+		if len(leftover) > 0 {
+			log.Printf("area %s on %s: %d stops beyond every driver's cap, left unassigned",
+				area.Name, date, len(leftover))
+		}
+
 		finishes := make([]route.Point, len(drivers))
 		for i, d := range drivers {
-			finishes[i] = route.Point{Lat: d.HomeLat, Lng: d.HomeLng}
+			lat, lng, ok := d.FinishPoint(sess.Business)
+			if !ok {
+				lat, lng = area.Lat, area.Lng
+			}
+			finishes[i] = route.Point{Lat: lat, Lng: lng}
 		}
 		match := route.AssignToFinishes(groups, finishes)
 

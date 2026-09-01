@@ -374,3 +374,83 @@ func TestADeactivatedDriverIsNotCarriedForward(t *testing.T) {
 		}
 	}
 }
+
+// The case a real dairy described: the owner does ten on the way through
+// and the full-time driver takes the rest.
+func TestADriverCanBeCappedAtSoManyStops(t *testing.T) {
+	admin, areaID := areaSetup(t, 10) // 20 customers, two clusters
+	owner := driverWithHome(t, admin, "Owner", "+91 90000 00001", 12.9700, 77.5500)
+	fullTime := driverWithHome(t, admin, "Ravi", "+91 90000 00002", 12.9700, 77.6400)
+
+	day := admin.mustDo(http.MethodPost, "/api/v1/service-areas/"+areaID+"/drivers", map[string]any{
+		"driver_ids":     []string{owner, fullTime},
+		"max_per_driver": map[string]any{owner: 6},
+	}, http.StatusOK)
+
+	counts := map[string]int{}
+	routeDriver := map[string]string{}
+	for _, rt := range routesOf(t, day) {
+		routeDriver[str(rt, "id")] = str(rt, "driver_id")
+	}
+	for _, stop := range stopsOf(t, day) {
+		if rid := str(stop, "route_id"); rid != "" {
+			counts[routeDriver[rid]]++
+		}
+	}
+
+	if counts[owner] != 6 {
+		t.Fatalf("the capped owner got %d stops, want exactly 6", counts[owner])
+	}
+	if counts[fullTime] != 14 {
+		t.Fatalf("the uncapped driver got %d stops, want the remaining 14", counts[fullTime])
+	}
+}
+
+// Caps that don't cover the day leave the shortfall unassigned and
+// visible, rather than quietly overloading somebody.
+func TestWorkBeyondEveryCapStaysUnassigned(t *testing.T) {
+	admin, areaID := areaSetup(t, 10) // 20 customers
+	a := driverWithHome(t, admin, "A", "+91 90000 00001", 12.9700, 77.5500)
+	b := driverWithHome(t, admin, "B", "+91 90000 00002", 12.9700, 77.6400)
+
+	day := admin.mustDo(http.MethodPost, "/api/v1/service-areas/"+areaID+"/drivers", map[string]any{
+		"driver_ids":     []string{a, b},
+		"max_per_driver": map[string]any{a: 4, b: 4},
+	}, http.StatusOK)
+
+	routed, unrouted := 0, 0
+	for _, stop := range stopsOf(t, day) {
+		if str(stop, "route_id") == "" {
+			unrouted++
+		} else {
+			routed++
+		}
+	}
+	if routed != 8 {
+		t.Fatalf("%d stops routed, want 8 — the caps must hold", routed)
+	}
+	if unrouted != 12 {
+		t.Fatalf("%d stops unassigned, want 12 left visible for the admin to deal with", unrouted)
+	}
+}
+
+// A single named driver with a cap takes only that many.
+func TestOneCappedDriverLeavesTheRest(t *testing.T) {
+	admin, areaID := areaSetup(t, 5) // 10 customers
+	solo := driverWithHome(t, admin, "Solo", "+91 90000 00001", 12.9700, 77.5500)
+
+	day := admin.mustDo(http.MethodPost, "/api/v1/service-areas/"+areaID+"/drivers", map[string]any{
+		"driver_ids":     []string{solo},
+		"max_per_driver": map[string]any{solo: 3},
+	}, http.StatusOK)
+
+	routed := 0
+	for _, stop := range stopsOf(t, day) {
+		if str(stop, "route_id") != "" {
+			routed++
+		}
+	}
+	if routed != 3 {
+		t.Fatalf("%d stops routed, want 3", routed)
+	}
+}
