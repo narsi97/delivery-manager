@@ -533,6 +533,14 @@ type Route struct {
 	// goes. See HasEnd.
 	EndLat float64 `json:"end_lat"`
 	EndLng float64 `json:"end_lng"`
+	// ManualOrder records that a human has arranged this route by hand.
+	//
+	// Once set, the optimizer stops rearranging it: a stop added later is
+	// appended rather than slotted in by distance. Without this, an admin
+	// who moves a stop to the front loses that the moment anything else
+	// changes, which reads as the app ignoring them. Rebuilding the route
+	// from its options clears it deliberately.
+	ManualOrder bool `json:"manual_order"`
 	// EstimatedMeters is straight-line distance across the ordered stops,
 	// not road distance — V1 has no routing-API dependency (see
 	// internal/route). It is a comparison aid ("this ordering is better

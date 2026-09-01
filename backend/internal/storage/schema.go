@@ -203,6 +203,10 @@ var schemaStatements = []string{
 	// for the same number. No background job — an abandoned challenge is
 	// a few bytes, and a cron to tidy them would be more moving parts
 	// than the problem deserves.
+	// Set once a human has arranged a route by hand, so the optimizer
+	// stops rearranging it underneath them — see domain.Route.ManualOrder.
+	`alter table routes add column if not exists manual_order boolean not null default false`,
+
 	// Where a driver's round ends. Defaults to the farm, because stock and
 	// empty bottles have to come back and neither can be handed over at
 	// the driver's house — see domain.FinishAt.

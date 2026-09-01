@@ -5,6 +5,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -1447,6 +1448,41 @@ func (s *Server) orderRound(
 		}
 		c := customersByID[o.CustomerID]
 		points = append(points, route.Point{ID: o.ID, Lat: c.Lat, Lng: c.Lng, Band: c.Priority.Rank()})
+	}
+
+	// A route a human arranged by hand is left alone: new stops are
+	// appended in the order they arrived rather than the whole thing
+	// being re-sorted underneath the person who arranged it. See
+	// handleMoveStopPosition.
+	if rt.ManualOrder {
+		// Keep what is already on the route in the sequence a human gave
+		// it — which is the stored Sequence, not the order these points
+		// happened to be built in — and append anything new to the end.
+		type placed struct {
+			id  string
+			seq int
+		}
+		existing := make([]placed, 0, len(points))
+		fresh := make([]string, 0, len(points))
+		for _, o := range orders {
+			onThisRoute := (o.RouteID != nil && *o.RouteID == rt.ID) || assignedTo[o.ID] == rt.ID
+			if !onThisRoute {
+				continue
+			}
+			if o.RouteID != nil && *o.RouteID == rt.ID {
+				existing = append(existing, placed{id: o.ID, seq: o.Sequence})
+			} else {
+				fresh = append(fresh, o.ID)
+			}
+		}
+		sort.SliceStable(existing, func(i, j int) bool { return existing[i].seq < existing[j].seq })
+
+		orderedIDs := make([]string, 0, len(existing)+len(fresh))
+		for _, e := range existing {
+			orderedIDs = append(orderedIDs, e.id)
+		}
+		orderedIDs = append(orderedIDs, fresh...)
+		return s.store.AssignStops(r.Context(), businessID, rt.ID, orderedIDs)
 	}
 
 	start := route.Point{Lat: rt.StartLat, Lng: rt.StartLng}
