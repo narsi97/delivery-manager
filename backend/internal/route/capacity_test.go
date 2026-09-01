@@ -98,3 +98,34 @@ func TestACappedDriverGetsAContiguousCluster(t *testing.T) {
 		t.Fatalf("the capped driver's 5 stops span %.0fm of a %.0fm line — that is not a cluster", spread, whole)
 	}
 }
+
+// A cap decides how many stops a driver takes, never which priorities
+// they take. Trimming a group has to drop the ordinary stops first, even
+// when a priority one sits further from the cluster's centre.
+func TestACapTrimsOrdinaryStopsBeforePriorityOnes(t *testing.T) {
+	stops := []Point{}
+	// Nine ordinary stops packed around the centre. Band 2 is what
+	// domain.PriorityNormal ranks as — 0, the zero value, is the top
+	// band, so an ordinary stop has to say so.
+	for i := 0; i < 9; i++ {
+		stops = append(stops, Point{ID: fmt.Sprintf("house-%d", i), Lat: 12.97 + float64(i)*0.0001, Lng: 77.59, Band: 2})
+	}
+	// One shop, deliberately the furthest thing out.
+	stops = append(stops, Point{ID: "shop", Lat: 12.99, Lng: 77.62, Band: 0})
+
+	groups, leftover := PartitionCapped(stops, []Capped{{Max: 3}})
+
+	kept := map[string]bool{}
+	for _, p := range groups[0] {
+		kept[p.ID] = true
+	}
+	if !kept["shop"] {
+		t.Fatalf("the cap dropped the shop and kept %v", kept)
+	}
+	if len(groups[0]) != 3 {
+		t.Fatalf("group has %d stops, want 3", len(groups[0]))
+	}
+	if len(leftover) != 7 {
+		t.Fatalf("%d stops left over, want 7", len(leftover))
+	}
+}

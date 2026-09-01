@@ -3,6 +3,7 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-nat
 
 import * as api from '../api';
 import AreaRoutesCard, { LooseRouteCard } from '../AreaRoutesCard';
+import CheckinQueue from '../CheckinQueue';
 import { Banner, Card, Empty, SectionTitle, ViewToggle } from '../components';
 import DateNav from '../DateNav';
 import DayRouteMapPanel from '../DayRouteMapPanel';
@@ -27,6 +28,7 @@ export default function TodayScreen({ token, business }) {
   const [drivers, setDrivers] = useState([]);
   const [products, setProducts] = useState([]);
   const [areas, setAreas] = useState([]);
+  const [checkins, setCheckins] = useState([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(true);
@@ -43,16 +45,18 @@ export default function TodayScreen({ token, business }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [dayResponse, driverResponse, productResponse, areaResponse] = await Promise.all([
+      const [dayResponse, driverResponse, productResponse, areaResponse, checkinResponse] = await Promise.all([
         api.getDay(token, selectedDate || undefined),
         api.listDrivers(token),
         api.listProducts(token),
         api.listServiceAreas(token),
+        api.listCheckins(token, selectedDate || undefined),
       ]);
       setDay(dayResponse);
       setDrivers(driverResponse.drivers || []);
       setProducts(productResponse.products || []);
       setAreas(areaResponse.service_areas || []);
+      setCheckins(checkinResponse.checkins || []);
       setError('');
     } catch (err) {
       setError(err.message);
@@ -186,6 +190,16 @@ export default function TodayScreen({ token, business }) {
     <ScrollView contentContainerStyle={styles.page}>
       <Banner message={error} />
       <Banner message={notice} tone="success" />
+
+      {/* Above everything: a driver standing at the farm cannot wait, and
+          everything else on this screen can. */}
+      <CheckinQueue
+        token={token}
+        checkins={checkins}
+        drivers={drivers}
+        date={selectedDate}
+        onChanged={refresh}
+      />
 
       <Card>
         <DateNav date={day?.date} selectedDate={selectedDate} onSelect={setSelectedDate} />

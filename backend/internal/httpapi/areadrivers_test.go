@@ -454,3 +454,109 @@ func TestOneCappedDriverLeavesTheRest(t *testing.T) {
 		t.Fatalf("%d stops routed, want 3", routed)
 	}
 }
+
+// routedCount is what any screen would see after a plain read of the day
+// — the check that matters, because rounds re-prepare themselves on every
+// read and a limit that only holds in the reply to the request that set
+// it holds for about one second.
+func routedCount(t *testing.T, admin *client) int {
+	t.Helper()
+	day := admin.mustDo(http.MethodGet, "/api/v1/day", nil, http.StatusOK)
+	n := 0
+	for _, stop := range stopsOf(t, day) {
+		if str(stop, "route_id") != "" {
+			n++
+		}
+	}
+	return n
+}
+
+// The bug this exists to stop: capping a driver worked, and then the very
+// next page load handed them back every stop the admin had just taken
+// off them. A cap is a property of the van, so it has to survive.
+func TestACapSurvivesTheNextReadOfTheDay(t *testing.T) {
+	admin, areaID := areaSetup(t, 5) // 10 customers
+	solo := driverWithHome(t, admin, "Solo", "+91 90000 00001", 12.9700, 77.5500)
+
+	admin.mustDo(http.MethodPost, "/api/v1/service-areas/"+areaID+"/drivers", map[string]any{
+		"driver_ids":     []string{solo},
+		"max_per_driver": map[string]any{solo: 3},
+	}, http.StatusOK)
+
+	for i := 0; i < 3; i++ {
+		if routed := routedCount(t, admin); routed != 3 {
+			t.Fatalf("read %d of the day shows %d routed stops, want 3 — the cap was forgotten", i+1, routed)
+		}
+	}
+}
+
+// The same, for a split: neither driver quietly grows past their van
+// overnight, and the shortfall stays visible.
+func TestCapsHoldAcrossReadsForASplitArea(t *testing.T) {
+	admin, areaID := areaSetup(t, 10) // 20 customers
+	a := driverWithHome(t, admin, "A", "+91 90000 00001", 12.9700, 77.5500)
+	b := driverWithHome(t, admin, "B", "+91 90000 00002", 12.9700, 77.6400)
+
+	admin.mustDo(http.MethodPost, "/api/v1/service-areas/"+areaID+"/drivers", map[string]any{
+		"driver_ids":     []string{a, b},
+		"max_per_driver": map[string]any{a: 4, b: 4},
+	}, http.StatusOK)
+
+	if routed := routedCount(t, admin); routed != 8 {
+		t.Fatalf("after a re-read %d stops are routed, want 8", routed)
+	}
+}
+
+// Lowering a limit takes work off a driver who is already loaded, without
+// the admin having to re-assign anybody.
+func TestLoweringADriversLimitTrimsTheirRound(t *testing.T) {
+	admin, areaID := areaSetup(t, 5) // 10 customers
+	solo := driverWithHome(t, admin, "Solo", "+91 90000 00001", 12.9700, 77.5500)
+
+	admin.mustDo(http.MethodPost, "/api/v1/service-areas/"+areaID+"/drivers",
+		map[string]any{"driver_ids": []string{solo}}, http.StatusOK)
+	if routed := routedCount(t, admin); routed != 10 {
+		t.Fatalf("an uncapped driver has %d stops, want all 10", routed)
+	}
+
+	admin.mustDo(http.MethodPost, "/api/v1/drivers/"+solo+"/max-stops",
+		map[string]any{"max_stops": 4}, http.StatusOK)
+	if routed := routedCount(t, admin); routed != 4 {
+		t.Fatalf("after lowering the limit to 4, %d stops are routed", routed)
+	}
+
+	// And raising it again gives the work back.
+	admin.mustDo(http.MethodPost, "/api/v1/drivers/"+solo+"/max-stops",
+		map[string]any{"max_stops": 0}, http.StatusOK)
+	if routed := routedCount(t, admin); routed != 10 {
+		t.Fatalf("after clearing the limit, %d stops are routed, want all 10 back", routed)
+	}
+}
+
+// A shop that has to be first is not the stop a cap drops. Priority
+// decides who gets carried; the limit only decides how many.
+func TestACapKeepsThePriorityCustomers(t *testing.T) {
+	admin, areaID := areaSetup(t, 5) // 10 ordinary customers
+	productID := firstProductID(t, admin)
+	shop := createCustomer(t, admin, "Corner Shop", 12.9700, 77.6300)
+	admin.mustDo(http.MethodPatch, "/api/v1/customers/"+shop,
+		map[string]any{"priority": "business"}, http.StatusOK)
+	createSubscription(t, admin, shop, productID, 1)
+
+	solo := driverWithHome(t, admin, "Solo", "+91 90000 00001", 12.9700, 77.5500)
+	admin.mustDo(http.MethodPost, "/api/v1/service-areas/"+areaID+"/drivers", map[string]any{
+		"driver_ids":     []string{solo},
+		"max_per_driver": map[string]any{solo: 2},
+	}, http.StatusOK)
+
+	day := admin.mustDo(http.MethodGet, "/api/v1/day", nil, http.StatusOK)
+	kept := false
+	for _, stop := range stopsOf(t, day) {
+		if str(stop, "customer_name") == "Corner Shop" && str(stop, "route_id") != "" {
+			kept = true
+		}
+	}
+	if !kept {
+		t.Fatal("the cap dropped the shop, which is the one stop that cannot be dropped")
+	}
+}

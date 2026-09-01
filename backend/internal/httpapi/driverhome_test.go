@@ -73,8 +73,8 @@ func TestDriversHomeChangesWhichStopIsLast(t *testing.T) {
 		driverID := makeDriver(t, admin, "Ravi", "+91 98765 43210")
 		admin.mustDo(http.MethodPost, "/api/v1/drivers/"+driverID+"/home",
 			map[string]any{"home_lat": homeLat, "home_lng": 77.5946}, http.StatusOK)
-	admin.mustDo(http.MethodPost, "/api/v1/drivers/"+driverID+"/finish",
-		map[string]any{"finish_at": "home"}, http.StatusOK)
+		admin.mustDo(http.MethodPost, "/api/v1/drivers/"+driverID+"/finish",
+			map[string]any{"finish_at": "home"}, http.StatusOK)
 		admin.mustDo(http.MethodPost, "/api/v1/routes/"+routeID+"/assign",
 			map[string]any{"driver_id": driverID}, http.StatusOK)
 

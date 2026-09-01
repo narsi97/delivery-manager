@@ -546,6 +546,46 @@ func (s *Server) reorderRoutesForDriver(r *http.Request, sess session, driver do
 	return nil
 }
 
+// handleSetDriverMaxStops records how many deliveries fit in this
+// driver's van.
+//
+// Nothing is re-planned here. Every screen re-reads the day immediately
+// after, and the day read cuts an over-full round back on its own — see
+// the over-cap check in ensureDayRounds. Doing it in both places would
+// mean two implementations of the same rule, and only one of them would
+// stay right.
+func (s *Server) handleSetDriverMaxStops(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r.Context())
+
+	var req struct {
+		MaxStops int `json:"max_stops"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.MaxStops < 0 {
+		writeError(w, http.StatusBadRequest, "a limit cannot be negative", "invalid_max_stops")
+		return
+	}
+
+	driver, err := s.store.GetUserByID(r.Context(), sess.Business.ID, r.PathValue("id"))
+	if err != nil {
+		writeStoreError(w, err, "driver")
+		return
+	}
+	if !driver.Role.CanDrive() {
+		writeError(w, http.StatusBadRequest, "that account is not a driver", "not_a_driver")
+		return
+	}
+
+	updated, err := s.store.SetUserMaxStops(r.Context(), sess.Business.ID, driver.ID, req.MaxStops)
+	if err != nil {
+		writeStoreError(w, err, "driver")
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
 func (s *Server) handleSetDriverActive(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r.Context())
 
@@ -1378,6 +1418,55 @@ func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date
 		}
 	}
 
+	// How many stops each round may take, and how many it already holds.
+	// A driver's van has a size (domain.User.MaxStops) and the rounds
+	// re-prepare themselves on every read of the day — so without this,
+	// the very next page load would quietly hand a capped driver back
+	// every stop the admin had just taken off them.
+	capOfRound := map[string]int{}
+	heldBy := map[string]int{}
+	for _, rounds := range roundsInArea {
+		for _, rt := range rounds {
+			if rt.DriverID == nil {
+				continue
+			}
+			driver, known := driverByID[*rt.DriverID]
+			if !known {
+				fetched, err := s.store.GetUserByID(r.Context(), business.ID, *rt.DriverID)
+				if err != nil {
+					continue
+				}
+				driverByID[*rt.DriverID] = fetched
+				driver = fetched
+			}
+			if driver.MaxStops > 0 {
+				capOfRound[rt.ID] = driver.MaxStops
+			}
+		}
+	}
+	worstBandOn := map[string]int{}
+	for _, o := range orders {
+		if o.RouteID == nil {
+			continue
+		}
+		heldBy[*o.RouteID]++
+		if c, known := customersByID[o.CustomerID]; known && c.Priority.Rank() > worstBandOn[*o.RouteID] {
+			worstBandOn[*o.RouteID] = c.Priority.Rank()
+		}
+	}
+	hasRoom := func(routeID string) bool {
+		limit, capped := capOfRound[routeID]
+		return !capped || heldBy[routeID] < limit
+	}
+	// A full round still takes a stop that outranks its worst one. The
+	// shop that opens at six, signed up this morning onto a round that is
+	// already at the van's limit, must not queue behind a house that will
+	// happily take it at ten — orderRound drops the house instead when it
+	// trims. Without this the cap would quietly outrank the priority.
+	canTake := func(routeID string, band int) bool {
+		return hasRoom(routeID) || band < worstBandOn[routeID]
+	}
+
 	// Now attach. Only rounds that actually gained a stop get
 	// re-optimized; on the common read (nothing new since last time) this
 	// loop does no writes at all.
@@ -1400,13 +1489,46 @@ func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date
 		// who is going past their door rather than whichever round sorts
 		// first. Falls back to routeForArea when no round has any pinned
 		// work yet to compare against.
+		//
+		// Only rounds with room are considered, so a full driver is
+		// passed over for the next-nearest one rather than being handed
+		// a stop that orderRound would immediately take off them again.
+		band := pinOfOrder[orderID].Band
 		if rounds := roundsInArea[areaID]; len(rounds) > 1 {
-			if nearest, ok := nearestRound(pinOfOrder[orderID], rounds, stopsOnRound); ok {
+			withRoom := make([]domain.Route, 0, len(rounds))
+			for _, candidate := range rounds {
+				if canTake(candidate.ID, band) {
+					withRoom = append(withRoom, candidate)
+				}
+			}
+			if nearest, ok := nearestRound(pinOfOrder[orderID], withRoom, stopsOnRound); ok {
 				rt = nearest
+			} else if len(withRoom) > 0 {
+				rt = withRoom[0]
 			}
 		}
+		// Nobody in this area has room. The delivery stays unrouted and
+		// shows up as not going out, which is the honest answer — it is
+		// better than silently overloading a van.
+		if !canTake(rt.ID, band) {
+			continue
+		}
 		assignedTo[orderID] = rt.ID
+		heldBy[rt.ID]++
+		if band > worstBandOn[rt.ID] {
+			worstBandOn[rt.ID] = band
+		}
 		gained[rt.ID] = true
+	}
+	// A round holding more than its driver can carry has to be cut back
+	// even on a read that attached nothing new — that is what happens the
+	// moment an admin lowers a van's size. Re-ordering it is what trims
+	// it (see orderRound), so the day heals itself on the next read from
+	// whichever screen instead of every setter needing its own fix-up.
+	for routeID, held := range heldBy {
+		if limit, capped := capOfRound[routeID]; capped && held > limit {
+			gained[routeID] = true
+		}
 	}
 	if len(gained) == 0 {
 		return nil
@@ -1419,7 +1541,7 @@ func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date
 			if !gained[rt.ID] {
 				continue
 			}
-			if err := s.orderRound(r, business.ID, rt, orders, customersByID, assignedTo); err != nil {
+			if err := s.orderRound(r, business.ID, rt, orders, customersByID, assignedTo, capOfRound[rt.ID]); err != nil {
 				return err
 			}
 		}
@@ -1439,6 +1561,7 @@ func (s *Server) orderRound(
 	orders []domain.DailyOrder,
 	customersByID map[string]domain.Customer,
 	assignedTo map[string]string,
+	maxStops int,
 ) error {
 	points := make([]route.Point, 0)
 	for _, o := range orders {
@@ -1486,14 +1609,24 @@ func (s *Server) orderRound(
 	}
 
 	start := route.Point{Lat: rt.StartLat, Lng: rt.StartLng}
-	var ordered []route.Point
-	var meters float64
+	var finish *route.Point
 	if rt.HasEnd() {
-		finish := route.Point{Lat: rt.EndLat, Lng: rt.EndLng}
-		ordered, meters = route.OptimizePrioritised(start, points, &finish)
-	} else {
-		ordered, meters = route.OptimizePrioritised(start, points, nil)
+		finish = &route.Point{Lat: rt.EndLat, Lng: rt.EndLng}
 	}
+
+	// A driver who can only carry so much takes the stops they would
+	// reach first and leaves the rest behind. Ordering the whole lot and
+	// keeping the head is what makes that fair: priority customers are
+	// already at the front (see OptimizePrioritised), so a shop never
+	// gets dropped in favour of a house that happens to be nearer.
+	// AssignStops clears the round before writing, so the ones cut here
+	// genuinely come off it.
+	if maxStops > 0 && len(points) > maxStops {
+		full, _ := route.OptimizePrioritised(start, points, finish)
+		points = append([]route.Point(nil), full[:maxStops]...)
+	}
+
+	ordered, meters := route.OptimizePrioritised(start, points, finish)
 	orderedIDs := make([]string, 0, len(ordered))
 	for _, p := range ordered {
 		orderedIDs = append(orderedIDs, p.ID)

@@ -4,7 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import * as api from '../api';
 import { Banner, Button, Card, Disclosure, Empty, Field, Pill, SectionTitle, ViewToggle } from '../components';
 import EntityMapPanel from '../EntityMapPanel';
-import LocationPicker from '../LocationPicker';
+import LocationPicker, { InlineLocationEditor } from '../LocationPicker';
 import { colors, radius, spacing } from '../theme';
 
 export default function DriversScreen({ token, currentUserId, business }) {
@@ -81,8 +81,8 @@ export default function DriversScreen({ token, currentUserId, business }) {
         {adding ? (
           <NewDriverForm
             token={token}
-            onCreated={async (name, pin) => {
-              setNotice(`${name} can now sign in with their phone number and the PIN ${pin}.`);
+            onCreated={async (name) => {
+              setNotice(`${name} can now sign in with their phone number.`);
               setAdding(false);
               await refresh();
             }}
@@ -130,18 +130,16 @@ export default function DriversScreen({ token, currentUserId, business }) {
 function NewDriverForm({ token, onCreated, onError }) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [pin, setPin] = useState('');
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
     setBusy(true);
     try {
-      await api.createDriver(token, { name, phone, pin });
-      const created = { name, pin };
+      await api.createDriver(token, { name, phone });
+      const created = name;
       setName('');
       setPhone('');
-      setPin('');
-      await onCreated(created.name, created.pin);
+      await onCreated(created);
     } catch (err) {
       onError(err.message);
     } finally {
@@ -160,23 +158,9 @@ function NewDriverForm({ token, onCreated, onError }) {
         keyboardType="phone-pad"
         placeholder="98765 43210"
       />
-      <Field
-        label="PIN"
-        value={pin}
-        onChangeText={setPin}
-        keyboardType="number-pad"
-        maxLength={6}
-        placeholder="6 digits"
-        hint="Not all the same digit, and not a run like 123456. Tell the driver this PIN — you won't be able to read it back."
-      />
-      <Button
-        title="Add driver"
-        onPress={submit}
-        busy={busy}
-        disabled={!name.trim() || !phone.trim() || pin.length !== 6}
-      />
+      <Button title="Add driver" onPress={submit} busy={busy} disabled={!name.trim() || !phone.trim()} />
       <Text style={styles.note}>
-        Drivers sign in with their phone number and this PIN — no Google account and no email needed.
+        They sign in with this number and a code sent to it — nothing for you to issue, tell them, or reset.
       </Text>
     </View>
   );
@@ -202,6 +186,11 @@ function DriverRow({ driver, token, business, isSelf, isFirst, onChanged, onErro
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [editingHome, setEditingHome] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [finishAt, setFinishAt] = useState(driver.finish_at || 'farm');
+  const [customPin, setCustomPin] = useState({ lat: driver.finish_lat || 0, lng: driver.finish_lng || 0 });
+  // Blank means no limit, which is what most drivers are — so it stays
+  // blank rather than being pre-filled with a number to think about.
+  const [maxStops, setMaxStops] = useState(driver.max_stops ? String(driver.max_stops) : '');
 
   const act = async (action, after) => {
     setBusy(true);
@@ -219,12 +208,39 @@ function DriverRow({ driver, token, business, isSelf, isFirst, onChanged, onErro
   };
 
   const hasHome = !!(driver.home_lat || driver.home_lng);
+  const finishLabel =
+    { farm: 'finishes at the farm', home: 'finishes at home', custom: 'finishes at a set place' }[
+      driver.finish_at || 'farm'
+    ];
+
+  const saveFinish = (choice, pin) =>
+    act(
+      () => api.setDriverFinish(token, driver.id, choice, pin?.lat, pin?.lng),
+      () => onNotice(`${driver.name} now ${{ farm: 'finishes at the farm', home: 'finishes at home', custom: 'finishes at the pin you set' }[choice]}.`)
+    );
   // One line of context under the name, rather than a standing disclosure
   // row per driver. Whether a finish point exists is worth seeing at a
   // glance; the map to change it is not.
-  const meta = [driver.phone, hasHome ? 'finishes at a saved location' : 'no finish point yet']
+  const meta = [driver.phone, finishLabel, driver.max_stops ? `up to ${driver.max_stops} a round` : '']
     .filter(Boolean)
     .join(' · ');
+
+  const saveMaxStops = () => {
+    const parsed = Number(maxStops);
+    const next = Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+    if (next === (driver.max_stops || 0)) {
+      return;
+    }
+    return act(
+      () => api.setDriverMaxStops(token, driver.id, next),
+      () =>
+        onNotice(
+          next === 0
+            ? `${driver.name} has no delivery limit.`
+            : `${driver.name} will take at most ${next} deliveries a round.`,
+        ),
+    );
+  };
 
   return (
     <View style={[styles.driverRow, !isFirst && styles.driverRowDivider]}>
@@ -247,7 +263,7 @@ function DriverRow({ driver, token, business, isSelf, isFirst, onChanged, onErro
       </View>
 
       {/* Everything that is not "who is this" lives here: where they
-          finish, their PIN, whether they are active. All of it is rare
+          finish, whether they are active. All of it is rare
           next to how often this list is read, and showing any of it
           standing made every driver look like a settings panel — three
           drivers became a wall of identical horizontal rules with no way
@@ -257,8 +273,89 @@ function DriverRow({ driver, token, business, isSelf, isFirst, onChanged, onErro
       {optionsOpen ? (
         <View style={styles.optionsPanel}>
           <View>
+              {/* Where the round ends. The farm is the default and the
+                  usual answer — undelivered stock and empty bottles have
+                  to be handed over, and that cannot happen at the
+                  driver's house. */}
+              <Text style={styles.finishLabel}>Where does this route end?</Text>
+              <View style={styles.finishRow}>
+                {[
+                  { value: 'farm', label: 'The farm' },
+                  { value: 'home', label: 'Their home' },
+                  { value: 'custom', label: 'Somewhere else' },
+                ].map((option) => {
+                  const on = finishAt === option.value;
+                  return (
+                    <Pressable
+                      key={option.value}
+                      onPress={() => {
+                        setFinishAt(option.value);
+                        // Custom needs a pin before it can be saved, so
+                        // choosing it opens the map instead of saving a
+                        // setting that cannot be honoured.
+                        if (option.value !== 'custom') {
+                          saveFinish(option.value);
+                        }
+                      }}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: on }}
+                      style={[styles.finishChip, on && styles.finishChipOn]}
+                    >
+                      <Text style={[styles.finishChipText, on && styles.finishChipTextOn]}>{option.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              {finishAt === 'home' && !hasHome ? (
+                <Text style={styles.note}>
+                  No home pinned yet, so this route will end wherever the last stop is. Set it below.
+                </Text>
+              ) : null}
+
+              {finishAt === 'custom' ? (
+                <View style={styles.homeEditor}>
+                  <InlineLocationEditor
+                    lat={customPin.lat}
+                    lng={customPin.lng}
+                    onSave={async (lat, lng) => {
+                      setCustomPin({ lat, lng });
+                      await saveFinish('custom', { lat, lng });
+                    }}
+                    home={
+                      business && (business.home_lat || business.home_lng)
+                        ? { lat: business.home_lat, lng: business.home_lng }
+                        : null
+                    }
+                    height={220}
+                  />
+                </View>
+              ) : null}
+
+              {/* How much the van holds. A limit belongs to the driver
+                  rather than to today, so a morning that has to be
+                  shared out is a number typed once and not a decision
+                  re-made every day. Anything past it stays unassigned
+                  and shows on Today as not going out. */}
+              <Text style={[styles.finishLabel, styles.spacedLabel]}>How many deliveries can they take?</Text>
+              <View style={styles.maxRow}>
+                <input
+                  type="number"
+                  min={1}
+                  value={maxStops}
+                  placeholder="no limit"
+                  aria-label={`Most deliveries for ${driver.name} in one round`}
+                  onChange={(event) => setMaxStops(event.target.value)}
+                  onBlur={saveMaxStops}
+                  style={maxInputStyle}
+                />
+                <Button title="Save" variant="secondary" onPress={saveMaxStops} busy={busy} />
+              </View>
+              <Text style={styles.note}>
+                Leave it blank if their van takes whatever the round has.
+              </Text>
+
               <Disclosure compact open={editingHome} onToggle={() => setEditingHome((prev) => !prev)}>
-                {hasHome ? 'Change where they finish' : 'Set where they finish'}
+                {hasHome ? 'Change where they live' : 'Set where they live'}
               </Disclosure>
               {editingHome ? (
                 <View style={styles.homeEditor}>
@@ -316,8 +413,27 @@ function DriverRow({ driver, token, business, isSelf, isFirst, onChanged, onErro
   );
 }
 
+// A raw input rather than Field: this is a number beside a button on one
+// line, not a labelled form row, and Field's block layout would give it a
+// paragraph of its own. Same treatment as the caps on the Today card.
+const maxInputStyle = {
+  width: 110,
+  borderWidth: 1,
+  borderColor: colors.border,
+  borderRadius: radius.md,
+  paddingTop: 8,
+  paddingBottom: 8,
+  paddingLeft: spacing.sm,
+  paddingRight: spacing.sm,
+  fontSize: 15,
+  color: colors.text,
+  backgroundColor: colors.surface,
+  fontFamily: 'inherit',
+};
+
 const styles = StyleSheet.create({
   page: { padding: spacing.lg, maxWidth: 720, width: '100%', alignSelf: 'center' },
+  maxRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: 2 },
   loader: { marginTop: spacing.xl * 2 },
   note: { fontSize: 12, color: colors.hint, marginTop: spacing.sm, lineHeight: 17 },
   headingDivider: {
@@ -339,6 +455,22 @@ const styles = StyleSheet.create({
   addButtonGlyph: { fontSize: 18, fontWeight: '700', color: colors.link, lineHeight: 20 },
   inlineForm: { marginBottom: spacing.md },
   headingActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  finishLabel: { fontSize: 13, fontWeight: '600', color: colors.label, marginBottom: spacing.xs },
+  spacedLabel: { marginTop: spacing.md },
+  finishRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm },
+  finishChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    minHeight: 40,
+    justifyContent: 'center',
+  },
+  finishChipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  finishChipText: { fontSize: 13, fontWeight: '600', color: colors.label },
+  finishChipTextOn: { color: colors.accentText },
   // A driver is one block: name, one line of context, and whatever they
   // opened. The only rule belongs *between* two drivers — an earlier
   // version also drew one inside each of them, above a standing "where

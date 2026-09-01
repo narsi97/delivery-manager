@@ -18,6 +18,7 @@ import {
 import EntityMapPanel from '../EntityMapPanel';
 import { customFieldsFor, labelsFor, lower } from '../labels';
 import LocationPicker from '../LocationPicker';
+import PriorityPicker, { PriorityBadge } from '../PriorityPicker';
 import ProductQuantities, { chosenProducts } from '../ProductQuantities';
 import { nearestAreaFor } from '../serviceAreas';
 import { colors, radius, spacing } from '../theme';
@@ -353,7 +354,7 @@ function CustomerGroup({
 // it, and put a permanently half-empty box at the top of the screen an
 // admin mostly visits to look something up.
 function NewCustomerForm({ token, labels, fieldSpecs, home, areas, products, onCreated, onError }) {
-  const [form, setForm] = useState({ name: '', phone: '', address: '', lat: '', lng: '', notes: '' });
+  const [form, setForm] = useState({ name: '', phone: '', address: '', lat: '', lng: '', notes: '', priority: 'normal' });
   const [customFields, setCustomFields] = useState({});
   const [quantities, setQuantities] = useState({});
   const [weekdays, setWeekdays] = useState([1, 2, 3, 4, 5, 6, 0]);
@@ -374,6 +375,7 @@ function NewCustomerForm({ token, labels, fieldSpecs, home, areas, products, onC
         notes: form.notes,
         lat: Number(form.lat) || 0,
         lng: Number(form.lng) || 0,
+        priority: form.priority,
         custom_fields: customFields,
       });
       // The standing order is optional — skipping it just means nothing
@@ -385,7 +387,7 @@ function NewCustomerForm({ token, labels, fieldSpecs, home, areas, products, onC
         await placeOrders({ token, customerId: customer.id, kind: 'weekly', chosen, weekdays });
       }
       const created = form.name;
-      setForm({ name: '', phone: '', address: '', lat: '', lng: '', notes: '' });
+      setForm({ name: '', phone: '', address: '', lat: '', lng: '', notes: '', priority: 'normal' });
       setCustomFields({});
       setQuantities({});
       await onCreated(created);
@@ -425,6 +427,7 @@ function NewCustomerForm({ token, labels, fieldSpecs, home, areas, products, onC
         home={home}
         areas={areas}
       />
+      <PriorityPicker value={form.priority} onChange={set('priority')} />
       <Field
         label={`Notes for the ${lower(labels.driver)}`}
         value={form.notes}
@@ -502,7 +505,12 @@ function CustomerCard({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [customFields, setCustomFields] = useState(customer.custom_fields || {});
-  const [details, setDetails] = useState({ name: customer.name, phone: customer.phone, address: customer.address });
+  const [details, setDetails] = useState({
+    name: customer.name,
+    phone: customer.phone,
+    address: customer.address,
+    priority: customer.priority || 'normal',
+  });
   const [busy, setBusy] = useState(false);
 
   const savePin = async (newLat, newLng) => {
@@ -538,6 +546,7 @@ function CustomerCard({
         onToggle={() => setExpanded((prev) => !prev)}
         right={
           <View style={styles.pills}>
+            <PriorityBadge value={customer.priority} />
             {today ? <Pill label={today.status} tone={STATUS_TONE[today.status] || 'neutral'} /> : null}
             {customer.lat || customer.lng ? null : <Pill label="no pin" tone="warning" />}
             {!customer.active ? <Pill label="paused" tone="neutral" /> : null}

@@ -134,7 +134,7 @@ func (s *PostgresStore) UpdateBusinessConfig(ctx context.Context, businessID str
 // duplication that quietly breaks the moment a column is added, which is
 // exactly what happened when drivers got a home location.
 const userColumns = `id, business_id, role, name, coalesce(email,''), coalesce(phone,''), active, home_lat, home_lng,
-	coalesce(finish_at,'farm'), finish_lat, finish_lng, created_at`
+	coalesce(finish_at,'farm'), finish_lat, finish_lng, max_stops, created_at`
 
 func (s *PostgresStore) GetAdminByEmail(ctx context.Context, email string) (domain.User, error) {
 	row := s.pool.QueryRow(ctx,
@@ -142,28 +142,6 @@ func (s *PostgresStore) GetAdminByEmail(ctx context.Context, email string) (doma
 		 from users where lower(email) = lower($1) and role in ('admin','admin_driver')`,
 		strings.TrimSpace(email))
 	return scanUser(row)
-}
-
-func (s *PostgresStore) GetDriverByPhone(ctx context.Context, phone string) (domain.User, string, error) {
-	normalized := domain.NormalizePhone(phone)
-	if normalized == "" {
-		return domain.User{}, "", ErrNotFound
-	}
-	row := s.pool.QueryRow(ctx,
-		`select `+userColumns+`, coalesce(pin_hash,'')
-		 from users where phone = $1 and role in ('driver','admin_driver')`, normalized)
-
-	var u domain.User
-	var pinHash string
-	err := row.Scan(&u.ID, &u.BusinessID, &u.Role, &u.Name, &u.Email, &u.Phone, &u.Active,
-		&u.HomeLat, &u.HomeLng, &u.CreatedAt, &pinHash)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.User{}, "", ErrNotFound
-	}
-	if err != nil {
-		return domain.User{}, "", err
-	}
-	return u, pinHash, nil
 }
 
 func (s *PostgresStore) CreateUser(ctx context.Context, u domain.User, pinHash string) (domain.User, error) {
@@ -237,6 +215,19 @@ func (s *PostgresStore) SetUserFinish(ctx context.Context, businessID string, id
 		`update users set finish_at = $3, finish_lat = $4, finish_lng = $5 where id = $1 and business_id = $2
 		 returning `+userColumns,
 		id, businessID, string(domain.NormalizeFinishAt(finishAt)), lat, lng)
+	return scanUser(row)
+}
+
+// SetUserMaxStops records how many deliveries this driver can carry.
+// Zero clears the limit.
+func (s *PostgresStore) SetUserMaxStops(ctx context.Context, businessID string, id string, max int) (domain.User, error) {
+	if max < 0 {
+		max = 0
+	}
+	row := s.pool.QueryRow(ctx,
+		`update users set max_stops = $3 where id = $1 and business_id = $2
+		 returning `+userColumns,
+		id, businessID, max)
 	return scanUser(row)
 }
 
@@ -763,7 +754,7 @@ func scanUser(row scanner) (domain.User, error) {
 	var u domain.User
 	var finishAt string
 	if err := row.Scan(&u.ID, &u.BusinessID, &u.Role, &u.Name, &u.Email, &u.Phone, &u.Active,
-		&u.HomeLat, &u.HomeLng, &finishAt, &u.FinishLat, &u.FinishLng, &u.CreatedAt); err != nil {
+		&u.HomeLat, &u.HomeLng, &finishAt, &u.FinishLat, &u.FinishLng, &u.MaxStops, &u.CreatedAt); err != nil {
 		return domain.User{}, noRows(err)
 	}
 	u.FinishAt = domain.NormalizeFinishAt(domain.FinishAt(finishAt))

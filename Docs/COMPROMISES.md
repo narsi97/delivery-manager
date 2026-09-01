@@ -76,6 +76,38 @@ solver but the honesty: time windows can be **infeasible**, so the app
 would have to detect and say "these three cannot all be met" rather than
 silently producing an order that misses one.
 
+### A driver's limit is one number, applied per round
+
+**Now:** `domain.User.MaxStops` — how many deliveries fit in this
+driver's van. It is stored on the driver rather than on a route, so it
+survives the day rebuilding itself, and it is applied to *each* round
+that driver is on.
+
+**Costs:** a driver given two service areas on the same day can be
+handed `MaxStops` on each, so a limit of 20 becomes 40. Nobody has hit
+this because a driver drives one round a morning, but nothing stops it.
+There is also no per-day or per-area override: "Ravi can only do ten
+*today*" has to be typed and untyped.
+
+**To undo:** cap against the driver's whole day rather than each round —
+sum what their other rounds already hold before filling the next one. The
+place to do it is the `capOfRound` map in `ensureDayRounds`, which would
+become a per-driver budget drawn down across their rounds.
+
+### Work beyond every cap is left unassigned, not moved
+
+**Now:** stops past the limit come off the round and show under "not
+going out". Priority customers are kept first, so a shop is never the one
+dropped (`PartitionCapped` sorts by band before distance).
+
+**Costs:** the admin has to notice and act. Nothing offers the overflow
+to a driver in a neighbouring area, or suggests raising a limit.
+
+**To undo:** the honest version is a suggestion, not an automatic
+reassignment — "3 deliveries won't fit; Kumar has room" — because moving
+someone's stops onto a driver who never agreed to them is exactly the
+overload this was built to prevent.
+
 ### Reordering is up/down buttons, not drag
 
 **Now:** each stop moves one place at a time, with a "move to position"

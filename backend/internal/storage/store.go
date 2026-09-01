@@ -58,12 +58,6 @@ type Store interface {
 	// multi-business membership is a real feature, not a free side
 	// effect, and isn't in this slice.)
 	GetAdminByEmail(ctx context.Context, email string) (domain.User, error)
-	// GetDriverByPhone likewise looks up across tenants — a driver
-	// signing in has typed a phone number and a PIN and nothing else. It
-	// returns the stored PIN hash alongside the user because the hash is
-	// never part of domain.User: keeping it out of the struct means it
-	// can't be accidentally serialized into an API response.
-	GetDriverByPhone(ctx context.Context, phone string) (domain.User, string, error)
 	// GetUserByPhone is the same lookup for *any* role, which is what
 	// sign-in needs now that owners and drivers both identify by phone
 	// and the screen has no idea which it is dealing with until the
@@ -107,6 +101,9 @@ type Store interface {
 	// their own home, or a custom pin. See domain.FinishAt for why the
 	// farm rather than home is the default.
 	SetUserFinish(ctx context.Context, businessID string, id string, finishAt domain.FinishAt, lat, lng float64) (domain.User, error)
+	// SetUserMaxStops caps how many deliveries this driver takes in a
+	// round. Zero clears the cap — see domain.User.MaxStops.
+	SetUserMaxStops(ctx context.Context, businessID string, id string, max int) (domain.User, error)
 	SetUserPIN(ctx context.Context, businessID string, id string, pinHash string) error
 
 	CreateCustomer(ctx context.Context, c domain.Customer) (domain.Customer, error)

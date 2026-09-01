@@ -151,10 +151,10 @@ func (s *Server) handleRequestOTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"purpose":     purpose,
-		"expires_in":  int(auth.OTPExpiry.Seconds()),
-		"phone":       phone,
-		"is_new":      !known,
+		"purpose":    purpose,
+		"expires_in": int(auth.OTPExpiry.Seconds()),
+		"phone":      phone,
+		"is_new":     !known,
 	})
 }
 

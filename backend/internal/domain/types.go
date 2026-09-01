@@ -130,9 +130,18 @@ type User struct {
 	// means the farm, which is both the default and what a driver who
 	// predates this setting was effectively already doing whenever they
 	// had no home pinned.
-	FinishAt  FinishAt  `json:"finish_at"`
-	FinishLat float64   `json:"finish_lat"`
-	FinishLng float64   `json:"finish_lng"`
+	FinishAt  FinishAt `json:"finish_at"`
+	FinishLat float64  `json:"finish_lat"`
+	FinishLng float64  `json:"finish_lng"`
+	// MaxStops is how many deliveries this driver can carry in one round
+	// — a property of their van, not of today, which is why it lives here
+	// and not on a route. Zero means no limit, and is the default.
+	//
+	// It has to be stored rather than passed in with a split, because
+	// rounds re-prepare themselves on every read of the day (see
+	// ensureDayRounds): a limit the server didn't remember would be
+	// undone by the next page load.
+	MaxStops  int       `json:"max_stops"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -280,10 +289,10 @@ type ServiceArea struct {
 // ordering matters: it means an unverified phone number can never leave
 // a business record behind.
 type OTPChallenge struct {
-	Phone    string    `json:"phone"`
-	CodeHash string    `json:"-"`
-	Purpose  string    `json:"purpose"`
-	Attempts int       `json:"attempts"`
+	Phone     string    `json:"phone"`
+	CodeHash  string    `json:"-"`
+	Purpose   string    `json:"purpose"`
+	Attempts  int       `json:"attempts"`
 	ExpiresAt time.Time `json:"expires_at"`
 	CreatedAt time.Time `json:"created_at"`
 
@@ -315,20 +324,20 @@ func (c OTPChallenge) Expired(now time.Time) bool { return now.After(c.ExpiresAt
 // So the day's stops stay hidden until this is approved. That gate is
 // the whole feature; the number is just what there is to agree about.
 type Checkin struct {
-	ID         string    `json:"id"`
-	BusinessID string    `json:"business_id"`
-	DriverID   string    `json:"driver_id"`
-	RouteDate  string    `json:"route_date"`
-	Units      int       `json:"units"`
-	Note       string    `json:"note"`
+	ID         string        `json:"id"`
+	BusinessID string        `json:"business_id"`
+	DriverID   string        `json:"driver_id"`
+	RouteDate  string        `json:"route_date"`
+	Units      int           `json:"units"`
+	Note       string        `json:"note"`
 	Status     CheckinStatus `json:"status"`
 	// Who approved or rejected it, and what they said. An admin rejecting
 	// a count owes the driver a reason — "12 short" is actionable, a bare
 	// rejection is not.
-	ReviewedBy   string    `json:"reviewed_by,omitempty"`
-	ReviewNote   string    `json:"review_note,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
-	ReviewedAt   *time.Time `json:"reviewed_at,omitempty"`
+	ReviewedBy string     `json:"reviewed_by,omitempty"`
+	ReviewNote string     `json:"review_note,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	ReviewedAt *time.Time `json:"reviewed_at,omitempty"`
 }
 
 type CheckinStatus string

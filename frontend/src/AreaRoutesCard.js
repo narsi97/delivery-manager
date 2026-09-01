@@ -44,10 +44,32 @@ export default function AreaRoutesCard({
   const [error, setError] = useState('');
   const [showOptions, setShowOptions] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  // Edits to how many stops each driver will take, keyed by driver id.
+  // Only what the admin has actually typed lives here — an untouched
+  // driver keeps whatever limit is stored on them, which is why the
+  // request omits them entirely rather than sending a zero that would
+  // clear it. See handleSetAreaDrivers.
+  const [caps, setCaps] = useState({});
 
   const activeDrivers = drivers.filter((driver) => driver.active);
   const assigned = routes.map((route) => route.driver_id).filter(Boolean);
   const areaStops = stops.filter((stop) => routes.some((route) => route.id === stop.route_id));
+  // In the order a driver would work them, which is the only order in
+  // which "move this one up" means anything.
+  const ordered = [...areaStops].sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
+
+  const moveStop = async (orderId, position) => {
+    setBusy(true);
+    setError('');
+    try {
+      await api.moveStopToPosition(token, orderId, position);
+      await onChanged();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
   const totalMeters = routes.reduce((sum, route) => sum + (route.estimated_meters || 0), 0);
 
   // Toggling a driver re-plans the whole area, because that is what the
@@ -60,7 +82,22 @@ export default function AreaRoutesCard({
     setBusy(true);
     setError('');
     try {
-      await api.setAreaDrivers(token, area.id, next, date);
+      await api.setAreaDrivers(token, area.id, next, date, caps);
+      await onChanged();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Re-runs the split with whatever limits are in the boxes. Separate
+  // from typing so the round is not re-cut on every keystroke.
+  const applyCaps = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await api.setAreaDrivers(token, area.id, assigned, date, caps);
       await onChanged();
     } catch (err) {
       setError(err.message);
@@ -114,12 +151,58 @@ export default function AreaRoutesCard({
           })}
         </View>
       )}
+      {assigned.length > 0 ? (
+        <View style={styles.capList}>
+          {assigned.map((driverId) => {
+            const driver = drivers.find((d) => d.id === driverId);
+            return (
+              <View key={driverId} style={styles.capRow}>
+                <Text style={styles.capName}>{driver ? driver.name : 'Driver'}</Text>
+                <View style={styles.capInput}>
+                  {/* Shows the limit this driver already carries, so the
+                      box says what is true rather than starting blank
+                      and implying there is none. Blank means no limit,
+                      and clearing the box clears it — which is why an
+                      emptied box stores a 0 rather than dropping the
+                      key: an absent key means "leave it alone". */}
+                  <input
+                    type="number"
+                    min={1}
+                    value={caps[driverId] !== undefined ? caps[driverId] || '' : driver?.max_stops || ''}
+                    placeholder="all"
+                    aria-label={`Most stops for ${driver ? driver.name : 'this driver'}`}
+                    onChange={(event) => {
+                      const raw = Number(event.target.value);
+                      const limit = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
+                      setCaps((prev) => ({ ...prev, [driverId]: limit }));
+                    }}
+                    style={capInputStyle}
+                  />
+                  <Text style={styles.capUnit}>max</Text>
+                </View>
+              </View>
+            );
+          })}
+          <Button
+            title="Apply"
+            variant="secondary"
+            onPress={() => applyCaps()}
+            busy={busy}
+            style={styles.capApply}
+          />
+          <Text style={styles.note}>
+            Leave blank to share the area evenly. Anything past everyone&apos;s limit stays unassigned, and shows
+            below as not going out. This is saved on the driver, so it holds tomorrow too.
+          </Text>
+        </View>
+      ) : null}
+
       <Text style={styles.note}>
         {assigned.length === 0
           ? `Nobody assigned yet. Tap a name — the ${lower(labels.route)} is already planned and waiting.`
           : assigned.length === 1
-            ? 'Finishes at their home. Tap another name to share the area between two drivers.'
-            : `Split between ${assigned.length}, each taking the side nearest their own home.`}
+            ? 'Tap another name to share the area between two drivers.'
+            : `Split between ${assigned.length}, each taking the side nearest where they finish.`}
       </Text>
 
       {routes.length > 1 ? (
@@ -171,7 +254,7 @@ export default function AreaRoutesCard({
       </Disclosure>
       {expanded ? (
         <View style={styles.stopList}>
-          {areaStops.map((stop) => (
+          {ordered.map((stop, index) => (
             <StopCard
               key={stop.id}
               stop={stop}
@@ -179,6 +262,9 @@ export default function AreaRoutesCard({
               token={token}
               onChanged={onChanged}
               onError={onError}
+              onReorder={(position) => moveStop(stop.id, position)}
+              canMoveUp={index > 0}
+              canMoveDown={index < ordered.length - 1}
             />
           ))}
         </View>
@@ -262,6 +348,21 @@ export function LooseRouteCard({ route, stops, drivers, products, token, onChang
   );
 }
 
+const capInputStyle = {
+  width: 64,
+  borderWidth: 1,
+  borderColor: colors.border,
+  borderRadius: radius.md,
+  paddingTop: 6,
+  paddingBottom: 6,
+  paddingLeft: spacing.sm,
+  paddingRight: spacing.sm,
+  fontSize: 15,
+  color: colors.text,
+  backgroundColor: colors.surface,
+  fontFamily: 'inherit',
+};
+
 const looseSelectStyle = {
   width: 'auto',
   minWidth: 160,
@@ -329,5 +430,11 @@ const styles = StyleSheet.create({
   optionsRow: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
   optionButton: { flex: 1, minWidth: 150 },
   spaced: { marginTop: spacing.sm },
+  capList: { marginTop: spacing.sm },
+  capRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, paddingVertical: 3 },
+  capName: { fontSize: 14, fontWeight: '600', color: colors.text, flexShrink: 1 },
+  capInput: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexShrink: 0 },
+  capUnit: { fontSize: 12, color: colors.hint },
+  capApply: { alignSelf: 'flex-start', marginTop: spacing.xs },
   stopList: { marginTop: spacing.sm },
 });

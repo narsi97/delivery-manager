@@ -214,6 +214,10 @@ var schemaStatements = []string{
 	`alter table users add column if not exists finish_lat double precision not null default 0`,
 	`alter table users add column if not exists finish_lng double precision not null default 0`,
 
+	// How many deliveries fit in this driver's van. Zero, the default,
+	// means no limit — which is what every driver did before this.
+	`alter table users add column if not exists max_stops int not null default 0`,
+
 	// Who gets visited first, ahead of what the shortest path would say.
 	// Defaults to 'normal', so every customer that existed before
 	// priorities did sorts exactly where it always has.

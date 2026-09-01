@@ -121,6 +121,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/drivers/{id}/active", s.withAdmin(s.handleSetDriverActive))
 	s.mux.HandleFunc("POST /api/v1/drivers/{id}/home", s.withAdmin(s.handleSetDriverHome))
 	s.mux.HandleFunc("POST /api/v1/drivers/{id}/finish", s.withAdmin(s.handleSetDriverFinish))
+	s.mux.HandleFunc("POST /api/v1/drivers/{id}/max-stops", s.withAdmin(s.handleSetDriverMaxStops))
 
 	s.mux.HandleFunc("GET /api/v1/recurring-orders", s.withAdmin(s.handleListRecurringOrders))
 	s.mux.HandleFunc("POST /api/v1/recurring-orders", s.withAdmin(s.handleCreateRecurringOrder))

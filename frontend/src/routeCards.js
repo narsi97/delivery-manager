@@ -48,7 +48,10 @@ const compactSelectStyle = { ...selectStyle, width: 'auto', minWidth: 110, maxWi
 //     ghee today" was nothing at all. That's what "Add another item" is:
 //     a one-off order for this customer on this date (the backend's
 //     ad-hoc order path, which has existed unused since the beginning).
-export function StopCard({ stop, products = [], token, onChanged, onError }) {
+// onReorder, when given, turns on the ↑↓ controls. Only the screens that
+// show a stop *in its route order* pass it — a stop listed under "not
+// going out yet" has no position to move within.
+export function StopCard({ stop, products = [], token, onChanged, onError, onReorder, canMoveUp, canMoveDown }) {
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
   const [quantity, setQuantity] = useState(Number(stop.quantity) || 0);
@@ -92,7 +95,34 @@ export function StopCard({ stop, products = [], token, onChanged, onError }) {
           {stop.customer_address ? <Text style={styles.stopAddress}>{stop.customer_address}</Text> : null}
           {stop.override_reason ? <Text style={styles.stopReason}>{stop.override_reason}</Text> : null}
         </View>
-        <Pill label={stop.status} tone={statusTone} />
+        <View style={styles.stopHeaderRight}>
+          <Pill label={stop.status} tone={statusTone} />
+          {/* Up and down rather than drag: a drag inside a scrolling list
+              is unreliable on a phone, and this stack has no gesture
+              precedent. See Docs/COMPROMISES.md. */}
+          {onReorder ? (
+            <View style={styles.moveButtons}>
+              <Pressable
+                onPress={() => onReorder(stop.sequence - 1)}
+                disabled={!canMoveUp || busy}
+                accessibilityRole="button"
+                accessibilityLabel={`Move ${stop.customer_name} earlier`}
+                style={({ pressed }) => [styles.moveButton, !canMoveUp && styles.moveButtonOff, pressed && styles.pressed]}
+              >
+                <Text style={[styles.moveGlyph, !canMoveUp && styles.moveGlyphOff]}>↑</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => onReorder(stop.sequence + 1)}
+                disabled={!canMoveDown || busy}
+                accessibilityRole="button"
+                accessibilityLabel={`Move ${stop.customer_name} later`}
+                style={({ pressed }) => [styles.moveButton, !canMoveDown && styles.moveButtonOff, pressed && styles.pressed]}
+              >
+                <Text style={[styles.moveGlyph, !canMoveDown && styles.moveGlyphOff]}>↓</Text>
+              </Pressable>
+            </View>
+          ) : null}
+        </View>
       </View>
 
       <Banner message={error} />
@@ -273,6 +303,22 @@ const styles = StyleSheet.create({
   },
   deleteIcon: { fontSize: 16, color: colors.error },
   routeStops: { marginTop: spacing.sm },
+  stopHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexShrink: 0 },
+  moveButtons: { flexDirection: 'row', gap: 2 },
+  moveButton: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  moveButtonOff: { opacity: 0.3 },
+  moveGlyph: { fontSize: 15, fontWeight: '700', color: colors.link, lineHeight: 18 },
+  moveGlyphOff: { color: colors.hint },
+  pressed: { opacity: 0.6 },
   stopHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   stopHeaderText: { flex: 1, paddingRight: spacing.sm },
   stopName: { fontSize: 16, fontWeight: '700', color: colors.text },

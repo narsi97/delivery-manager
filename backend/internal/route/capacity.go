@@ -61,10 +61,19 @@ func PartitionCapped(stops []Point, caps []Capped) (groups [][]Point, leftover [
 		// Keep the stops nearest this group's own centre and spill the
 		// rest: if a driver can only take ten, they should take the ten
 		// that sit together, not the first ten in an arbitrary order.
+		//
+		// Band comes first, though. A shop that opens at six is on the
+		// round because it has to be, and dropping it in favour of a
+		// house that happens to sit nearer the middle of the cluster
+		// would be the cap quietly overruling the priority — which is
+		// the one thing a priority is for. See Point.Band.
 		centre := Centroid(group)
 		byDistance := make([]Point, len(group))
 		copy(byDistance, group)
 		sort.SliceStable(byDistance, func(a, b int) bool {
+			if byDistance[a].Band != byDistance[b].Band {
+				return byDistance[a].Band < byDistance[b].Band
+			}
 			da := DistanceMeters(centre.Lat, centre.Lng, byDistance[a].Lat, byDistance[a].Lng)
 			db := DistanceMeters(centre.Lat, centre.Lng, byDistance[b].Lat, byDistance[b].Lng)
 			if da != db {
@@ -84,7 +93,10 @@ func PartitionCapped(stops []Point, caps []Capped) (groups [][]Point, leftover [
 
 	// Offer the spill to whoever still has room, nearest group first, so
 	// a stop trimmed off a full driver lands with the closest driver who
-	// can still take it rather than the first one in the list.
+	// can still take it rather than the first one in the list. Priority
+	// stops are offered first, for the same reason they were kept first:
+	// when there isn't room for everyone, they are not the ones left out.
+	sort.SliceStable(spill, func(a, b int) bool { return spill[a].Band < spill[b].Band })
 	for _, p := range spill {
 		best := -1
 		bestDist := 0.0

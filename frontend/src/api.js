@@ -148,11 +148,16 @@ export function updateServiceArea(token, id, changes) {
 // means the area is split between them, each finishing at their own home
 // (see handleSetAreaDrivers). Returns the whole day, since one area's
 // routes changing changes the day's shape.
-export function setAreaDrivers(token, areaId, driverIds, date) {
+export function setAreaDrivers(token, areaId, driverIds, date, maxPerDriver) {
   return request(`/api/v1/service-areas/${areaId}/drivers`, {
     method: 'POST',
     token,
-    body: JSON.stringify({ driver_ids: driverIds, date: date || undefined }),
+    body: JSON.stringify({
+      driver_ids: driverIds,
+      date: date || undefined,
+      // Absent or zero means no limit — see route.PartitionCapped.
+      max_per_driver: maxPerDriver && Object.keys(maxPerDriver).length > 0 ? maxPerDriver : undefined,
+    }),
   });
 }
 
@@ -210,6 +215,29 @@ export function setDriverHome(token, id, lat, lng) {
 }
 
 
+// Where this driver's round ends: the farm, their own home, or a pin.
+// Changing it re-orders their routes for today, so the whole day comes
+// back — same shape as assigning a driver.
+export function setDriverFinish(token, id, finishAt, lat, lng) {
+  return request(`/api/v1/drivers/${id}/finish`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ finish_at: finishAt, finish_lat: lat || 0, finish_lng: lng || 0 }),
+  });
+}
+
+// How many deliveries fit in this driver's van. Zero clears the limit.
+// Stored on the driver, not on today's route: rounds re-prepare
+// themselves on every read of the day, and anything the server didn't
+// remember would be undone by the next page load.
+export function setDriverMaxStops(token, id, maxStops) {
+  return request(`/api/v1/drivers/${id}/max-stops`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ max_stops: maxStops }),
+  });
+}
+
 export function setDriverActive(token, id, active) {
   return request(`/api/v1/drivers/${id}/active`, { method: 'POST', token, body: JSON.stringify({ active }) });
 }
@@ -231,6 +259,43 @@ export function setRecurringActive(token, id, active) {
     method: 'POST',
     token,
     body: JSON.stringify({ active }),
+  });
+}
+
+// Move one stop to a 1-based position on its route. Out of range is
+// clamped rather than rejected, so "move the first one up" is a no-op
+// instead of an error. Pins the route: see handleMoveStopPosition.
+export function moveStopToPosition(token, orderId, position) {
+  return request(`/api/v1/orders/${orderId}/position`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ position }),
+  });
+}
+
+// ---------- start of day ----------
+
+// The driver reporting what they loaded at the farm. Their stops stay
+// hidden until an admin agrees with the count.
+export function driverCheckin(token, units, note) {
+  return request('/api/v1/driver/checkin', {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ units, note: note || '' }),
+  });
+}
+
+export function listCheckins(token, date) {
+  return request(`/api/v1/checkins${date ? `?date=${date}` : ''}`, { method: 'GET', token });
+}
+
+// Approving unlocks that driver's round. Rejecting requires a reason —
+// the driver needs to know what to recount.
+export function reviewCheckin(token, driverId, approve, note, date) {
+  return request(`/api/v1/checkins/${driverId}/review${date ? `?date=${date}` : ''}`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ approve, note: note || '' }),
   });
 }
 

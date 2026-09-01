@@ -200,6 +200,9 @@ alter table users add column if not exists finish_at text not null default 'farm
 alter table users add column if not exists finish_lat double precision not null default 0;
 alter table users add column if not exists finish_lng double precision not null default 0;
 
+-- How many deliveries fit in this driver's van. Zero means no limit.
+alter table users add column if not exists max_stops int not null default 0;
+
 -- Who gets visited first, ahead of what the shortest path would say.
 alter table customers add column if not exists priority text not null default 'normal';
 

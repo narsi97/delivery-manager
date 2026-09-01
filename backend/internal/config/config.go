@@ -26,7 +26,7 @@ type Config struct {
 	// a private demo with no SMS provider; it must come off in the same
 	// change that wires a real one.
 	AllowLogOTPSender bool
-	AllowedOrigin  string
+	AllowedOrigin     string
 	// DefaultTimezone is the IANA zone new businesses get when signup
 	// doesn't specify one. Every "today" in this product resolves in the
 	// business's own zone (see domain.Business.Today), so this is the
@@ -44,15 +44,15 @@ func Load() (Config, error) {
 	tokenHours := intFromEnv("TOKEN_TTL_HOURS", defaults.TokenTTLHours)
 
 	cfg := Config{
-		Environment:     environment,
-		Addr:            stringFromEnv("ADDR", defaults.Addr),
-		DatabaseURL:     stringFromEnv("DATABASE_URL", defaults.DatabaseURL),
-		JWTSecret:       stringFromEnv("JWT_SECRET", defaults.JWTSecret),
+		Environment:       environment,
+		Addr:              stringFromEnv("ADDR", defaults.Addr),
+		DatabaseURL:       stringFromEnv("DATABASE_URL", defaults.DatabaseURL),
+		JWTSecret:         stringFromEnv("JWT_SECRET", defaults.JWTSecret),
 		TokenTTL:          time.Duration(tokenHours) * time.Hour,
 		AllowLogOTPSender: boolFromEnv("OTP_ALLOW_LOG_SENDER", false),
-		GoogleClientID:  stringFromEnv("GOOGLE_CLIENT_ID", ""),
-		AllowedOrigin:   stringFromEnv("ALLOWED_ORIGIN", defaults.AllowedOrigin),
-		DefaultTimezone: stringFromEnv("DEFAULT_TIMEZONE", "Asia/Kolkata"),
+		GoogleClientID:    stringFromEnv("GOOGLE_CLIENT_ID", ""),
+		AllowedOrigin:     stringFromEnv("ALLOWED_ORIGIN", defaults.AllowedOrigin),
+		DefaultTimezone:   stringFromEnv("DEFAULT_TIMEZONE", "Asia/Kolkata"),
 	}
 
 	if _, err := time.LoadLocation(cfg.DefaultTimezone); err != nil {

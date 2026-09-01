@@ -67,9 +67,18 @@ export default function DriverScreen({ token, business }) {
     <ScrollView contentContainerStyle={styles.page}>
       <Banner message={error} />
 
+      {/* The gate. Until the load is counted and agreed, there is nothing
+          to show — so the screen shows the one thing there is to do
+          instead of an empty list that looks like a quiet morning. */}
+      {today?.checkin_required ? (
+        <CheckinCard token={token} checkin={today.checkin} routeName={today?.route?.name} onDone={refresh} />
+      ) : null}
+
       <Card>
         <SectionTitle>{today?.route?.name || t('nav_today')}</SectionTitle>
-        {stops.length === 0 ? (
+        {today?.checkin_required ? (
+          <Empty>{t('checkin_stops_locked')}</Empty>
+        ) : stops.length === 0 ? (
           <Empty>{t('no_route_assigned', { route: lower(labels.route) })}</Empty>
         ) : (
           <View style={styles.stats}>
@@ -269,9 +278,86 @@ function CustomerDetails({ fields }) {
   );
 }
 
+// What the driver does at the farm before anything else: count what is
+// going on the van and say so. Nothing about the round is visible until
+// somebody agrees with that number — see backend checkin.go for why the
+// agreement rather than the number is the point.
+function CheckinCard({ token, checkin, routeName, onDone }) {
+  const { t } = useLanguage();
+  const [units, setUnits] = useState(checkin?.units ? String(checkin.units) : '');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const waiting = checkin?.status === 'pending';
+  const rejected = checkin?.status === 'rejected';
+
+  const submit = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await api.driverCheckin(token, Number(units), note);
+      await onDone();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card style={styles.checkinCard}>
+      <Text style={styles.checkinHeading}>
+        {t(waiting ? 'checkin_heading_waiting' : rejected ? 'checkin_heading_rejected' : 'checkin_heading_loading')}
+      </Text>
+      <Text style={styles.checkinLead}>
+        {/* A rejection carries the admin's own words, which are the
+            whole point of rejecting rather than just refusing — they
+            stay as typed, in whatever language they were written. */}
+        {waiting
+          ? t('checkin_lead_waiting', { units: checkin.units, route: routeName || t('checkin_your_round') })
+          : rejected
+            ? checkin.review_note || t('checkin_lead_rejected')
+            : t('checkin_lead_loading')}
+      </Text>
+
+      <Banner message={error} />
+
+      {waiting ? null : (
+        <View>
+          <Field
+            label={t('checkin_units_label')}
+            size="xs"
+            value={units}
+            onChangeText={setUnits}
+            keyboardType="number-pad"
+            placeholder={t('checkin_units_placeholder')}
+          />
+          <Field
+            label={t('checkin_note_label')}
+            size="md"
+            value={note}
+            onChangeText={setNote}
+            placeholder={t('checkin_note_placeholder')}
+          />
+          <Button
+            title={t(rejected ? 'checkin_resend' : 'checkin_send')}
+            onPress={submit}
+            busy={busy}
+            disabled={!(Number(units) > 0)}
+          />
+        </View>
+      )}
+    </Card>
+  );
+}
+
 const styles = StyleSheet.create({
   page: { padding: spacing.lg, maxWidth: 560, width: '100%', alignSelf: 'center' },
   loader: { marginTop: spacing.xl * 2 },
+  checkinCard: { borderColor: colors.accent },
+  checkinHeading: { fontSize: 18, fontWeight: '800', color: colors.text },
+  checkinLead: { fontSize: 14, color: colors.subtitle, marginTop: spacing.xs, marginBottom: spacing.md, lineHeight: 20 },
   stats: { flexDirection: 'row' },
   nextCard: { borderColor: colors.accent, borderWidth: 2 },
   nextLabel: { fontSize: 11, fontWeight: '800', color: colors.accent, letterSpacing: 1 },

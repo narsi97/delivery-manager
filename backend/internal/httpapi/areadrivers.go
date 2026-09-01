@@ -48,9 +48,15 @@ func (s *Server) handleSetAreaDrivers(w http.ResponseWriter, r *http.Request) {
 		DriverIDs []string `json:"driver_ids"`
 		Date      string   `json:"date"`
 		// MaxPerDriver caps how many stops a given driver will take,
-		// keyed by driver id. Absent or zero means no limit. This is how
-		// "I'll do ten on my way through and Ravi takes the rest" gets
-		// expressed — see route.PartitionCapped.
+		// keyed by driver id. Absent leaves whatever that driver already
+		// carries; zero clears their limit. This is how "I'll do ten on
+		// my way through and Ravi takes the rest" gets expressed — see
+		// route.PartitionCapped.
+		//
+		// The value is saved on the driver rather than used once and
+		// forgotten: rounds re-prepare themselves on every read of the
+		// day, so a limit the server didn't remember would be undone by
+		// the next page load. See domain.User.MaxStops.
 		MaxPerDriver map[string]int `json:"max_per_driver"`
 	}
 	if !decodeJSON(w, r, &req) {
@@ -106,6 +112,22 @@ func (s *Server) handleSetAreaDrivers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		drivers = append(drivers, driver)
+	}
+
+	// Persist any limit that came with this request before planning, so
+	// the split below and every automatic preparation after it are
+	// working from the same numbers.
+	for i, driver := range drivers {
+		limit, given := req.MaxPerDriver[driver.ID]
+		if !given || limit == driver.MaxStops {
+			continue
+		}
+		updated, err := s.store.SetUserMaxStops(r.Context(), sess.Business.ID, driver.ID, limit)
+		if err != nil {
+			writeStoreError(w, err, "driver")
+			return
+		}
+		drivers[i] = updated
 	}
 
 	orders, err := s.store.ListDailyOrders(r.Context(), sess.Business.ID, date)
@@ -230,7 +252,7 @@ func (s *Server) handleSetAreaDrivers(w http.ResponseWriter, r *http.Request) {
 		// One driver with a cap still only takes that many — the rest is
 		// left for somebody who hasn't been named yet.
 		mine := points
-		if limit := req.MaxPerDriver[driver.ID]; limit > 0 && limit < len(points) {
+		if limit := driver.MaxStops; limit > 0 && limit < len(points) {
 			capped, leftover := route.PartitionCapped(points, []route.Capped{{Max: limit}})
 			mine = capped[0]
 			log.Printf("area %s on %s: %s capped at %d, %d stops left unassigned",
@@ -238,9 +260,9 @@ func (s *Server) handleSetAreaDrivers(w http.ResponseWriter, r *http.Request) {
 		}
 		ordered, meters := optimizeForDriver(start, mine, driver, sess.Business)
 		plans = append(plans, planned{
-			name:       unique(area.Name + " route"),
-			driverID:   &drivers[0].ID,
-			endLat:     finishLat, endLng: finishLng,
+			name:     unique(area.Name + " route"),
+			driverID: &drivers[0].ID,
+			endLat:   finishLat, endLng: finishLng,
 			orderedIDs: idsOf(ordered),
 			meters:     meters,
 		})
@@ -252,7 +274,7 @@ func (s *Server) handleSetAreaDrivers(w http.ResponseWriter, r *http.Request) {
 		// under "not going out yet", which is the honest place for it.
 		caps := make([]route.Capped, len(drivers))
 		for i, d := range drivers {
-			caps[i] = route.Capped{Max: req.MaxPerDriver[d.ID]}
+			caps[i] = route.Capped{Max: d.MaxStops}
 		}
 		groups, leftover := route.PartitionCapped(points, caps)
 		if len(leftover) > 0 {
@@ -278,9 +300,9 @@ func (s *Server) handleSetAreaDrivers(w http.ResponseWriter, r *http.Request) {
 			finishLat, finishLng, _ := driver.FinishPoint(sess.Business)
 			ordered, meters := optimizeForDriver(start, group, driver, sess.Business)
 			plans = append(plans, planned{
-				name:       unique(area.Name + " · " + driver.Name),
-				driverID:   &drivers[match[g]].ID,
-				endLat:     finishLat, endLng: finishLng,
+				name:     unique(area.Name + " · " + driver.Name),
+				driverID: &drivers[match[g]].ID,
+				endLat:   finishLat, endLng: finishLng,
 				orderedIDs: idsOf(ordered),
 				meters:     meters,
 			})
@@ -400,7 +422,15 @@ func (s *Server) prepareSplitArea(
 		return nil
 	}
 
-	groups := route.Partition(points, len(crew))
+	// Same cut the admin would get from asking for this split by hand,
+	// van sizes included — a driver who could only take twelve yesterday
+	// can only take twelve today. Whatever exceeds every cap is left
+	// unassigned for the attach loop to leave alone.
+	caps := make([]route.Capped, len(crew))
+	for i, d := range crew {
+		caps[i] = route.Capped{Max: d.MaxStops}
+	}
+	groups, _ := route.PartitionCapped(points, caps)
 	finishes := make([]route.Point, len(crew))
 	for i, d := range crew {
 		finishes[i] = route.Point{Lat: d.HomeLat, Lng: d.HomeLng}

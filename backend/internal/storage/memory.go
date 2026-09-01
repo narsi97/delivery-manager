@@ -131,22 +131,6 @@ func (s *MemoryStore) GetAdminByEmail(ctx context.Context, email string) (domain
 	return domain.User{}, ErrNotFound
 }
 
-func (s *MemoryStore) GetDriverByPhone(ctx context.Context, phone string) (domain.User, string, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	phone = domain.NormalizePhone(phone)
-	if phone == "" {
-		return domain.User{}, "", ErrNotFound
-	}
-	for _, u := range s.users {
-		if domain.NormalizePhone(u.Phone) == phone && u.Role.CanDrive() {
-			return u, s.pinHashes[u.ID], nil
-		}
-	}
-	return domain.User{}, "", ErrNotFound
-}
-
 func (s *MemoryStore) CreateUser(ctx context.Context, u domain.User, pinHash string) (domain.User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -720,6 +704,22 @@ func (s *MemoryStore) SetUserFinish(_ context.Context, businessID string, id str
 	}
 	u.FinishAt = domain.NormalizeFinishAt(finishAt)
 	u.FinishLat, u.FinishLng = lat, lng
+	s.users[id] = u
+	return u, nil
+}
+
+func (s *MemoryStore) SetUserMaxStops(_ context.Context, businessID string, id string, max int) (domain.User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	u, ok := s.users[id]
+	if !ok || u.BusinessID != businessID {
+		return domain.User{}, ErrNotFound
+	}
+	if max < 0 {
+		max = 0
+	}
+	u.MaxStops = max
 	s.users[id] = u
 	return u, nil
 }
