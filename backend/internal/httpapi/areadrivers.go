@@ -166,7 +166,7 @@ func (s *Server) handleSetAreaDrivers(w http.ResponseWriter, r *http.Request) {
 		if found, ok := areaContaining(customer.Lat, customer.Lng, areas); !ok || found.ID != area.ID {
 			continue
 		}
-		points = append(points, route.Point{ID: o.ID, Lat: customer.Lat, Lng: customer.Lng})
+		points = append(points, route.Point{ID: o.ID, Lat: customer.Lat, Lng: customer.Lng, Band: customer.Priority.Rank()})
 	}
 
 	start := route.Point{Lat: area.Lat, Lng: area.Lng}
@@ -212,7 +212,7 @@ func (s *Server) handleSetAreaDrivers(w http.ResponseWriter, r *http.Request) {
 		// have produced on its own — one unassigned route for the area —
 		// so un-assigning everyone returns the day to its derived state
 		// rather than deleting the area's work off the map.
-		ordered, meters := route.Optimize(start, points)
+		ordered, meters := route.OptimizePrioritised(start, points, nil)
 		plans = append(plans, planned{
 			name:       unique(area.Name + " route"),
 			orderedIDs: idsOf(ordered),
@@ -311,9 +311,10 @@ func (s *Server) handleSetAreaDrivers(w http.ResponseWriter, r *http.Request) {
 // than being sent to 0,0 in the Gulf of Guinea.
 func optimizeForDriver(start route.Point, points []route.Point, driver domain.User) ([]route.Point, float64) {
 	if driver.HomeLat != 0 || driver.HomeLng != 0 {
-		return route.OptimizeReturning(start, points, route.Point{Lat: driver.HomeLat, Lng: driver.HomeLng})
+		finish := route.Point{Lat: driver.HomeLat, Lng: driver.HomeLng}
+		return route.OptimizePrioritised(start, points, &finish)
 	}
-	return route.Optimize(start, points)
+	return route.OptimizePrioritised(start, points, nil)
 }
 
 func idsOf(points []route.Point) []string {
@@ -361,7 +362,8 @@ func (s *Server) prepareSplitArea(
 	points := make([]route.Point, 0, len(orderIDs))
 	for _, orderID := range orderIDs {
 		pin := pinOfOrder[orderID]
-		points = append(points, route.Point{ID: orderID, Lat: pin.Lat, Lng: pin.Lng})
+		// pin already carries the customer's band — see ensureDayRoutes.
+		points = append(points, route.Point{ID: orderID, Lat: pin.Lat, Lng: pin.Lng, Band: pin.Band})
 	}
 	if len(points) == 0 {
 		return nil

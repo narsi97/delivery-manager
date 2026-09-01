@@ -163,7 +163,7 @@ func (s *Server) reorderRoute(
 			unpinned = append(unpinned, id)
 			continue
 		}
-		points = append(points, route.Point{ID: id, Lat: customer.Lat, Lng: customer.Lng})
+		points = append(points, route.Point{ID: id, Lat: customer.Lat, Lng: customer.Lng, Band: customer.Priority.Rank()})
 	}
 
 	// A route with a finish point is a different problem from one
@@ -173,9 +173,10 @@ func (s *Server) reorderRoute(
 	var ordered []route.Point
 	var meters float64
 	if rt.HasEnd() {
-		ordered, meters = route.OptimizeReturning(start, points, route.Point{Lat: rt.EndLat, Lng: rt.EndLng})
+		finish := route.Point{Lat: rt.EndLat, Lng: rt.EndLng}
+		ordered, meters = route.OptimizePrioritised(start, points, &finish)
 	} else {
-		ordered, meters = route.Optimize(start, points)
+		ordered, meters = route.OptimizePrioritised(start, points, nil)
 	}
 	orderedIDs := make([]string, 0, len(ordered)+len(unpinned))
 	for _, p := range ordered {

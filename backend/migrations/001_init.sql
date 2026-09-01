@@ -191,6 +191,9 @@ create table if not exists delivery_events (
 
 create index if not exists delivery_events_order_idx on delivery_events(daily_order_id);
 
+-- Who gets visited first, ahead of what the shortest path would say.
+alter table customers add column if not exists priority text not null default 'normal';
+
 -- A one-time code in flight. Keyed by phone so asking again replaces the
 -- live code rather than leaving several valid at once.
 --

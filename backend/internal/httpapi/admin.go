@@ -64,7 +64,10 @@ type customerRequest struct {
 	Lat     float64 `json:"lat"`
 	Lng     float64 `json:"lng"`
 	Notes   string  `json:"notes"`
-	Active  *bool   `json:"active"`
+	// Empty on PATCH means "leave it alone", same as every other field
+	// here — a customer's tier is not something a pin-drop should reset.
+	Priority string `json:"priority"`
+	Active   *bool  `json:"active"`
 	// A pointer so that "absent" and "explicitly empty" stay
 	// distinguishable on PATCH: omitting the key leaves the stored bag
 	// alone, sending {} clears it.
@@ -106,6 +109,12 @@ func (s *Server) handleCreateCustomer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	priority := domain.PriorityTier(strings.ToLower(strings.TrimSpace(req.Priority)))
+	if !domain.ValidPriority(priority) {
+		writeError(w, http.StatusBadRequest, "priority must be business, early or normal", "invalid_priority")
+		return
+	}
+
 	customer := domain.Customer{
 		ID:           domain.NewID(),
 		BusinessID:   sess.Business.ID,
@@ -115,6 +124,7 @@ func (s *Server) handleCreateCustomer(w http.ResponseWriter, r *http.Request) {
 		Lat:          req.Lat,
 		Lng:          req.Lng,
 		Notes:        strings.TrimSpace(req.Notes),
+		Priority:     domain.NormalizePriority(priority),
 		Active:       true,
 		CustomFields: customFields,
 	}
@@ -162,6 +172,14 @@ func (s *Server) handleUpdateCustomer(w http.ResponseWriter, r *http.Request) {
 		}
 		existing.Lat = req.Lat
 		existing.Lng = req.Lng
+	}
+	if strings.TrimSpace(req.Priority) != "" {
+		priority := domain.PriorityTier(strings.ToLower(strings.TrimSpace(req.Priority)))
+		if !domain.ValidPriority(priority) {
+			writeError(w, http.StatusBadRequest, "priority must be business, early or normal", "invalid_priority")
+			return
+		}
+		existing.Priority = domain.NormalizePriority(priority)
 	}
 	if req.Active != nil {
 		existing.Active = *req.Active
@@ -1010,9 +1028,9 @@ func (s *Server) handleBuildRoute(w http.ResponseWriter, r *http.Request) {
 	points := make([]route.Point, 0, len(candidates))
 	for _, o := range candidates {
 		c := customersByID[o.CustomerID]
-		points = append(points, route.Point{ID: o.ID, Lat: c.Lat, Lng: c.Lng})
+		points = append(points, route.Point{ID: o.ID, Lat: c.Lat, Lng: c.Lng, Band: c.Priority.Rank()})
 	}
-	ordered, meters := route.Optimize(route.Point{Lat: req.StartLat, Lng: req.StartLng}, points)
+	ordered, meters := route.OptimizePrioritised(route.Point{Lat: req.StartLat, Lng: req.StartLng}, points, nil)
 
 	orderedIDs := make([]string, 0, len(ordered))
 	for _, p := range ordered {
@@ -1090,7 +1108,7 @@ func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date
 		}
 		if area, ok := areaContaining(customer.Lat, customer.Lng, areas); ok {
 			areaOfOrder[o.ID] = area.ID
-			pinOfOrder[o.ID] = route.Point{Lat: customer.Lat, Lng: customer.Lng}
+			pinOfOrder[o.ID] = route.Point{Lat: customer.Lat, Lng: customer.Lng, Band: customer.Priority.Rank()}
 			needsRound[area.ID] = true
 		}
 	}
@@ -1353,16 +1371,17 @@ func (s *Server) orderRound(
 			continue
 		}
 		c := customersByID[o.CustomerID]
-		points = append(points, route.Point{ID: o.ID, Lat: c.Lat, Lng: c.Lng})
+		points = append(points, route.Point{ID: o.ID, Lat: c.Lat, Lng: c.Lng, Band: c.Priority.Rank()})
 	}
 
 	start := route.Point{Lat: rt.StartLat, Lng: rt.StartLng}
 	var ordered []route.Point
 	var meters float64
 	if rt.HasEnd() {
-		ordered, meters = route.OptimizeReturning(start, points, route.Point{Lat: rt.EndLat, Lng: rt.EndLng})
+		finish := route.Point{Lat: rt.EndLat, Lng: rt.EndLng}
+		ordered, meters = route.OptimizePrioritised(start, points, &finish)
 	} else {
-		ordered, meters = route.Optimize(start, points)
+		ordered, meters = route.OptimizePrioritised(start, points, nil)
 	}
 	orderedIDs := make([]string, 0, len(ordered))
 	for _, p := range ordered {

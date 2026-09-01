@@ -203,6 +203,11 @@ var schemaStatements = []string{
 	// for the same number. No background job — an abandoned challenge is
 	// a few bytes, and a cron to tidy them would be more moving parts
 	// than the problem deserves.
+	// Who gets visited first, ahead of what the shortest path would say.
+	// Defaults to 'normal', so every customer that existed before
+	// priorities did sorts exactly where it always has.
+	`alter table customers add column if not exists priority text not null default 'normal'`,
+
 	`create table if not exists otp_challenges (
 		phone text primary key,
 		code_hash text not null,

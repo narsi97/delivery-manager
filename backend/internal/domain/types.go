@@ -150,12 +150,18 @@ type Customer struct {
 	// badly or not at all, so the admin drops a pin (or captures the
 	// driver's current GPS while standing at the door) and the text
 	// address is only ever shown to a human.
-	Lat       float64   `json:"lat"`
-	Lng       float64   `json:"lng"`
-	Notes     string    `json:"notes"`
-	AccountID *string   `json:"account_id"`
-	Active    bool      `json:"active"`
-	CreatedAt time.Time `json:"created_at"`
+	Lat   float64 `json:"lat"`
+	Lng   float64 `json:"lng"`
+	Notes string  `json:"notes"`
+	// Priority decides who gets visited first, ahead of what the shortest
+	// path would say. A shop that opens at six and a household whose
+	// children leave for school are not "a stop like any other", and a
+	// route that is optimal in kilometres but arrives after the child has
+	// gone is not optimal at all. See PriorityTier.
+	Priority  PriorityTier `json:"priority"`
+	AccountID *string      `json:"account_id"`
+	Active    bool         `json:"active"`
+	CreatedAt time.Time    `json:"created_at"`
 	// CustomFields holds whatever extra information this business
 	// declared it keeps about a customer — a student's class and
 	// guardian, a gate code. Validated against the declared specs on the
@@ -227,6 +233,59 @@ const (
 // before the code is compared, so an expired code is never "wrong" —
 // it is expired, which is a different thing to tell someone.
 func (c OTPChallenge) Expired(now time.Time) bool { return now.After(c.ExpiresAt) }
+
+// PriorityTier is how much a customer's position in the route is worth
+// bending the path for.
+//
+// Deliberately three coarse buckets rather than a number or a time. A
+// number invites an admin to invent a scale nobody else understands; a
+// time promises the route will *meet* it, which needs vehicle routing
+// with time windows and can be infeasible — the honest version of that
+// promise is a warning the app cannot currently make. Buckets say what
+// the business already says out loud: shops first, school families next,
+// everyone else after.
+type PriorityTier string
+
+const (
+	// PriorityBusiness is a shop, hotel or canteen — somewhere that opens
+	// at a fixed hour and cannot take the milk late.
+	PriorityBusiness PriorityTier = "business"
+	// PriorityEarly is a household that needs delivery before the day
+	// starts, most often because children leave for school.
+	PriorityEarly PriorityTier = "early"
+	// PriorityNormal is everyone else, and the default.
+	PriorityNormal PriorityTier = "normal"
+)
+
+// Rank orders the tiers for sorting. Lower goes first.
+func (p PriorityTier) Rank() int {
+	switch p {
+	case PriorityBusiness:
+		return 0
+	case PriorityEarly:
+		return 1
+	default:
+		return 2
+	}
+}
+
+func ValidPriority(p PriorityTier) bool {
+	switch p {
+	case PriorityBusiness, PriorityEarly, PriorityNormal, "":
+		return true
+	}
+	return false
+}
+
+// NormalizePriority turns an empty or unknown value into the default, so
+// a customer created before priorities existed sorts as normal rather
+// than as an unrecognised tier.
+func NormalizePriority(p PriorityTier) PriorityTier {
+	if p == PriorityBusiness || p == PriorityEarly {
+		return p
+	}
+	return PriorityNormal
+}
 
 type Product struct {
 	ID         string `json:"id"`

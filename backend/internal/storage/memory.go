@@ -233,6 +233,7 @@ func (s *MemoryStore) SetUserPIN(ctx context.Context, businessID string, id stri
 }
 
 func (s *MemoryStore) CreateCustomer(ctx context.Context, c domain.Customer) (domain.Customer, error) {
+	c.Priority = domain.NormalizePriority(c.Priority)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -243,6 +244,7 @@ func (s *MemoryStore) CreateCustomer(ctx context.Context, c domain.Customer) (do
 }
 
 func (s *MemoryStore) UpdateCustomer(ctx context.Context, c domain.Customer) (domain.Customer, error) {
+	c.Priority = domain.NormalizePriority(c.Priority)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

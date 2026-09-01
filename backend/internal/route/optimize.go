@@ -35,6 +35,11 @@ type Point struct {
 	ID  string
 	Lat float64
 	Lng float64
+	// Band is the priority group this stop belongs to, lower first. Zero
+	// is both "highest" and the default, which is deliberate: code that
+	// doesn't know about priorities produces points that all share a band
+	// and therefore route exactly as they always did.
+	Band int
 }
 
 // DistanceMeters returns the great-circle distance between two points.
