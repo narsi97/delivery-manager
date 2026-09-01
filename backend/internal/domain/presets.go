@@ -54,13 +54,21 @@ func PresetFor(businessType BusinessType) Preset {
 // around: quantities of a product, delivered to a door, on a repeating
 // weekly pattern. It needs no vocabulary changes and nothing captured
 // beyond the outcome itself.
+//
+// The starter products are the three packet sizes milk actually comes
+// in, and nothing else. A real dairy told us this: what varies per
+// household is the size of the packet and how many of them, not the
+// species of dairy product. Curd, paneer and ghee are real but occasional
+// — they are added from the Products card when the business actually
+// sells them, rather than sitting in every new dairy's list on day one
+// pretending to be part of the daily round.
 func dairyPreset() Preset {
 	return Preset{
 		Config: BusinessConfig{}.WithDefaults(),
 		Products: []ProductSpec{
 			{Name: "Milk 500ml", Unit: "packet"},
+			{Name: "Milk 750ml", Unit: "packet"},
 			{Name: "Milk 1L", Unit: "packet"},
-			{Name: "Curd 500g", Unit: "tub"},
 		},
 	}
 }

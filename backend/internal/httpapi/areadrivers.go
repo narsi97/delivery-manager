@@ -221,12 +221,12 @@ func (s *Server) handleSetAreaDrivers(w http.ResponseWriter, r *http.Request) {
 
 	case len(drivers) == 1:
 		driver := drivers[0]
-		ordered, meters := optimizeForDriver(start, points, driver)
+		finishLat, finishLng, _ := driver.FinishPoint(sess.Business)
+		ordered, meters := optimizeForDriver(start, points, driver, sess.Business)
 		plans = append(plans, planned{
 			name:       unique(area.Name + " route"),
 			driverID:   &drivers[0].ID,
-			endLat:     driver.HomeLat,
-			endLng:     driver.HomeLng,
+			endLat:     finishLat, endLng: finishLng,
 			orderedIDs: idsOf(ordered),
 			meters:     meters,
 		})
@@ -244,12 +244,12 @@ func (s *Server) handleSetAreaDrivers(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			driver := drivers[match[g]]
-			ordered, meters := optimizeForDriver(start, group, driver)
+			finishLat, finishLng, _ := driver.FinishPoint(sess.Business)
+			ordered, meters := optimizeForDriver(start, group, driver, sess.Business)
 			plans = append(plans, planned{
 				name:       unique(area.Name + " · " + driver.Name),
 				driverID:   &drivers[match[g]].ID,
-				endLat:     driver.HomeLat,
-				endLng:     driver.HomeLng,
+				endLat:     finishLat, endLng: finishLng,
 				orderedIDs: idsOf(ordered),
 				meters:     meters,
 			})
@@ -309,9 +309,9 @@ func (s *Server) handleSetAreaDrivers(w http.ResponseWriter, r *http.Request) {
 // they have one recorded. A driver with no home saved gets the
 // open-ended ordering every route had before drivers had homes, rather
 // than being sent to 0,0 in the Gulf of Guinea.
-func optimizeForDriver(start route.Point, points []route.Point, driver domain.User) ([]route.Point, float64) {
-	if driver.HomeLat != 0 || driver.HomeLng != 0 {
-		finish := route.Point{Lat: driver.HomeLat, Lng: driver.HomeLng}
+func optimizeForDriver(start route.Point, points []route.Point, driver domain.User, business domain.Business) ([]route.Point, float64) {
+	if lat, lng, ok := driver.FinishPoint(business); ok {
+		finish := route.Point{Lat: lat, Lng: lng}
 		return route.OptimizePrioritised(start, points, &finish)
 	}
 	return route.OptimizePrioritised(start, points, nil)
@@ -381,6 +381,7 @@ func (s *Server) prepareSplitArea(
 			continue
 		}
 		driver := crew[match[g]]
+		finishLat, finishLng, _ := driver.FinishPoint(business)
 		created, err := s.store.CreateRoute(r.Context(), domain.Route{
 			ID:         domain.NewID(),
 			BusinessID: business.ID,
@@ -390,8 +391,8 @@ func (s *Server) prepareSplitArea(
 			Status:     domain.RouteAssigned,
 			StartLat:   area.Lat,
 			StartLng:   area.Lng,
-			EndLat:     driver.HomeLat,
-			EndLng:     driver.HomeLng,
+			EndLat:     finishLat,
+			EndLng:     finishLng,
 		})
 		if err != nil {
 			// Another request preparing the same day got here first. Its

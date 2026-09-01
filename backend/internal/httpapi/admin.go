@@ -410,11 +410,71 @@ func (s *Server) handleCreateDriver(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, created)
 }
 
-// handleSetDriverHome records where a driver finishes their day.
+// handleSetDriverFinish records where this driver's round ends.
 //
-// This is not a contact detail — it is routing input. Any route this
-// driver is assigned to ends here, and the last stop is chosen
-// accordingly, so setting it changes the order of tomorrow's round.
+// This is routing input, not a preference: the last stop is chosen for
+// whatever the round finishes at, so changing it reorders tomorrow's
+// route. The farm is the default because most rounds go back there —
+// undelivered stock has to be handed over and the empty bottles have to
+// be returned, and neither happens at the driver's house.
+func (s *Server) handleSetDriverFinish(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r.Context())
+
+	var req struct {
+		FinishAt  string  `json:"finish_at"`
+		FinishLat float64 `json:"finish_lat"`
+		FinishLng float64 `json:"finish_lng"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	finishAt := domain.FinishAt(strings.ToLower(strings.TrimSpace(req.FinishAt)))
+	if !domain.ValidFinishAt(finishAt) {
+		writeError(w, http.StatusBadRequest, "finish_at must be farm, home or custom", "invalid_finish_at")
+		return
+	}
+	if !validCoordinates(req.FinishLat, req.FinishLng) {
+		writeError(w, http.StatusBadRequest,
+			"finish_lat must be between -90 and 90 and finish_lng between -180 and 180", "invalid_location")
+		return
+	}
+	// A custom finish with no pin is a setting that cannot be honoured,
+	// and silently falling back to the farm would be a lie about what the
+	// screen says. Refuse it instead.
+	if domain.NormalizeFinishAt(finishAt) == domain.FinishAtCustom && req.FinishLat == 0 && req.FinishLng == 0 {
+		writeError(w, http.StatusBadRequest,
+			"drop a pin for where this round should finish", "missing_finish_pin")
+		return
+	}
+
+	driver, err := s.store.GetUserByID(r.Context(), sess.Business.ID, r.PathValue("id"))
+	if err != nil {
+		writeStoreError(w, err, "driver")
+		return
+	}
+	if !driver.Role.CanDrive() {
+		writeError(w, http.StatusBadRequest, "that account is not a driver", "not_a_driver")
+		return
+	}
+
+	updated, err := s.store.SetUserFinish(r.Context(), sess.Business.ID, driver.ID, finishAt, req.FinishLat, req.FinishLng)
+	if err != nil {
+		writeStoreError(w, err, "driver")
+		return
+	}
+	if err := s.reorderRoutesForDriver(r, sess, updated); err != nil {
+		log.Printf("re-order routes after finish change for %s: %v", updated.ID, err)
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+// handleSetDriverHome records where a driver lives.
+//
+// Still routing input, but only when this driver finishes at home — see
+// domain.FinishAt. Kept separate from the finish setting because "where
+// Ravi lives" is a fact about Ravi, while "where Ravi's round ends" is a
+// decision about the round.
 func (s *Server) handleSetDriverHome(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r.Context())
 
@@ -447,27 +507,42 @@ func (s *Server) handleSetDriverHome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Any route already handed to this driver now finishes somewhere
-	// different, so it needs re-ordering — otherwise the change only
-	// takes effect the next time someone happens to reassign them.
+	if err := s.reorderRoutesForDriver(r, sess, updated); err != nil {
+		log.Printf("re-order routes after home change for %s: %v", updated.ID, err)
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+// reorderRoutesForDriver re-ends and re-orders today's routes for one
+// driver, after something changed about where they finish.
+//
+// Without this the change only takes effect the next time someone
+// happens to reassign them — an admin who moves a driver's finish point
+// and looks at today's route would see the old order and reasonably
+// conclude the setting does nothing.
+func (s *Server) reorderRoutesForDriver(r *http.Request, sess session, driver domain.User) error {
 	routes, err := s.store.ListRoutes(r.Context(), sess.Business.ID, sess.Business.Today())
-	if err == nil {
-		for _, rt := range routes {
-			if rt.DriverID == nil || *rt.DriverID != driver.ID {
-				continue
-			}
-			rt.EndLat, rt.EndLng = updated.HomeLat, updated.HomeLng
-			saved, err := s.store.UpdateRoute(r.Context(), rt)
-			if err != nil {
-				continue
-			}
-			if err := s.reorderForEnd(r, sess.Business.ID, saved); err != nil {
-				log.Printf("re-order route %s after driver home change: %v", saved.ID, err)
-			}
+	if err != nil {
+		return err
+	}
+	lat, lng, ok := driver.FinishPoint(sess.Business)
+	if !ok {
+		lat, lng = 0, 0
+	}
+	for _, rt := range routes {
+		if rt.DriverID == nil || *rt.DriverID != driver.ID {
+			continue
+		}
+		rt.EndLat, rt.EndLng = lat, lng
+		saved, err := s.store.UpdateRoute(r.Context(), rt)
+		if err != nil {
+			continue
+		}
+		if err := s.reorderForEnd(r, sess.Business.ID, saved); err != nil {
+			log.Printf("re-order route %s: %v", saved.ID, err)
 		}
 	}
-
-	writeJSON(w, http.StatusOK, updated)
+	return nil
 }
 
 func (s *Server) handleSetDriverActive(w http.ResponseWriter, r *http.Request) {
@@ -1229,11 +1304,11 @@ func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date
 		if crew := liveDriversFor(area.ID); len(crew) == 1 {
 			driverID = &crew[0].ID
 			status = domain.RouteAssigned
-			// A round ends where its driver lives (see handleAssignRoute).
-			// Carrying the driver forward has to carry that with it, or
-			// yesterday's round and today's identical one would be ordered
-			// differently for no reason the admin can see.
-			endLat, endLng = crew[0].HomeLat, crew[0].HomeLng
+			// A round ends wherever its driver finishes (see
+			// domain.FinishAt). Carrying the driver forward has to carry
+			// that with it, or yesterday's round and today's identical one
+			// would be ordered differently for no reason the admin can see.
+			endLat, endLng, _ = crew[0].FinishPoint(business)
 		}
 		created, err := s.store.CreateRoute(r.Context(), domain.Route{
 			ID:         domain.NewID(),
@@ -1609,12 +1684,17 @@ func (s *Server) handleAssignRoute(w http.ResponseWriter, r *http.Request) {
 		if target.Status == domain.RouteDraft {
 			target.Status = domain.RouteAssigned
 		}
-		// A round ends when the driver gets home, not when they get back
-		// to the depot — so who is driving changes which stop should be
-		// last. Picking up the driver's home here (rather than at
-		// planning time) is what makes that work in the order an admin
-		// actually does things: plan the day, then hand rounds out.
-		target.EndLat, target.EndLng = driver.HomeLat, driver.HomeLng
+		// Where the round ends depends on who is driving it, so it is
+		// resolved here rather than at planning time — which matches the
+		// order an admin actually works in: plan the day, then hand
+		// rounds out. Most drivers finish back at the farm, because
+		// undelivered stock and empty bottles have to be handed over
+		// somewhere that isn't their kitchen; see domain.FinishAt.
+		if lat, lng, ok := driver.FinishPoint(sess.Business); ok {
+			target.EndLat, target.EndLng = lat, lng
+		} else {
+			target.EndLat, target.EndLng = 0, 0
+		}
 	} else {
 		// An empty driver_id unassigns — the route goes back to being a
 		// draft the admin can hand to someone else, and stops finishing

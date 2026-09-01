@@ -14,8 +14,8 @@ func makeDriver(t *testing.T, admin *client, name, phone string) string {
 	return str(d, "id")
 }
 
-// A route ends when the driver gets home, so assigning one records where
-// that is — the route's finish point comes from the driver, not the depot.
+// A route ends where its driver finishes. Most finish at the farm, so
+// these tests opt into finishing at home first — see domain.FinishAt.
 func TestAssigningADriverSetsTheRoutesEndPoint(t *testing.T) {
 	admin := planSetup(t, 8)
 	day := admin.mustDo(http.MethodPost, "/api/v1/routes/plan", map[string]any{"count": 1}, http.StatusOK)
@@ -24,6 +24,8 @@ func TestAssigningADriverSetsTheRoutesEndPoint(t *testing.T) {
 	driverID := makeDriver(t, admin, "Ravi", "+91 98765 43210")
 	admin.mustDo(http.MethodPost, "/api/v1/drivers/"+driverID+"/home",
 		map[string]any{"home_lat": 12.9900, "home_lng": 77.6100}, http.StatusOK)
+	admin.mustDo(http.MethodPost, "/api/v1/drivers/"+driverID+"/finish",
+		map[string]any{"finish_at": "home"}, http.StatusOK)
 
 	assigned := admin.mustDo(http.MethodPost, "/api/v1/routes/"+routeID+"/assign",
 		map[string]any{"driver_id": driverID}, http.StatusOK)
@@ -46,6 +48,8 @@ func TestUnassigningClearsTheEndPoint(t *testing.T) {
 	driverID := makeDriver(t, admin, "Ravi", "+91 98765 43210")
 	admin.mustDo(http.MethodPost, "/api/v1/drivers/"+driverID+"/home",
 		map[string]any{"home_lat": 12.9900, "home_lng": 77.6100}, http.StatusOK)
+	admin.mustDo(http.MethodPost, "/api/v1/drivers/"+driverID+"/finish",
+		map[string]any{"finish_at": "home"}, http.StatusOK)
 	admin.mustDo(http.MethodPost, "/api/v1/routes/"+routeID+"/assign",
 		map[string]any{"driver_id": driverID}, http.StatusOK)
 
@@ -69,6 +73,8 @@ func TestDriversHomeChangesWhichStopIsLast(t *testing.T) {
 		driverID := makeDriver(t, admin, "Ravi", "+91 98765 43210")
 		admin.mustDo(http.MethodPost, "/api/v1/drivers/"+driverID+"/home",
 			map[string]any{"home_lat": homeLat, "home_lng": 77.5946}, http.StatusOK)
+	admin.mustDo(http.MethodPost, "/api/v1/drivers/"+driverID+"/finish",
+		map[string]any{"finish_at": "home"}, http.StatusOK)
 		admin.mustDo(http.MethodPost, "/api/v1/routes/"+routeID+"/assign",
 			map[string]any{"driver_id": driverID}, http.StatusOK)
 
@@ -112,6 +118,8 @@ func TestChangingDriverHomeReordersTheirCurrentRoute(t *testing.T) {
 
 	admin.mustDo(http.MethodPost, "/api/v1/drivers/"+driverID+"/home",
 		map[string]any{"home_lat": 13.0200, "home_lng": 77.5946}, http.StatusOK)
+	admin.mustDo(http.MethodPost, "/api/v1/drivers/"+driverID+"/finish",
+		map[string]any{"finish_at": "home"}, http.StatusOK)
 
 	after := admin.mustDo(http.MethodGet, "/api/v1/day", nil, http.StatusOK)
 	for _, raw := range after["routes"].([]any) {

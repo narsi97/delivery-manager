@@ -42,6 +42,11 @@ func driverWithHome(t *testing.T, admin *client, name, phone string, lat, lng fl
 	id := makeDriver(t, admin, name, phone)
 	admin.mustDo(http.MethodPost, "/api/v1/drivers/"+id+"/home",
 		map[string]any{"home_lat": lat, "home_lng": lng}, http.StatusOK)
+	// These tests are about splitting by where drivers finish, so they
+	// opt into finishing at home — the default is the farm, because stock
+	// and empties have to come back. See domain.FinishAt.
+	admin.mustDo(http.MethodPost, "/api/v1/drivers/"+id+"/finish",
+		map[string]any{"finish_at": "home"}, http.StatusOK)
 	return id
 }
 

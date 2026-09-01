@@ -191,6 +191,12 @@ create table if not exists delivery_events (
 
 create index if not exists delivery_events_order_idx on delivery_events(daily_order_id);
 
+-- Where a driver's round ends. Defaults to the farm, because stock and
+-- empty bottles have to come back.
+alter table users add column if not exists finish_at text not null default 'farm';
+alter table users add column if not exists finish_lat double precision not null default 0;
+alter table users add column if not exists finish_lng double precision not null default 0;
+
 -- Who gets visited first, ahead of what the shortest path would say.
 alter table customers add column if not exists priority text not null default 'normal';
 

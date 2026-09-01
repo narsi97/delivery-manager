@@ -133,7 +133,8 @@ func (s *PostgresStore) UpdateBusinessConfig(ctx context.Context, businessID str
 // One list, repeated inline in five queries before this — the kind of
 // duplication that quietly breaks the moment a column is added, which is
 // exactly what happened when drivers got a home location.
-const userColumns = `id, business_id, role, name, coalesce(email,''), coalesce(phone,''), active, home_lat, home_lng, created_at`
+const userColumns = `id, business_id, role, name, coalesce(email,''), coalesce(phone,''), active, home_lat, home_lng,
+	coalesce(finish_at,'farm'), finish_lat, finish_lng, created_at`
 
 func (s *PostgresStore) GetAdminByEmail(ctx context.Context, email string) (domain.User, error) {
 	row := s.pool.QueryRow(ctx,
@@ -225,6 +226,17 @@ func (s *PostgresStore) SetUserHome(ctx context.Context, businessID string, id s
 		`update users set home_lat = $3, home_lng = $4 where id = $1 and business_id = $2
 		 returning `+userColumns,
 		id, businessID, lat, lng)
+	return scanUser(row)
+}
+
+// SetUserFinish records where this driver's round ends. lat/lng are only
+// meaningful for the custom choice and are stored regardless, so that
+// switching to custom and back doesn't lose the pin the admin set.
+func (s *PostgresStore) SetUserFinish(ctx context.Context, businessID string, id string, finishAt domain.FinishAt, lat, lng float64) (domain.User, error) {
+	row := s.pool.QueryRow(ctx,
+		`update users set finish_at = $3, finish_lat = $4, finish_lng = $5 where id = $1 and business_id = $2
+		 returning `+userColumns,
+		id, businessID, string(domain.NormalizeFinishAt(finishAt)), lat, lng)
 	return scanUser(row)
 }
 
@@ -746,10 +758,12 @@ func scanServiceArea(row scanner) (domain.ServiceArea, error) {
 
 func scanUser(row scanner) (domain.User, error) {
 	var u domain.User
+	var finishAt string
 	if err := row.Scan(&u.ID, &u.BusinessID, &u.Role, &u.Name, &u.Email, &u.Phone, &u.Active,
-		&u.HomeLat, &u.HomeLng, &u.CreatedAt); err != nil {
+		&u.HomeLat, &u.HomeLng, &finishAt, &u.FinishLat, &u.FinishLng, &u.CreatedAt); err != nil {
 		return domain.User{}, noRows(err)
 	}
+	u.FinishAt = domain.NormalizeFinishAt(domain.FinishAt(finishAt))
 	return u, nil
 }
 

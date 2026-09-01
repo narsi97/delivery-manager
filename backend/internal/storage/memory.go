@@ -707,3 +707,17 @@ func (s *MemoryStore) DeleteOTPChallenge(_ context.Context, phone string) error 
 	delete(s.otps, phone)
 	return nil
 }
+
+func (s *MemoryStore) SetUserFinish(_ context.Context, businessID string, id string, finishAt domain.FinishAt, lat, lng float64) (domain.User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	u, ok := s.users[id]
+	if !ok || u.BusinessID != businessID {
+		return domain.User{}, ErrNotFound
+	}
+	u.FinishAt = domain.NormalizeFinishAt(finishAt)
+	u.FinishLat, u.FinishLng = lat, lng
+	s.users[id] = u
+	return u, nil
+}

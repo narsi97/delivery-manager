@@ -124,8 +124,15 @@ type User struct {
 	// depot, and that changes which stop should be last: the cheapest
 	// order to end in Ramgiri is not the cheapest order to end back at
 	// the dairy. Zero means unset — see HasHome.
-	HomeLat   float64   `json:"home_lat"`
-	HomeLng   float64   `json:"home_lng"`
+	HomeLat float64 `json:"home_lat"`
+	HomeLng float64 `json:"home_lng"`
+	// FinishAt is where this driver's round ends — see the type. Empty
+	// means the farm, which is both the default and what a driver who
+	// predates this setting was effectively already doing whenever they
+	// had no home pinned.
+	FinishAt  FinishAt  `json:"finish_at"`
+	FinishLat float64   `json:"finish_lat"`
+	FinishLng float64   `json:"finish_lng"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -133,6 +140,68 @@ type User struct {
 // Customer.HasPin and Business.HasHome — exact 0,0 is treated as unset
 // rather than as Null Island.
 func (u User) HasHome() bool { return u.HomeLat != 0 || u.HomeLng != 0 }
+
+// FinishAt is where a driver's route ends.
+//
+// The obvious answer was "their home", and it was wrong for the actual
+// business. A driver usually goes back to the farm at the end: undelivered
+// stock has to be handed over and the empty bottles have to be returned,
+// and neither can happen at the driver's house. Sometimes it genuinely is
+// home, and sometimes it is neither — a second collection point, a
+// relative's shop.
+//
+// So it is a choice per driver rather than an assumption, and the default
+// is the farm, because that is what most rounds actually do.
+type FinishAt string
+
+const (
+	// FinishAtFarm sends the driver back to the business's own location —
+	// the default, and the only one that lets stock and empties come back.
+	FinishAtFarm FinishAt = "farm"
+	// FinishAtHome ends the round wherever the driver lives.
+	FinishAtHome FinishAt = "home"
+	// FinishAtCustom ends it at a pin set on this driver, for a round
+	// that hands over somewhere that is neither.
+	FinishAtCustom FinishAt = "custom"
+)
+
+func ValidFinishAt(f FinishAt) bool {
+	switch f {
+	case FinishAtFarm, FinishAtHome, FinishAtCustom, "":
+		return true
+	}
+	return false
+}
+
+func NormalizeFinishAt(f FinishAt) FinishAt {
+	if f == FinishAtHome || f == FinishAtCustom {
+		return f
+	}
+	return FinishAtFarm
+}
+
+// FinishPoint resolves where this driver's route should end, given the
+// business they work for. Returns ok=false when the choice cannot be
+// honoured — home selected with no home pinned, custom selected with no
+// custom pin — in which case the route is left open-ended rather than
+// being sent to 0,0 in the Gulf of Guinea.
+func (u User) FinishPoint(b Business) (lat float64, lng float64, ok bool) {
+	switch NormalizeFinishAt(u.FinishAt) {
+	case FinishAtHome:
+		if u.HasHome() {
+			return u.HomeLat, u.HomeLng, true
+		}
+	case FinishAtCustom:
+		if u.FinishLat != 0 || u.FinishLng != 0 {
+			return u.FinishLat, u.FinishLng, true
+		}
+	default:
+		if b.HasHome() {
+			return b.HomeLat, b.HomeLng, true
+		}
+	}
+	return 0, 0, false
+}
 
 // Customer is deliberately account-less by default. Admins onboard real
 // customers long before those customers ever get an app, so AccountID is
