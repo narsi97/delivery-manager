@@ -1605,6 +1605,14 @@ func (s *Server) orderRound(
 			orderedIDs = append(orderedIDs, e.id)
 		}
 		orderedIDs = append(orderedIDs, fresh...)
+		// The van is still only so big. On a hand-arranged round the tail
+		// is what goes: the person who dragged these into order put the
+		// ones that matter at the top, and second-guessing that by
+		// distance or priority would be the app overruling them on the
+		// one route they explicitly arranged themselves.
+		if maxStops > 0 && len(orderedIDs) > maxStops {
+			orderedIDs = orderedIDs[:maxStops]
+		}
 		return s.store.AssignStops(r.Context(), businessID, rt.ID, orderedIDs)
 	}
 

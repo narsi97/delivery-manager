@@ -560,3 +560,33 @@ func TestACapKeepsThePriorityCustomers(t *testing.T) {
 		t.Fatal("the cap dropped the shop, which is the one stop that cannot be dropped")
 	}
 }
+
+// A round somebody arranged by hand is still bounded by the van. The
+// tail goes, because the order it is in is the order they chose.
+func TestACapAppliesToAHandArrangedRound(t *testing.T) {
+	admin, areaID := areaSetup(t, 3) // 6 customers
+	solo := driverWithHome(t, admin, "Solo", "+91 90000 00001", 12.9700, 77.5500)
+	admin.mustDo(http.MethodPost, "/api/v1/service-areas/"+areaID+"/drivers",
+		map[string]any{"driver_ids": []string{solo}}, http.StatusOK)
+
+	// Pin the order by moving something, which is what makes it manual.
+	day := admin.mustDo(http.MethodGet, "/api/v1/day", nil, http.StatusOK)
+	var last string
+	for _, stop := range stopsOf(t, day) {
+		if str(stop, "route_id") != "" {
+			last = str(stop, "id")
+		}
+	}
+	admin.mustDo(http.MethodPost, "/api/v1/orders/"+last+"/position",
+		map[string]any{"position": 1}, http.StatusOK)
+
+	admin.mustDo(http.MethodPost, "/api/v1/drivers/"+solo+"/max-stops",
+		map[string]any{"max_stops": 2}, http.StatusOK)
+	if routed := routedCount(t, admin); routed != 2 {
+		t.Fatalf("a pinned round holds %d stops against a limit of 2", routed)
+	}
+	// And it stays cut back rather than being rewritten on every read.
+	if routed := routedCount(t, admin); routed != 2 {
+		t.Fatalf("on the second read a pinned round holds %d stops, want 2", routed)
+	}
+}
