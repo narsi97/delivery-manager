@@ -219,6 +219,25 @@ var schemaStatements = []string{
 	// priorities did sorts exactly where it always has.
 	`alter table customers add column if not exists priority text not null default 'normal'`,
 
+	// A driver's start of day: what they counted at the farm, and whether
+	// somebody agreed. One per driver per date — reporting again replaces
+	// the previous attempt rather than queueing a second.
+	`create table if not exists checkins (
+		id text primary key,
+		business_id text not null references businesses(id) on delete cascade,
+		driver_id text not null references users(id) on delete cascade,
+		route_date text not null,
+		units integer not null default 0,
+		note text not null default '',
+		status text not null default 'pending',
+		reviewed_by text not null default '',
+		review_note text not null default '',
+		created_at timestamptz not null default now(),
+		reviewed_at timestamptz
+	)`,
+	`create unique index if not exists checkins_driver_date_key on checkins(driver_id, route_date)`,
+	`create index if not exists checkins_business_date_idx on checkins(business_id, route_date)`,
+
 	`create table if not exists otp_challenges (
 		phone text primary key,
 		code_hash text not null,

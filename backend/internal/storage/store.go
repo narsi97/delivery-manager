@@ -80,6 +80,13 @@ type Store interface {
 	BumpOTPAttempts(ctx context.Context, phone string) (int, error)
 	DeleteOTPChallenge(ctx context.Context, phone string) error
 
+	// A driver's start-of-day check-in. PutCheckin replaces any existing
+	// one for that driver and date — reporting again is a correction, not
+	// a second request in a queue.
+	PutCheckin(ctx context.Context, c domain.Checkin) (domain.Checkin, error)
+	GetCheckin(ctx context.Context, businessID string, driverID string, date string) (domain.Checkin, error)
+	ListCheckins(ctx context.Context, businessID string, date string) ([]domain.Checkin, error)
+
 	// CreateUser adds a driver (or a second admin) to an existing
 	// business. pinHash may be empty for admins, who authenticate with
 	// Google instead. Returns ErrConflict on a duplicate email or phone.

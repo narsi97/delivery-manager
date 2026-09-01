@@ -961,3 +961,62 @@ func (s *PostgresStore) DeleteOTPChallenge(ctx context.Context, phone string) er
 	_, err := s.pool.Exec(ctx, `delete from otp_challenges where phone = $1`, phone)
 	return err
 }
+
+const checkinColumns = `id, business_id, driver_id, route_date, units, note, status,
+	reviewed_by, review_note, created_at, reviewed_at`
+
+func (s *PostgresStore) PutCheckin(ctx context.Context, c domain.Checkin) (domain.Checkin, error) {
+	row := s.pool.QueryRow(ctx,
+		`insert into checkins (`+checkinColumns+`)
+		 values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		 on conflict (driver_id, route_date) do update set
+			units = excluded.units,
+			note = excluded.note,
+			status = excluded.status,
+			reviewed_by = excluded.reviewed_by,
+			review_note = excluded.review_note,
+			created_at = excluded.created_at,
+			reviewed_at = excluded.reviewed_at
+		 returning `+checkinColumns,
+		c.ID, c.BusinessID, c.DriverID, c.RouteDate, c.Units, c.Note, string(c.Status),
+		c.ReviewedBy, c.ReviewNote, c.CreatedAt, c.ReviewedAt)
+	return scanCheckin(row)
+}
+
+func (s *PostgresStore) GetCheckin(ctx context.Context, businessID string, driverID string, date string) (domain.Checkin, error) {
+	row := s.pool.QueryRow(ctx,
+		`select `+checkinColumns+` from checkins where business_id=$1 and driver_id=$2 and route_date=$3`,
+		businessID, driverID, date)
+	return scanCheckin(row)
+}
+
+func (s *PostgresStore) ListCheckins(ctx context.Context, businessID string, date string) ([]domain.Checkin, error) {
+	rows, err := s.pool.Query(ctx,
+		`select `+checkinColumns+` from checkins where business_id=$1 and route_date=$2 order by created_at`,
+		businessID, date)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []domain.Checkin{}
+	for rows.Next() {
+		c, err := scanCheckin(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func scanCheckin(row scanner) (domain.Checkin, error) {
+	var c domain.Checkin
+	var status string
+	if err := row.Scan(&c.ID, &c.BusinessID, &c.DriverID, &c.RouteDate, &c.Units, &c.Note, &status,
+		&c.ReviewedBy, &c.ReviewNote, &c.CreatedAt, &c.ReviewedAt); err != nil {
+		return domain.Checkin{}, noRows(err)
+	}
+	c.Status = domain.CheckinStatus(status)
+	return c, nil
+}

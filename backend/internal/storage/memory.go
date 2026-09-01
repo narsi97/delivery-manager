@@ -32,6 +32,7 @@ type MemoryStore struct {
 	routes       map[string]domain.Route
 	events       []domain.DeliveryEvent
 	otps         map[string]domain.OTPChallenge
+	checkins     map[string]domain.Checkin
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -46,6 +47,7 @@ func NewMemoryStore() *MemoryStore {
 		daily:        map[string]domain.DailyOrder{},
 		routes:       map[string]domain.Route{},
 		otps:         map[string]domain.OTPChallenge{},
+		checkins:     map[string]domain.Checkin{},
 	}
 }
 
@@ -720,4 +722,36 @@ func (s *MemoryStore) SetUserFinish(_ context.Context, businessID string, id str
 	u.FinishLat, u.FinishLng = lat, lng
 	s.users[id] = u
 	return u, nil
+}
+
+func checkinKey(driverID, date string) string { return driverID + "|" + date }
+
+func (s *MemoryStore) PutCheckin(_ context.Context, c domain.Checkin) (domain.Checkin, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.checkins[checkinKey(c.DriverID, c.RouteDate)] = c
+	return c, nil
+}
+
+func (s *MemoryStore) GetCheckin(_ context.Context, businessID string, driverID string, date string) (domain.Checkin, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	c, ok := s.checkins[checkinKey(driverID, date)]
+	if !ok || c.BusinessID != businessID {
+		return domain.Checkin{}, ErrNotFound
+	}
+	return c, nil
+}
+
+func (s *MemoryStore) ListCheckins(_ context.Context, businessID string, date string) ([]domain.Checkin, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []domain.Checkin{}
+	for _, c := range s.checkins {
+		if c.BusinessID == businessID && c.RouteDate == date {
+			out = append(out, c)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out, nil
 }

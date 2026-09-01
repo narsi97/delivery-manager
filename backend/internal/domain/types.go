@@ -303,6 +303,48 @@ const (
 // it is expired, which is a different thing to tell someone.
 func (c OTPChallenge) Expired(now time.Time) bool { return now.After(c.ExpiresAt) }
 
+// Checkin is a driver's start of day: they have reached the farm, counted
+// what they are taking, and are waiting to be let go.
+//
+// The point is not the count — it is that somebody at the farm agrees
+// with the count before a van leaves with stock in it. A driver who
+// loads 38 packets and delivers 40 addresses discovers the problem two
+// streets from the end; the same driver whose 38 was checked against the
+// list discovers it while still standing next to more milk.
+//
+// So the day's stops stay hidden until this is approved. That gate is
+// the whole feature; the number is just what there is to agree about.
+type Checkin struct {
+	ID         string    `json:"id"`
+	BusinessID string    `json:"business_id"`
+	DriverID   string    `json:"driver_id"`
+	RouteDate  string    `json:"route_date"`
+	Units      int       `json:"units"`
+	Note       string    `json:"note"`
+	Status     CheckinStatus `json:"status"`
+	// Who approved or rejected it, and what they said. An admin rejecting
+	// a count owes the driver a reason — "12 short" is actionable, a bare
+	// rejection is not.
+	ReviewedBy   string    `json:"reviewed_by,omitempty"`
+	ReviewNote   string    `json:"review_note,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	ReviewedAt   *time.Time `json:"reviewed_at,omitempty"`
+}
+
+type CheckinStatus string
+
+const (
+	// CheckinPending: the driver has reported and is waiting.
+	CheckinPending CheckinStatus = "pending"
+	// CheckinApproved: the round is unlocked for that driver, that day.
+	CheckinApproved CheckinStatus = "approved"
+	// CheckinRejected: the count was wrong. The driver can report again —
+	// a rejection is a correction, not a lockout.
+	CheckinRejected CheckinStatus = "rejected"
+)
+
+func (c Checkin) Approved() bool { return c.Status == CheckinApproved }
+
 // PriorityTier is how much a customer's position in the route is worth
 // bending the path for.
 //

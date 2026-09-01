@@ -141,6 +141,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/routes/{id}/assign", s.withAdmin(s.handleAssignRoute))
 
 	s.mux.HandleFunc("GET /api/v1/driver/today", s.withDriver(s.handleDriverToday))
+	s.mux.HandleFunc("POST /api/v1/driver/checkin", s.withDriver(s.handleDriverCheckin))
+	s.mux.HandleFunc("GET /api/v1/checkins", s.withAdmin(s.handleListCheckins))
+	s.mux.HandleFunc("POST /api/v1/checkins/{driverId}/review", s.withAdmin(s.handleReviewCheckin))
 	s.mux.HandleFunc("POST /api/v1/driver/stops/{id}/status", s.withDriver(s.handleDriverStopStatus))
 }
 

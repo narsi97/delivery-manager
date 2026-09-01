@@ -85,6 +85,7 @@ func TestSchoolVerticalRunsOnTheSameEngine(t *testing.T) {
 	}, http.StatusOK)
 
 	driverSession := signInWithOTP(t, server, "+919876543210", nil)
+	checkInAndApprove(t, admin, driverSession, str(driver, "id"), 1)
 
 	today := driverSession.mustDo(http.MethodGet, "/api/v1/driver/today", nil, http.StatusOK)
 

@@ -22,6 +22,13 @@ type driverTodayResponse struct {
 	// app needs these to know what to ask for at each door, and a second
 	// request is a second chance to fail on a bad connection.
 	Captures []domain.CaptureSpec `json:"captures"`
+	// Checkin is this driver's start-of-day report, when they have made
+	// one. Stops stay empty until it is approved — see handleDriverToday.
+	Checkin *domain.Checkin `json:"checkin,omitempty"`
+	// CheckinRequired says the round exists but is still behind the gate,
+	// which is what tells the app to show the count form rather than an
+	// empty list that looks like a quiet day.
+	CheckinRequired bool `json:"checkin_required"`
 }
 
 // handleDriverToday is the single request the driver app makes on
@@ -51,6 +58,29 @@ func (s *Server) handleDriverToday(w http.ResponseWriter, r *http.Request) {
 			Date:     date,
 			Stops:    []domain.Stop{},
 			Captures: sess.Business.Config.StopCaptures,
+		})
+		return
+	}
+
+	// The gate. A round exists, but nothing about it is shown until
+	// somebody at the farm has agreed the driver's count — see
+	// checkin.go. Deliberately after the "is there a round at all" check
+	// above, so a driver with nothing assigned is told that plainly
+	// rather than being asked to count stock for a round that doesn't
+	// exist.
+	checkin, approved := s.checkinFor(r, sess, date)
+	if !approved {
+		var pending *domain.Checkin
+		if checkin.ID != "" {
+			pending = &checkin
+		}
+		writeJSON(w, http.StatusOK, driverTodayResponse{
+			Date:            date,
+			Route:           assigned,
+			Stops:           []domain.Stop{},
+			Captures:        sess.Business.Config.StopCaptures,
+			Checkin:         pending,
+			CheckinRequired: true,
 		})
 		return
 	}
@@ -87,6 +117,7 @@ func (s *Server) handleDriverToday(w http.ResponseWriter, r *http.Request) {
 		Stops:     stops,
 		Remaining: remaining,
 		Captures:  sess.Business.Config.StopCaptures,
+		Checkin:   &checkin,
 	})
 }
 

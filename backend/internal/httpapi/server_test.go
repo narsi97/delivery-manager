@@ -63,6 +63,18 @@ func (c *capturingSender) codeFor(phone string) string {
 	return c.codes[phone]
 }
 
+// checkInAndApprove walks the start-of-day gate: the driver reports what
+// they loaded at the farm, and the admin agrees. Until that happens the
+// driver's stops are deliberately hidden (see handleDriverToday), so any
+// test that wants to see a round has to go through it — same as a real
+// morning.
+func checkInAndApprove(t *testing.T, admin, driver *client, driverID string, units int) {
+	t.Helper()
+	driver.mustDo(http.MethodPost, "/api/v1/driver/checkin", map[string]any{"units": units}, http.StatusOK)
+	admin.mustDo(http.MethodPost, "/api/v1/checkins/"+driverID+"/review",
+		map[string]any{"approve": true}, http.StatusOK)
+}
+
 // signInWithOTP performs the whole real flow: ask for a code, read what
 // was sent, hand it back. Used by every test that needs a session.
 func signInWithOTP(t *testing.T, server *Server, phone string, extra map[string]any) *client {
@@ -310,6 +322,16 @@ func TestFullDeliveryDay(t *testing.T) {
 	// The driver signs in with a code sent to the number the admin
 	// registered, typed without the spaces the admin used.
 	driverSession := signInWithOTP(t, server, "9876543210", nil)
+
+	// The gate: nothing is visible until the load is counted and agreed.
+	locked := driverSession.mustDo(http.MethodGet, "/api/v1/driver/today", nil, http.StatusOK)
+	if stops, _ := locked["stops"].([]any); len(stops) != 0 {
+		t.Fatalf("driver saw %d stops before check-in — the round should be gated", len(stops))
+	}
+	if !locked["checkin_required"].(bool) {
+		t.Fatal("driver was not told a check-in is required")
+	}
+	checkInAndApprove(t, admin, driverSession, driverID, 2)
 
 	today := driverSession.mustDo(http.MethodGet, "/api/v1/driver/today", nil, http.StatusOK)
 	if got := num(today, "remaining"); got != 2 {

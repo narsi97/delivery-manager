@@ -113,6 +113,20 @@ nightly backup copies.
 
 ---
 
+### The check-in gate is not optional per business
+
+**Now:** every driver on every business must have their load counted and
+approved before their stops appear.
+
+**Costs:** a one-person dairy where the owner is also the driver has to
+approve their own count each morning, which is ceremony rather than
+control.
+
+**To undo:** a flag on `BusinessConfig` (which already exists for exactly
+this kind of per-tenant switch) and a check in `handleDriverToday`. Not
+done now because the business that asked for it wants it on, and a
+setting nobody has asked to turn off is a setting nobody maintains.
+
 ## Vocabulary and naming
 
 ### The Go internals still say "round"
