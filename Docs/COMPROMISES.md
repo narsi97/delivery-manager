@@ -198,6 +198,24 @@ their pin.
 together. The endpoint rename is the only part that is not mechanical —
 it needs the old path kept alive until every client has moved.
 
+### A new route never takes settled customers, even when it should
+
+**Now:** creating a service route pins anybody it would have taken off
+an existing route back to the route they were already on, and reports
+them so the screen can offer to hand them over
+(`keepCustomersWhereTheyAre`).
+
+**Costs:** the safe default is the wrong one when the new route is a
+*better* description of where those customers belong — drawing a
+tight "Kodad" circle inside a sloppy 25 km "Nalgonda" one leaves the
+Kodad customers on Nalgonda until somebody presses the button. And it
+is a one-time offer: dismiss it and the only way back is the picker on
+each customer's card.
+
+**To undo:** make the offer durable rather than a notice — a "3
+customers could be on this route" line on the route's own row, computed
+live, so it is answerable later and not just at creation.
+
 ### A service route is still drawn as a circle
 
 **Now:** every service route has a centre and a radius, and claims

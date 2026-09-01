@@ -140,6 +140,18 @@ export function createServiceArea(token, area) {
   return request('/api/v1/service-areas', { method: 'POST', token, body: JSON.stringify(area) });
 }
 
+// Hand customers to a service route by hand. Creating a route
+// deliberately leaves settled customers on the route they were already
+// on (see keepCustomersWhereTheyAre); this is how the screen offers to
+// hand them over anyway.
+export function addCustomersToServiceArea(token, areaId, customerIds) {
+  return request(`/api/v1/service-areas/${areaId}/customers`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ customer_ids: customerIds }),
+  });
+}
+
 export function updateServiceArea(token, id, changes) {
   return request(`/api/v1/service-areas/${id}`, { method: 'PATCH', token, body: JSON.stringify(changes) });
 }

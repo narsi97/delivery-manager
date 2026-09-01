@@ -5,6 +5,7 @@ import * as api from '../api';
 import { AddButton, Banner, Button, Card, Disclosure, Empty, Field, FieldRow, Pill, SectionTitle } from '../components';
 import LocationPicker, { InlineLocationEditor } from '../LocationPicker';
 import { labelsFor, lower } from '../labels';
+import { serviceRouteFor } from '../serviceAreas';
 import { colors, radius, spacing } from '../theme';
 
 // The business's own settings: its name, where it's based, and the
@@ -30,6 +31,8 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
   // heading — next to the count it's adding to — instead of repeating the
   // section's own title as a second row underneath.
   const [addingArea, setAddingArea] = useState(false);
+  // Customers a newly created route passed over, waiting on a yes/no.
+  const [kept, setKept] = useState(null);
   const [suggestions, setSuggestions] = useState([]);
   const [prefill, setPrefill] = useState(null);
 
@@ -142,11 +145,34 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
             drivers={drivers}
             customers={customers}
             initial={prefill}
+            labels={labels}
             key={prefill ? `${prefill.lat},${prefill.lng}` : 'blank'}
-            onCreated={async (name) => {
+            onCreated={async (name, area) => {
               setNotice(`Added ${name}.`);
               setAddingArea(false);
               setPrefill(null);
+              // Who the new route deliberately did not take. Offered
+              // rather than done, because "I drew a circle" is not the
+              // same as "move these people" — see
+              // keepCustomersWhereTheyAre.
+              setKept(area?.kept?.length ? { area, customers: area.kept } : null);
+              await refresh();
+            }}
+            onError={setError}
+          />
+        ) : null}
+
+        {kept ? (
+          <KeptCustomersNotice
+            token={token}
+            kept={kept}
+            labels={labels}
+            onDismiss={() => setKept(null)}
+            onMoved={async (count) => {
+              setNotice(
+                `Moved ${count} ${count === 1 ? lower(labels.customer) : lower(labels.customer_plural)} to ${kept.area.name}.`,
+              );
+              setKept(null);
               await refresh();
             }}
             onError={setError}
@@ -351,7 +377,62 @@ function SelectedEntityEditor({ token, selected, home, onClose, onChanged, onErr
 // Controlled from the parent's "+" at the heading (see BusinessScreen)
 // rather than owning its own expand toggle — the trigger lives next to
 // the count it's adding to, not as a second title repeated underneath.
-function NewServiceAreaForm({ token, home, areas, drivers, customers, initial, onCreated, onError }) {
+// What a new service route did *not* do, and the offer to do it.
+//
+// Routes claim customers by pin, and a second circle over a town you
+// already deliver to would otherwise take whichever ones sit closer to
+// the new middle — off a round the owner had already settled. That is
+// never what drawing a circle meant, so it does not happen; this says so
+// and offers the other answer in one tap.
+//
+// Named, not counted: "3 customers stayed on Nalgonda" is a number to go
+// and verify, while the names are the answer itself.
+function KeptCustomersNotice({ token, kept, labels, onDismiss, onMoved, onError }) {
+  const [busy, setBusy] = useState(false);
+  const names = kept.customers.map((entry) => entry.customer_name);
+  const from = kept.customers[0]?.route_name;
+  const sameRoute = kept.customers.every((entry) => entry.route_name === from);
+
+  const move = async () => {
+    setBusy(true);
+    try {
+      await api.addCustomersToServiceArea(
+        token,
+        kept.area.id,
+        kept.customers.map((entry) => entry.customer_id),
+      );
+      await onMoved(kept.customers.length);
+    } catch (err) {
+      onError(err.message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={styles.keptBox}>
+      <Text style={styles.keptTitle}>
+        {names.length} {names.length === 1 ? lower(labels.customer) : lower(labels.customer_plural)} stayed
+        {sameRoute && from ? ` on ${from}` : ' where they were'}
+      </Text>
+      <Text style={styles.keptBody}>
+        {names.join(', ')} {names.length === 1 ? 'sits' : 'sit'} inside {kept.area.name} too. They were left on the{' '}
+        {lower(labels.route)} they were already on, so nothing you had settled has changed.
+      </Text>
+      <View style={styles.keptButtons}>
+        <Button
+          title={`Move ${names.length === 1 ? 'them' : 'them all'} to ${kept.area.name}`}
+          variant="secondary"
+          busy={busy}
+          onPress={move}
+          style={styles.keptButton}
+        />
+        <Button title="Leave them" variant="secondary" onPress={onDismiss} style={styles.keptButton} />
+      </View>
+    </View>
+  );
+}
+
+function NewServiceAreaForm({ token, home, areas, drivers, customers, initial, labels, onCreated, onError }) {
   const [name, setName] = useState(initial?.name || '');
   const [lat, setLat] = useState(initial ? String(initial.lat) : '');
   const [lng, setLng] = useState(initial ? String(initial.lng) : '');
@@ -368,14 +449,22 @@ function NewServiceAreaForm({ token, home, areas, drivers, customers, initial, o
   // admin steers by — "covers 42 of your 47" is a sentence a dairy owner
   // can act on; 3.4 km is not. Mirrors coveredCount in the backend.
   const pinned = (customers || []).filter((customer) => customer.lat || customer.lng);
-  const covered = Number(lat) && Number(lng)
-    ? pinned.filter((customer) => metersBetween(Number(lat), Number(lng), customer.lat, customer.lng) <= radiusMeters).length
-    : 0;
+  const inCircle =
+    Number(lat) && Number(lng)
+      ? pinned.filter((customer) => metersBetween(Number(lat), Number(lng), customer.lat, customer.lng) <= radiusMeters)
+      : [];
+  // Inside the circle is not the same as "this route will take them".
+  // Anyone already on a route stays on it — see keepCustomersWhereTheyAre
+  // — so the headline counts the ones this route would actually pick up
+  // and the rest are named as staying put. Promising 42 and delivering 8
+  // is the kind of surprise this whole change exists to stop.
+  const settled = inCircle.filter((customer) => serviceRouteFor(customer, areas));
+  const covered = inCircle.length - settled.length;
 
   const submit = async () => {
     setBusy(true);
     try {
-      await api.createServiceArea(token, {
+      const area = await api.createServiceArea(token, {
         name,
         lat: Number(lat) || 0,
         lng: Number(lng) || 0,
@@ -386,7 +475,7 @@ function NewServiceAreaForm({ token, home, areas, drivers, customers, initial, o
       setLat('');
       setLng('');
       setRadiusMeters(3000);
-      await onCreated(created);
+      await onCreated(created, area);
     } catch (err) {
       onError(err.message);
     } finally {
@@ -427,10 +516,17 @@ function NewServiceAreaForm({ token, home, areas, drivers, customers, initial, o
       />
       <Text style={styles.coverage}>
         {Number(lat) && Number(lng)
-          ? `Covers ${covered} of your ${pinned.length} pinned ${pinned.length === 1 ? 'customer' : 'customers'}`
+          ? `Takes ${covered} of your ${pinned.length} pinned ${pinned.length === 1 ? 'customer' : 'customers'}`
           : 'Drop the pin above to see who this covers'}
       </Text>
-      <Text style={styles.note}>{(radiusMeters / 1000).toFixed(1)} km across the map.</Text>
+      <Text style={styles.note}>
+        {(radiusMeters / 1000).toFixed(1)} km across the map.
+        {settled.length > 0
+          ? ` ${settled.length} more ${settled.length === 1 ? 'sits' : 'sit'} inside it but ${
+              settled.length === 1 ? 'is' : 'are'
+            } already on another ${lower(labels.route)} — they stay there, and you can move them afterwards.`
+          : ''}
+      </Text>
 
       <Button title="Add service route" onPress={submit} busy={busy} disabled={!name.trim() || !lat || !lng} />
     </View>
@@ -805,6 +901,18 @@ const styles = StyleSheet.create({
   productMeta: { fontSize: 13, color: colors.subtitle },
   cardSection: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs },
   headingDivider: { borderBottomWidth: 1, borderBottomColor: colors.border, marginTop: -spacing.sm, marginBottom: spacing.md },
+  keptBox: {
+    borderWidth: 1,
+    borderColor: colors.warning,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceAlt,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  keptTitle: { fontSize: 14, fontWeight: '700', color: colors.text, marginBottom: 3 },
+  keptBody: { fontSize: 13, color: colors.subtitle, lineHeight: 19, marginBottom: spacing.sm },
+  keptButtons: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
+  keptButton: { flex: 1, minWidth: 150 },
   inlineForm: { marginBottom: spacing.md },
   coverage: { fontSize: 14, fontWeight: '700', color: colors.accent, marginTop: spacing.xs },
   suggestBox: {
