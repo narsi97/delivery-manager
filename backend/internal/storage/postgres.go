@@ -600,10 +600,10 @@ func (s *PostgresStore) UpdateDailyOrder(ctx context.Context, o domain.DailyOrde
 func (s *PostgresStore) CreateRoute(ctx context.Context, r domain.Route) (domain.Route, error) {
 	r.CreatedAt = time.Now().UTC()
 	_, err := s.pool.Exec(ctx,
-		`insert into routes (id, business_id, route_date, name, driver_id, status, start_lat, start_lng, end_lat, end_lng,
-			estimated_meters, manual_order, created_at)
-		 values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-		r.ID, r.BusinessID, r.RouteDate, r.Name, r.DriverID, string(r.Status),
+		`insert into routes (id, business_id, route_date, name, driver_id, status, service_area_id,
+			start_lat, start_lng, end_lat, end_lng, estimated_meters, manual_order, created_at)
+		 values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+		r.ID, r.BusinessID, r.RouteDate, r.Name, r.DriverID, string(r.Status), r.ServiceAreaID,
 		r.StartLat, r.StartLng, r.EndLat, r.EndLng, r.EstimatedMeters, r.ManualOrder, r.CreatedAt)
 	if err != nil {
 		return domain.Route{}, err
@@ -611,8 +611,8 @@ func (s *PostgresStore) CreateRoute(ctx context.Context, r domain.Route) (domain
 	return r, nil
 }
 
-const routeColumns = `id, business_id, route_date, name, driver_id, status, start_lat, start_lng, end_lat, end_lng,
-	estimated_meters, coalesce(manual_order,false), created_at`
+const routeColumns = `id, business_id, route_date, name, driver_id, status, service_area_id,
+	start_lat, start_lng, end_lat, end_lng, estimated_meters, coalesce(manual_order,false), created_at`
 
 func (s *PostgresStore) DeleteRoute(ctx context.Context, businessID string, id string) error {
 	// The business_id predicate is the tenant guard: a route id from
@@ -666,10 +666,10 @@ func (s *PostgresStore) ListRoutes(ctx context.Context, businessID string, date 
 func (s *PostgresStore) UpdateRoute(ctx context.Context, r domain.Route) (domain.Route, error) {
 	row := s.pool.QueryRow(ctx,
 		`update routes set name=$3, driver_id=$4, status=$5, start_lat=$6, start_lng=$7, end_lat=$8, end_lng=$9,
-		        estimated_meters=$10, manual_order=$11
+		        estimated_meters=$10, manual_order=$11, service_area_id=$12
 		 where id=$1 and business_id=$2 returning `+routeColumns,
 		r.ID, r.BusinessID, r.Name, r.DriverID, string(r.Status),
-		r.StartLat, r.StartLng, r.EndLat, r.EndLng, r.EstimatedMeters, r.ManualOrder)
+		r.StartLat, r.StartLng, r.EndLat, r.EndLng, r.EstimatedMeters, r.ManualOrder, r.ServiceAreaID)
 	return scanRoute(row)
 }
 
@@ -853,7 +853,7 @@ func marshalOrderBags(o domain.DailyOrder) (fields []byte, captures []byte, err 
 
 func scanRoute(row scanner) (domain.Route, error) {
 	var r domain.Route
-	if err := row.Scan(&r.ID, &r.BusinessID, &r.RouteDate, &r.Name, &r.DriverID, &r.Status,
+	if err := row.Scan(&r.ID, &r.BusinessID, &r.RouteDate, &r.Name, &r.DriverID, &r.Status, &r.ServiceAreaID,
 		&r.StartLat, &r.StartLng, &r.EndLat, &r.EndLng, &r.EstimatedMeters, &r.ManualOrder, &r.CreatedAt); err != nil {
 		return domain.Route{}, noRows(err)
 	}

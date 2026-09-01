@@ -9,7 +9,7 @@ import DateNav from '../DateNav';
 import DayRouteMapPanel from '../DayRouteMapPanel';
 import DonutChart from '../DonutChart';
 import { labelsFor, lower } from '../labels';
-import { nearestAreaFor } from '../serviceAreas';
+import { nearestAreaFor, serviceRouteOfRoute } from '../serviceAreas';
 import NotGoingOut from '../NotGoingOut';
 import { colors, spacing } from '../theme';
 
@@ -131,14 +131,15 @@ export default function TodayScreen({ token, business }) {
   const allStops = day?.stops || [];
   const home = business.home_lat || business.home_lng ? { lat: business.home_lat, lng: business.home_lng } : null;
 
-  // Rounds belong to the area their start point sits in — the same test
-  // the backend uses to recognise them (see areaContaining in admin.go,
-  // mirrored by nearestAreaFor). A split area has several, which is why
-  // this is a list per area rather than one route each.
+  // Routes belong to the service route they were prepared for — the
+  // same test the backend uses to recognise them (see serviceRouteOf in
+  // admin.go, mirrored by serviceRouteOfRoute). One service route can
+  // hold several, which is what splitting between drivers produces,
+  // so this is a list per service route rather than one route each.
   const routesByArea = new Map(areas.map((area) => [area.id, []]));
   const looseRoutes = [];
   for (const route of routes) {
-    const area = nearestAreaFor(route.start_lat, route.start_lng, areas);
+    const area = serviceRouteOfRoute(route, areas);
     if (area && routesByArea.has(area.id)) {
       routesByArea.get(area.id).push(route);
     } else {

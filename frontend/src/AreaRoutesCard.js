@@ -54,9 +54,18 @@ export default function AreaRoutesCard({
   const activeDrivers = drivers.filter((driver) => driver.active);
   const assigned = routes.map((route) => route.driver_id).filter(Boolean);
   const areaStops = stops.filter((stop) => routes.some((route) => route.id === stop.route_id));
-  // In the order a driver would work them, which is the only order in
-  // which "move this one up" means anything.
-  const ordered = [...areaStops].sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
+
+  // One list per route, each in the order that route's driver would work
+  // it. Never one list across all of them: two drivers' rounds have
+  // nothing to do with each other, and interleaving them by sequence
+  // produced a list where "3." appeared twice and moving a stop up
+  // moved it past somebody else's delivery. See the reorder note below.
+  const byRoute = routes.map((route) => ({
+    route,
+    stops: areaStops
+      .filter((stop) => stop.route_id === route.id)
+      .sort((a, b) => (a.sequence || 0) - (b.sequence || 0)),
+  }));
 
   const moveStop = async (orderId, position) => {
     setBusy(true);
@@ -214,7 +223,7 @@ export default function AreaRoutesCard({
               <View key={route.id} style={styles.splitRow}>
                 <Text style={styles.splitName}>{driver ? driver.name : route.name}</Text>
                 <Text style={styles.splitMeta}>
-                  {count} stops · {((route.estimated_meters || 0) / 1000).toFixed(1)} km
+                  {count} {count === 1 ? 'stop' : 'stops'} · {((route.estimated_meters || 0) / 1000).toFixed(1)} km
                 </Text>
               </View>
             );
@@ -254,19 +263,41 @@ export default function AreaRoutesCard({
       </Disclosure>
       {expanded ? (
         <View style={styles.stopList}>
-          {ordered.map((stop, index) => (
-            <StopCard
-              key={stop.id}
-              stop={stop}
-              products={products}
-              token={token}
-              onChanged={onChanged}
-              onError={onError}
-              onReorder={(position) => moveStop(stop.id, position)}
-              canMoveUp={index > 0}
-              canMoveDown={index < ordered.length - 1}
-            />
-          ))}
+          {byRoute.map(({ route, stops: routeStops }) => {
+            const driver = drivers.find((d) => d.id === route.driver_id);
+            return (
+              <View key={route.id} style={styles.routeStops}>
+                {/* Only worth a heading when there is more than one
+                    round to tell apart — on the ordinary single-driver
+                    day it would be a label above the only list there is. */}
+                {routes.length > 1 ? (
+                  <View style={styles.routeStopsHeader}>
+                    <Text style={styles.routeStopsName}>{driver ? driver.name : route.name}</Text>
+                    <Text style={styles.routeStopsMeta}>
+                      {routeStops.length} {routeStops.length === 1 ? 'stop' : 'stops'}
+                    </Text>
+                  </View>
+                ) : null}
+                {routeStops.length === 0 ? (
+                  <Text style={styles.routeStopsEmpty}>Nothing on this {lower(labels.route)} yet.</Text>
+                ) : (
+                  routeStops.map((stop, index) => (
+                    <StopCard
+                      key={stop.id}
+                      stop={stop}
+                      products={products}
+                      token={token}
+                      onChanged={onChanged}
+                      onError={onError}
+                      onReorder={(position) => moveStop(stop.id, position)}
+                      canMoveUp={index > 0}
+                      canMoveDown={index < routeStops.length - 1}
+                    />
+                  ))
+                )}
+              </View>
+            );
+          })}
         </View>
       ) : null}
     </View>
@@ -437,4 +468,15 @@ const styles = StyleSheet.create({
   capUnit: { fontSize: 12, color: colors.hint },
   capApply: { alignSelf: 'flex-start', marginTop: spacing.xs },
   stopList: { marginTop: spacing.sm },
+  routeStops: { marginBottom: spacing.md },
+  routeStopsHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  routeStopsName: { fontSize: 13, fontWeight: '700', color: colors.text },
+  routeStopsMeta: { fontSize: 12, color: colors.subtitle },
+  routeStopsEmpty: { fontSize: 12, color: colors.hint, paddingBottom: spacing.sm },
 });

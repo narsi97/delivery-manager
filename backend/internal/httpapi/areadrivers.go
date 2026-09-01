@@ -171,7 +171,7 @@ func (s *Server) handleSetAreaDrivers(w http.ResponseWriter, r *http.Request) {
 	// left orphaned beside them.
 	mine := map[string]bool{}
 	for _, rt := range existing {
-		if found, ok := areaContaining(rt.StartLat, rt.StartLng, areas); ok && found.ID == area.ID {
+		if found, ok := serviceRouteOf(rt, areas); ok && found.ID == area.ID {
 			mine[rt.ID] = true
 		}
 	}
@@ -334,6 +334,7 @@ func (s *Server) handleSetAreaDrivers(w http.ResponseWriter, r *http.Request) {
 			Name:            p.name,
 			DriverID:        p.driverID,
 			Status:          status,
+			ServiceAreaID:   &area.ID,
 			StartLat:        start.Lat,
 			StartLng:        start.Lng,
 			EndLat:          p.endLat,
@@ -444,16 +445,17 @@ func (s *Server) prepareSplitArea(
 		driver := crew[match[g]]
 		finishLat, finishLng, _ := driver.FinishPoint(business)
 		created, err := s.store.CreateRoute(r.Context(), domain.Route{
-			ID:         domain.NewID(),
-			BusinessID: business.ID,
-			RouteDate:  date,
-			Name:       area.Name + " · " + driver.Name,
-			DriverID:   &crew[match[g]].ID,
-			Status:     domain.RouteAssigned,
-			StartLat:   area.Lat,
-			StartLng:   area.Lng,
-			EndLat:     finishLat,
-			EndLng:     finishLng,
+			ID:            domain.NewID(),
+			BusinessID:    business.ID,
+			RouteDate:     date,
+			Name:          area.Name + " · " + driver.Name,
+			DriverID:      &crew[match[g]].ID,
+			Status:        domain.RouteAssigned,
+			ServiceAreaID: &area.ID,
+			StartLat:      area.Lat,
+			StartLng:      area.Lng,
+			EndLat:        finishLat,
+			EndLng:        finishLng,
 		})
 		if err != nil {
 			// Another request preparing the same day got here first. Its

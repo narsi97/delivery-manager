@@ -614,6 +614,17 @@ type Route struct {
 	Name       string      `json:"name"`
 	DriverID   *string     `json:"driver_id"`
 	Status     RouteStatus `json:"status"`
+	// ServiceAreaID is the service route this one was prepared for.
+	//
+	// It used to be worked out from StartLat/StartLng, which was fine
+	// while every service route sat somewhere different. It stopped
+	// being fine the moment two of them could cover the same streets: a
+	// morning and an evening route share a centre exactly, so the
+	// coordinates cannot tell them apart and whichever sorted first won
+	// both. Nil on routes prepared before this existed, and on one-off
+	// routes that belong to no service route at all — callers fall back
+	// to the geographic guess for those.
+	ServiceAreaID *string `json:"service_area_id"`
 	// StartLat/StartLng is where the round begins — the dairy, the depot,
 	// the school. Stop ordering is only meaningful relative to a start
 	// point, so it's stored with the route rather than recomputed.

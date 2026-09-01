@@ -16,6 +16,20 @@ export function distanceMeters(aLat, aLng, bLat, bLng) {
   return 2 * EARTH_RADIUS_METERS * Math.asin(Math.sqrt(Math.min(1, h)));
 }
 
+// serviceRouteOfRoute is which service route a day's route was prepared
+// for. Mirrors serviceRouteOf in backend/internal/httpapi/admin.go.
+//
+// The stored link wins; the start point is only a fallback for routes
+// prepared before routes carried one. Two service routes over the same
+// streets share a centre exactly, so the coordinates genuinely cannot
+// tell them apart — which is why the link exists.
+export function serviceRouteOfRoute(route, areas) {
+  if (route?.service_area_id) {
+    return (areas || []).find((area) => area.id === route.service_area_id && area.active) || null;
+  }
+  return nearestAreaFor(route?.start_lat, route?.start_lng, areas);
+}
+
 // serviceRouteFor is which service route a customer belongs to: the one
 // they were put on by hand, or failing that the one whose circle covers
 // their pin.

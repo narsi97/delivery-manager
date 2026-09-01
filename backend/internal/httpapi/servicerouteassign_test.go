@@ -148,3 +148,78 @@ func TestAssigningRefusesAnotherBusinessesRoute(t *testing.T) {
 	admin.mustDo(http.MethodPatch, "/api/v1/customers/"+id,
 		map[string]any{"service_area_id": str(theirs, "id")}, http.StatusNotFound)
 }
+
+// Two service routes over the same streets share a centre exactly, so a
+// route could not be matched back to the one it was prepared for.
+// Assigning a driver to the second left the first orphaned and empty
+// beside a freshly created "(2)".
+func TestAssigningADriverToAnOverlappingRouteLeavesTheOtherAlone(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+	productID := firstProductID(t, admin)
+	admin.mustDo(http.MethodPatch, "/api/v1/business", map[string]any{
+		"home_lat": 17.0575, "home_lng": 79.2684,
+	}, http.StatusOK)
+
+	morning := admin.mustDo(http.MethodPost, "/api/v1/service-areas", map[string]any{
+		"name": "Nalgonda", "lat": 17.0575, "lng": 79.2684, "radius_meters": 6000,
+	}, http.StatusCreated)
+	evening := admin.mustDo(http.MethodPost, "/api/v1/service-areas", map[string]any{
+		"name": "Nalgonda evening", "lat": 17.0575, "lng": 79.2684, "radius_meters": 6000,
+	}, http.StatusCreated)
+
+	early := createCustomer(t, admin, "Early Riser", 17.0580, 79.2690)
+	late := createCustomer(t, admin, "Late Riser", 17.0581, 79.2691)
+	createSubscription(t, admin, early, productID, 1)
+	createSubscription(t, admin, late, productID, 1)
+	admin.mustDo(http.MethodPatch, "/api/v1/customers/"+late,
+		map[string]any{"service_area_id": str(evening, "id")}, http.StatusOK)
+	admin.mustDo(http.MethodGet, "/api/v1/day", nil, http.StatusOK)
+
+	driver := driverWithHome(t, admin, "Kumar", "+91 90000 00002", 17.0500, 79.2600)
+	admin.mustDo(http.MethodPost, "/api/v1/service-areas/"+str(evening, "id")+"/drivers",
+		map[string]any{"driver_ids": []string{driver}}, http.StatusOK)
+
+	day := admin.mustDo(http.MethodGet, "/api/v1/day", nil, http.StatusOK)
+	routes := routesOf(t, day)
+	// The evening route is the one that got a driver; the morning one
+	// must be untouched, and there must be no third route.
+	assignedTo := map[string]string{}
+	for _, rt := range routes {
+		assignedTo[str(rt, "name")] = str(rt, "driver_id")
+	}
+	if assignedTo["Nalgonda evening route"] != driver {
+		t.Fatalf("the evening route's driver is %q, want the one just assigned", assignedTo["Nalgonda evening route"])
+	}
+	if assignedTo["Nalgonda route"] != "" {
+		t.Fatalf("assigning the evening route also assigned the morning one")
+	}
+	if len(routes) != 2 {
+		names := []string{}
+		for _, rt := range routes {
+			names = append(names, str(rt, "name"))
+		}
+		t.Fatalf("%d routes after assigning one of two overlapping service routes: %v", len(routes), names)
+	}
+
+	// Every route still carries its stop, and the morning one was not
+	// touched by a change to the evening one.
+	counts := map[string]int{}
+	routeName := map[string]string{}
+	for _, rt := range routes {
+		routeName[str(rt, "id")] = str(rt, "name")
+	}
+	for _, stop := range stopsOf(t, day) {
+		if rid := str(stop, "route_id"); rid != "" {
+			counts[routeName[rid]]++
+		}
+	}
+	// One driver keeps the plain name — "· Driver" is what a split
+	// between several produces.
+	for name, want := range map[string]int{"Nalgonda route": 1, "Nalgonda evening route": 1} {
+		if counts[name] != want {
+			t.Fatalf("%q holds %d stops, want %d (all routes: %v)", name, counts[name], want, counts)
+		}
+	}
+	_ = morning
+}

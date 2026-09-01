@@ -1348,7 +1348,7 @@ func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date
 	routeForArea := map[string]domain.Route{}
 	roundsInArea := map[string][]domain.Route{}
 	for _, rt := range routes {
-		if area, ok := areaContaining(rt.StartLat, rt.StartLng, areas); ok {
+		if area, ok := serviceRouteOf(rt, areas); ok {
 			if _, taken := routeForArea[area.ID]; !taken {
 				routeForArea[area.ID] = rt
 			}
@@ -1373,7 +1373,7 @@ func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date
 				if rt.DriverID == nil {
 					continue
 				}
-				area, ok := areaContaining(rt.StartLat, rt.StartLng, areas)
+				area, ok := serviceRouteOf(rt, areas)
 				if !ok {
 					continue
 				}
@@ -1453,16 +1453,17 @@ func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date
 			endLat, endLng, _ = crew[0].FinishPoint(business)
 		}
 		created, err := s.store.CreateRoute(r.Context(), domain.Route{
-			ID:         domain.NewID(),
-			BusinessID: business.ID,
-			RouteDate:  date,
-			Name:       area.Name + " route",
-			DriverID:   driverID,
-			Status:     status,
-			StartLat:   area.Lat,
-			StartLng:   area.Lng,
-			EndLat:     endLat,
-			EndLng:     endLng,
+			ID:            domain.NewID(),
+			BusinessID:    business.ID,
+			RouteDate:     date,
+			Name:          area.Name + " route",
+			DriverID:      driverID,
+			Status:        status,
+			ServiceAreaID: &area.ID,
+			StartLat:      area.Lat,
+			StartLng:      area.Lng,
+			EndLat:        endLat,
+			EndLng:        endLng,
 		})
 		if errors.Is(err, storage.ErrConflict) {
 			// Someone else's read got here first — the round now exists,
@@ -1771,6 +1772,30 @@ func (s *Server) resolveServiceRoute(w http.ResponseWriter, r *http.Request, ses
 		return nil, false
 	}
 	return &area.ID, true
+}
+
+// serviceRouteOf is which service route a day's route was prepared for.
+//
+// The stored link is the answer whenever there is one. Falling back to
+// the start point covers routes prepared before routes carried the link,
+// and it is only a guess: two service routes over the same streets share
+// a centre exactly, so the coordinates cannot tell them apart. That is
+// the bug the stored link exists to fix — assigning a driver to the
+// evening route used to leave the old one orphaned and empty beside a
+// new "(2)".
+func serviceRouteOf(rt domain.Route, areas []domain.ServiceArea) (domain.ServiceArea, bool) {
+	if rt.ServiceAreaID != nil {
+		for _, area := range areas {
+			if area.ID == *rt.ServiceAreaID && area.Active {
+				return area, true
+			}
+		}
+		// Named a service route that is gone or switched off. It belongs
+		// to nothing now — guessing from coordinates would silently hand
+		// it to whichever route happens to share its centre.
+		return domain.ServiceArea{}, false
+	}
+	return areaContaining(rt.StartLat, rt.StartLng, areas)
 }
 
 // areaForCustomer is which service route a customer belongs to: the one

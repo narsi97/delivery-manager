@@ -234,6 +234,11 @@ var schemaStatements = []string{
 	// take the customer with it.
 	`alter table customers add column if not exists service_area_id text`,
 
+	// Which service route a day's route was prepared for. Null on routes
+	// that predate this and on one-offs; callers fall back to matching
+	// on the start point.
+	`alter table routes add column if not exists service_area_id text`,
+
 	// A driver's start of day: what they counted at the farm, and whether
 	// somebody agreed. One per driver per date — reporting again replaces
 	// the previous attempt rather than queueing a second.
