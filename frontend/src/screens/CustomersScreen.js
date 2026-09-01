@@ -602,6 +602,15 @@ function CustomerCard({
             value={details.address}
             onChangeText={(value) => setDetails((prev) => ({ ...prev, address: value }))}
           />
+          {/* Not only on the add form: which customers open early is
+              something a business learns after they have been signed up,
+              and the ones who most need marking are the hundred already
+              on the list. Saved with the contact details, because it is
+              a fact about the customer rather than about today. */}
+          <PriorityPicker
+            value={details.priority}
+            onChange={(value) => setDetails((prev) => ({ ...prev, priority: value }))}
+          />
           <Button
             title="Save contact details"
             variant="secondary"

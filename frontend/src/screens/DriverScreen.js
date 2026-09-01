@@ -325,6 +325,10 @@ function CheckinCard({ token, checkin, routeName, onDone }) {
 
       {waiting ? null : (
         <View>
+          {/* The count, then anything worth saying about it. "xs" keeps
+              the box the size of the number that goes in it — a label
+              longer than the box would wrap, which is why this one is
+              two words. */}
           <Field
             label={t('checkin_units_label')}
             size="xs"
