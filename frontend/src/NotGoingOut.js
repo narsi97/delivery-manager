@@ -12,7 +12,7 @@ import { colors, spacing } from './theme';
 // Everything that isn't going out today, and why.
 //
 // This used to be two cards. "Not yet on a route" listed every unrouted
-// delivery; "Outside your service areas" listed the ones with a pin that
+// delivery; "Outside your service routes" listed the ones with a pin that
 // no area covered. On a business that hasn't drawn its areas yet those
 // are the *same deliveries*, so the screen showed the identical count
 // twice under two different headings and left the reader to work out
@@ -65,7 +65,7 @@ export default function NotGoingOut({ token, stops, areas, home, date, products,
       <CauseGroup
         title="Outside where you deliver"
         count={outside.length}
-        explanation={`These sit outside every area you've set up, so no ${lower(labels.route)} covers them. Setting up that area on the Business tab fixes it for good — every day from then on. To get just today out, build a one-off ${lower(labels.route)} for them below.`}
+        explanation={`These sit outside every service ${lower(labels.route)} you've set up, so no ${lower(labels.route)} covers them. Setting one up on the Business tab fixes it for good — every day from then on. To get just today out, build a one-off ${lower(labels.route)} for them below.`}
         stops={outside}
         products={products}
         token={token}

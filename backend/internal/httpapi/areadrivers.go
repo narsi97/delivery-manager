@@ -190,7 +190,7 @@ func (s *Server) handleSetAreaDrivers(w http.ResponseWriter, r *http.Request) {
 		if !known || !customer.HasPin() {
 			continue
 		}
-		if found, ok := areaContaining(customer.Lat, customer.Lng, areas); !ok || found.ID != area.ID {
+		if found, ok := areaForCustomer(customer, areas); !ok || found.ID != area.ID {
 			continue
 		}
 		points = append(points, route.Point{ID: o.ID, Lat: customer.Lat, Lng: customer.Lng, Band: customer.RouteBand()})

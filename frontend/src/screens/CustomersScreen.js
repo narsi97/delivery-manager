@@ -21,7 +21,7 @@ import { customFieldsFor, labelsFor, lower } from '../labels';
 import LocationPicker from '../LocationPicker';
 import PriorityPicker, { PriorityBadge, priorityRank } from '../PriorityPicker';
 import ProductQuantities, { chosenProducts } from '../ProductQuantities';
-import { nearestAreaFor } from '../serviceAreas';
+import { nearestAreaFor, serviceRouteFor } from '../serviceAreas';
 import { colors, radius, spacing } from '../theme';
 
 const WEEKDAYS = [
@@ -215,6 +215,7 @@ export default function CustomersScreen({ token, business }) {
                   labels={labels}
                   fieldSpecs={fieldSpecs}
                   home={home}
+                  areas={areas}
                   sortBy={sortBy}
                   busy={reordering === group.key}
                   onReorder={async (orderedIds, options) => {
@@ -275,7 +276,8 @@ const groupBySelectStyle = {
   fontFamily: 'inherit',
 };
 
-// Buckets customers by which service area their pin falls in — the same
+// Buckets customers by which service route they are on — the route they
+// were put on by hand, or the one their pin falls in. The same
 // "group by nearest city" the Routes screen already does for building
 // routes, applied here so a real customer list (dozens of customers, not
 // three) reads as a handful of towns instead of one long undifferentiated
@@ -293,13 +295,12 @@ function groupCustomers(groupBy, customers, areas) {
     default: {
       const groups = new Map();
       for (const customer of customers) {
-        const hasPin = customer.lat || customer.lng;
-        const area = hasPin ? nearestAreaFor(customer.lat, customer.lng, areas) : null;
+        const area = serviceRouteFor(customer, areas);
         const key = area ? area.id : 'unassigned';
         if (!groups.has(key)) {
           groups.set(key, {
             key,
-            name: area ? area.name : 'Outside your service areas',
+            name: area ? area.name : 'Not on a service route',
             defaultExpanded: !area,
             customers: [],
           });
@@ -332,6 +333,7 @@ function CustomerGroup({
   labels,
   fieldSpecs,
   home,
+  areas,
   sortBy,
   busy,
   onReorder,
@@ -444,6 +446,7 @@ function CustomerGroup({
               labels={labels}
               fieldSpecs={fieldSpecs}
               home={home}
+              areas={areas}
               onChanged={onChanged}
               onError={onError}
             />
@@ -710,6 +713,7 @@ function CustomerCard({
   labels,
   fieldSpecs,
   home,
+  areas = [],
   onChanged,
   onError,
 }) {
@@ -722,6 +726,12 @@ function CustomerCard({
     priority: customer.priority || 'normal',
   });
   const [busy, setBusy] = useState(false);
+
+  // What "from their pin" would actually resolve to, so the default
+  // option says which round that is rather than making the admin work
+  // it out from the map.
+  const byPin = nearestAreaFor(customer.lat, customer.lng, areas);
+  const pinnedRouteName = byPin ? byPin.name : '';
 
   const savePin = async (newLat, newLng) => {
     setBusy(true);
@@ -821,6 +831,46 @@ function CustomerCard({
             value={details.priority}
             onChange={(value) => setDetails((prev) => ({ ...prev, priority: value }))}
           />
+          {/* Which round they are on. "From their pin" is the default and
+              stays the answer for almost everybody — this exists for the
+              cases geography cannot express, like a house on the evening
+              round in the middle of the morning one. Saved on its own
+              rather than with the contact details, because moving
+              somebody to another round moves today's delivery with them
+              and that deserves to be its own deliberate act. */}
+          {areas.length > 0 ? (
+            <View style={styles.routePicker}>
+              <Text style={styles.label}>Which {lower(labels.route)}?</Text>
+              <select
+                value={customer.service_area_id || ''}
+                style={groupBySelectStyle}
+                onChange={async (event) => {
+                  const value = event.target.value;
+                  setBusy(true);
+                  try {
+                    await api.updateCustomer(token, customer.id, { service_area_id: value });
+                    await onChanged();
+                  } catch (err) {
+                    onError(err.message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                <option value="">From their pin{pinnedRouteName ? ` (${pinnedRouteName})` : ''}</option>
+                {areas.map((area) => (
+                  <option key={area.id} value={area.id}>
+                    {area.name}
+                  </option>
+                ))}
+              </select>
+              <Text style={styles.note}>
+                {customer.service_area_id
+                  ? `On this ${lower(labels.route)} because you put them here, whatever their pin says.`
+                  : `Their pin decides, which is right unless two ${lower(labels.route)}s cover the same streets.`}
+              </Text>
+            </View>
+          ) : null}
           <Button
             title="Save contact details"
             variant="secondary"
@@ -1190,6 +1240,7 @@ const styles = StyleSheet.create({
   toolsRow: { flexDirection: 'row', alignItems: 'flex-end', flexWrap: 'wrap', gap: spacing.md },
   groupByField: { marginBottom: spacing.md },
   plainRow: { width: '100%' },
+  routePicker: { marginBottom: spacing.sm },
   orderHintRow: {
     flexDirection: 'row',
     alignItems: 'center',

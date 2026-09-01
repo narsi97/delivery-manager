@@ -180,6 +180,38 @@ setting nobody has asked to turn off is a setting nobody maintains.
 
 ## Vocabulary and naming
 
+### The UI says "service route"; the code says "service area"
+
+**Now:** the standing list that produces one route a day is called a
+**service route** everywhere a user can see, and `ServiceArea`
+everywhere in Go, the database, and the API path
+(`/api/v1/service-areas`). `Customer.ServiceAreaID` is the hand
+assignment behind it.
+
+**Costs:** the same second name to learn as "round" below, and this one
+is worse — "area" now actively misdescribes the thing, because a service
+route no longer has to be geographic. Two of them can cover exactly the
+same streets, and a customer can be on one whose circle is nowhere near
+their pin.
+
+**To undo:** rename the type, the table, the column and the endpoint
+together. The endpoint rename is the only part that is not mechanical —
+it needs the old path kept alive until every client has moved.
+
+### A service route is still drawn as a circle
+
+**Now:** every service route has a centre and a radius, and claims
+customers by pin unless they were placed by hand.
+
+**Costs:** a route that is purely a list — "these twenty shops, wherever
+they are" — still has to be given a circle somewhere, and that circle
+will silently claim any new customer pinned inside it.
+
+**To undo:** allow `radius_meters` of zero to mean "members only, no
+geography", and teach `areaContaining` to skip those. The resolution
+order in `areaForCustomer` already supports it — a members-only route
+would simply never win the geographic fallback.
+
 ### The Go internals still say "round"
 
 **Now:** `ensureDayRounds`, `handlePlanRounds`, `prepareSplitArea`'s

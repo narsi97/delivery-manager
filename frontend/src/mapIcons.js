@@ -73,5 +73,5 @@ export const MAP_LEGEND = [
   { key: 'home', label: 'Your business', shape: 'house' },
   { key: 'driver', label: 'Driver finishes here', shape: 'cap' },
   { key: 'customer', label: 'Customer', shape: 'dot' },
-  { key: 'area', label: 'Service area', shape: 'circle' },
+  { key: 'area', label: 'Service route', shape: 'circle' },
 ];

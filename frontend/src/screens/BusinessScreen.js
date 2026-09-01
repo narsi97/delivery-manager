@@ -4,6 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import * as api from '../api';
 import { AddButton, Banner, Button, Card, Disclosure, Empty, Field, FieldRow, Pill, SectionTitle } from '../components';
 import LocationPicker, { InlineLocationEditor } from '../LocationPicker';
+import { labelsFor, lower } from '../labels';
 import { colors, radius, spacing } from '../theme';
 
 // The business's own settings: its name, where it's based, and the
@@ -12,6 +13,11 @@ import { colors, radius, spacing } from '../theme';
 // here, instead of opening on an India-wide view — see MapPicker.web.js's
 // home/areas props.
 export default function BusinessScreen({ token, business, onBusinessUpdated }) {
+  // "Service route" borrows the business's own word for a round, so a
+  // school reads "Service runs" — see labels.js. The daily thing a
+  // driver drives is a route; a service route is the standing list that
+  // produces one every day.
+  const labels = labelsFor(business);
   const [areas, setAreas] = useState([]);
   const [products, setProducts] = useState([]);
   const [demand, setDemand] = useState({});
@@ -110,11 +116,11 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
                 setPrefill(null);
                 setAddingArea((prev) => !prev);
               }}
-              label={addingArea ? 'Close add a service area' : 'Add a service area'}
+              label={addingArea ? 'Close add a service route' : 'Add a service route'}
             />
           }
         >
-          Service areas ({areas.length})
+          Service {lower(labels.route)}s ({areas.length})
         </SectionTitle>
         <View style={styles.headingDivider} />
 
@@ -426,7 +432,7 @@ function NewServiceAreaForm({ token, home, areas, drivers, customers, initial, o
       </Text>
       <Text style={styles.note}>{(radiusMeters / 1000).toFixed(1)} km across the map.</Text>
 
-      <Button title="Add service area" onPress={submit} busy={busy} disabled={!name.trim() || !lat || !lng} />
+      <Button title="Add service route" onPress={submit} busy={busy} disabled={!name.trim() || !lat || !lng} />
     </View>
   );
 }

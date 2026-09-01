@@ -193,7 +193,7 @@ export default function EntityMap({
             muted={editableKind !== 'customer'}
           />
         ) : null}
-        {hasAreas ? <LegendItem label="Service area" swatch={styles.keyArea} /> : null}
+        {hasAreas ? <LegendItem label="Service route" swatch={styles.keyArea} /> : null}
       </View>
     </View>
   );

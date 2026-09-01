@@ -16,6 +16,26 @@ export function distanceMeters(aLat, aLng, bLat, bLng) {
   return 2 * EARTH_RADIUS_METERS * Math.asin(Math.sqrt(Math.min(1, h)));
 }
 
+// serviceRouteFor is which service route a customer belongs to: the one
+// they were put on by hand, or failing that the one whose circle covers
+// their pin.
+//
+// Mirrors areaForCustomer in backend/internal/httpapi/admin.go. The two
+// must agree — the group an admin sees a customer under here is supposed
+// to be the round that customer actually lands on.
+export function serviceRouteFor(customer, areas) {
+  if (customer?.service_area_id) {
+    const pinned = (areas || []).find((area) => area.id === customer.service_area_id && area.active);
+    if (pinned) {
+      return pinned;
+    }
+  }
+  if (!customer || (!customer.lat && !customer.lng)) {
+    return null;
+  }
+  return nearestAreaFor(customer.lat, customer.lng, areas);
+}
+
 // nearestAreaFor returns the active service area whose circle contains
 // (lat, lng), nearest-center-wins on overlap, or null if the point falls
 // outside every circle (or there are no areas at all). Ties break on list

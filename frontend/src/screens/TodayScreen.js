@@ -175,7 +175,7 @@ export default function TodayScreen({ token, business }) {
   }
   if (strays.length > 0) {
     exceptions.push(
-      `${strays.length} ${strays.length === 1 ? 'delivery is' : 'deliveries are'} outside every service area.`,
+      `${strays.length} ${strays.length === 1 ? 'delivery is' : 'deliveries are'} not on any service ${lower(labels.route)}.`,
     );
   }
   if (summary.unpinned > 0) {
@@ -252,10 +252,10 @@ export default function TodayScreen({ token, business }) {
           ) : routes.length === 0 ? (
             <Empty>
               {areas.length === 0
-                ? `A ${lower(labels.route)} is prepared for each place you deliver to, and you have not set one up yet — start on the Business tab.`
+                ? `A ${lower(labels.route)} is prepared for each service ${lower(labels.route)} you set up, and you have none yet — start on the Business tab.`
                 : summary.total === 0
                   ? 'Nothing to deliver on this day.'
-                  : `Nothing routed yet. ${labels.route}s are prepared for each service area that has deliveries in it.`}
+                  : `Nothing routed yet. ${labels.route}s are prepared for each service ${lower(labels.route)} that has deliveries in it.`}
             </Empty>
           ) : (
             <View>
@@ -295,7 +295,7 @@ export default function TodayScreen({ token, business }) {
           )}
           {view === 'list' ? (
             <Text style={styles.note}>
-              One {lower(labels.route)} per service area, prepared for every day automatically. Tell it who is driving and it splits
+              One {lower(labels.route)} per service {lower(labels.route)}, prepared for every day automatically. Tell it who is driving and it splits
               itself between them.
             </Text>
           ) : null}

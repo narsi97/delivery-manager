@@ -281,7 +281,7 @@ function MapLegend({ home, drivers, customers, areas }) {
     items.push({ key: 'customer', label: 'Customer', style: styles.keyCustomer });
   }
   if ((areas || []).some((a) => a.active !== false)) {
-    items.push({ key: 'area', label: 'Service area', style: styles.keyArea });
+    items.push({ key: 'area', label: 'Service route', style: styles.keyArea });
   }
 
   return (

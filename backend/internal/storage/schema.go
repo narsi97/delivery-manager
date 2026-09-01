@@ -227,6 +227,13 @@ var schemaStatements = []string{
 	// said, which is every customer until somebody drags a row.
 	`alter table customers add column if not exists sort_rank int not null default 0`,
 
+	// Which service route this customer was put on by hand. Null means
+	// their pin decides, which is every customer until somebody moves
+	// one. Deliberately not a foreign key with a cascade: a deleted
+	// route should leave the customer falling back to geography, not
+	// take the customer with it.
+	`alter table customers add column if not exists service_area_id text`,
+
 	// A driver's start of day: what they counted at the farm, and whether
 	// somebody agreed. One per driver per date — reporting again replaces
 	// the previous attempt rather than queueing a second.

@@ -80,7 +80,7 @@ func (s *Server) handleSuggestServiceAreas(w http.ResponseWriter, r *http.Reques
 		if !c.Active || !c.HasPin() {
 			continue
 		}
-		if _, covered := areaContaining(c.Lat, c.Lng, areas); covered {
+		if _, covered := areaForCustomer(c, areas); covered {
 			continue
 		}
 		uncovered = append(uncovered, route.Point{ID: c.ID, Lat: c.Lat, Lng: c.Lng})

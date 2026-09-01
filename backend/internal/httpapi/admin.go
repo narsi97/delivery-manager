@@ -69,6 +69,11 @@ type customerRequest struct {
 	// here — a customer's tier is not something a pin-drop should reset.
 	Priority string `json:"priority"`
 	Active   *bool  `json:"active"`
+	// Which service route to put this customer on by hand. A pointer so
+	// PATCH can tell three things apart: absent leaves it alone, an id
+	// pins them to that route, and an empty string hands them back to
+	// their pin. See domain.Customer.ServiceAreaID.
+	ServiceAreaID *string `json:"service_area_id"`
 	// A pointer so that "absent" and "explicitly empty" stay
 	// distinguishable on PATCH: omitting the key leaves the stored bag
 	// alone, sending {} clears it.
@@ -116,18 +121,28 @@ func (s *Server) handleCreateCustomer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var pinnedRoute *string
+	if req.ServiceAreaID != nil {
+		resolved, ok := s.resolveServiceRoute(w, r, sess, *req.ServiceAreaID)
+		if !ok {
+			return
+		}
+		pinnedRoute = resolved
+	}
+
 	customer := domain.Customer{
-		ID:           domain.NewID(),
-		BusinessID:   sess.Business.ID,
-		Name:         strings.TrimSpace(req.Name),
-		Phone:        strings.TrimSpace(req.Phone),
-		Address:      strings.TrimSpace(req.Address),
-		Lat:          req.Lat,
-		Lng:          req.Lng,
-		Notes:        strings.TrimSpace(req.Notes),
-		Priority:     domain.NormalizePriority(priority),
-		Active:       true,
-		CustomFields: customFields,
+		ID:            domain.NewID(),
+		BusinessID:    sess.Business.ID,
+		Name:          strings.TrimSpace(req.Name),
+		Phone:         strings.TrimSpace(req.Phone),
+		Address:       strings.TrimSpace(req.Address),
+		Lat:           req.Lat,
+		Lng:           req.Lng,
+		Notes:         strings.TrimSpace(req.Notes),
+		Priority:      domain.NormalizePriority(priority),
+		ServiceAreaID: pinnedRoute,
+		Active:        true,
+		CustomFields:  customFields,
 	}
 	created, err := s.store.CreateCustomer(r.Context(), customer)
 	if err != nil {
@@ -185,6 +200,15 @@ func (s *Server) handleUpdateCustomer(w http.ResponseWriter, r *http.Request) {
 	if req.Active != nil {
 		existing.Active = *req.Active
 	}
+	movedRoute := false
+	if req.ServiceAreaID != nil {
+		pinned, ok := s.resolveServiceRoute(w, r, sess, *req.ServiceAreaID)
+		if !ok {
+			return
+		}
+		movedRoute = !sameRouteID(existing.ServiceAreaID, pinned)
+		existing.ServiceAreaID = pinned
+	}
 	if req.CustomFields != nil {
 		// Replacement, not merge — the admin console edits the whole set
 		// of declared fields as one form, so a partial merge would make
@@ -201,7 +225,84 @@ func (s *Server) handleUpdateCustomer(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err, "customer")
 		return
 	}
+	// Today's delivery is already sitting on the round they used to be
+	// on. Moving somebody to the evening route has to move the delivery
+	// too, or the change looks like it did nothing until tomorrow.
+	if movedRoute {
+		if err := s.detachTodaysStops(r, sess, updated.ID); err != nil {
+			log.Printf("detach today's stops after moving %s to another service route: %v", updated.ID, err)
+		}
+	}
 	writeJSON(w, http.StatusOK, updated)
+}
+
+func sameRouteID(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
+// detachTodaysStops takes this customer's still-pending deliveries off
+// whatever round they are on, and re-orders the rounds they left.
+//
+// It does not place them anywhere: the next read of the day does that,
+// through exactly the same path that places a brand new delivery, so
+// there is only one piece of code that decides which round a stop
+// belongs to. Completed deliveries are left alone — where a delivery was
+// actually made is a record, not a plan.
+func (s *Server) detachTodaysStops(r *http.Request, sess session, customerID string) error {
+	date := sess.Business.Today()
+	orders, err := s.store.ListDailyOrders(r.Context(), sess.Business.ID, date)
+	if err != nil {
+		return err
+	}
+	customers, err := s.store.ListCustomers(r.Context(), sess.Business.ID)
+	if err != nil {
+		return err
+	}
+	customersByID := map[string]domain.Customer{}
+	for _, c := range customers {
+		customersByID[c.ID] = c
+	}
+
+	emptied := map[string]bool{}
+	for _, o := range orders {
+		if o.CustomerID != customerID || o.RouteID == nil || o.Status != domain.StatusPending {
+			continue
+		}
+		emptied[*o.RouteID] = true
+		o.RouteID = nil
+		o.Sequence = 0
+		if _, err := s.store.UpdateDailyOrder(r.Context(), o); err != nil {
+			return err
+		}
+	}
+	if len(emptied) == 0 {
+		return nil
+	}
+
+	// Re-read: the loop above changed what is on each round.
+	orders, err = s.store.ListDailyOrders(r.Context(), sess.Business.ID, date)
+	if err != nil {
+		return err
+	}
+	for routeID := range emptied {
+		rt, err := s.store.GetRoute(r.Context(), sess.Business.ID, routeID)
+		if err != nil {
+			continue
+		}
+		members := []string{}
+		for _, o := range orders {
+			if o.RouteID != nil && *o.RouteID == routeID {
+				members = append(members, o.ID)
+			}
+		}
+		if err := s.reorderRoute(r, sess.Business.ID, rt, members, orders, customersByID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // validCoordinates also treats the exact 0,0 pair as "no pin set" rather
@@ -1222,7 +1323,7 @@ func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date
 		if !known || !customer.HasPin() {
 			continue // unpinned stays unrouted, and is counted in the day summary
 		}
-		if area, ok := areaContaining(customer.Lat, customer.Lng, areas); ok {
+		if area, ok := areaForCustomer(customer, areas); ok {
 			areaOfOrder[o.ID] = area.ID
 			pinOfOrder[o.ID] = route.Point{Lat: customer.Lat, Lng: customer.Lng, Band: customer.RouteBand()}
 			needsRound[area.ID] = true
@@ -1655,6 +1756,53 @@ func (s *Server) orderRound(
 // frontend/src/serviceAreas.js exactly — the two must agree, or the
 // grouping an admin sees on the Customers screen won't match the round a
 // stop actually lands on.
+// resolveServiceRoute turns the id on the wire into what gets stored:
+// nil for "let their pin decide", or a checked id belonging to this
+// business. Writes the error response itself and reports whether the
+// caller should carry on.
+func (s *Server) resolveServiceRoute(w http.ResponseWriter, r *http.Request, sess session, id string) (*string, bool) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, true
+	}
+	area, err := s.store.GetServiceArea(r.Context(), sess.Business.ID, id)
+	if err != nil {
+		writeStoreError(w, err, "service route")
+		return nil, false
+	}
+	return &area.ID, true
+}
+
+// areaForCustomer is which service route a customer belongs to: the one
+// they were put on by hand, or failing that the one whose circle covers
+// their pin.
+//
+// The hand-placed answer wins outright, and deliberately so — it is the
+// only thing that can express "this house is on the evening round even
+// though it sits in the middle of the morning one", which is what makes
+// two routes over the same streets possible at all.
+//
+// A route that has since been deactivated or deleted falls back to
+// geography rather than stranding the customer, so retiring a route
+// never loses anybody.
+//
+// Mirrored by serviceRouteFor in frontend/src/serviceAreas.js. The two
+// must agree, or the list an admin sees is not the round the customer
+// lands on.
+func areaForCustomer(c domain.Customer, areas []domain.ServiceArea) (domain.ServiceArea, bool) {
+	if c.ServiceAreaID != nil {
+		for _, area := range areas {
+			if area.ID == *c.ServiceAreaID && area.Active {
+				return area, true
+			}
+		}
+	}
+	if !c.HasPin() {
+		return domain.ServiceArea{}, false
+	}
+	return areaContaining(c.Lat, c.Lng, areas)
+}
+
 func areaContaining(lat, lng float64, areas []domain.ServiceArea) (domain.ServiceArea, bool) {
 	var best domain.ServiceArea
 	bestDist := math.Inf(1)

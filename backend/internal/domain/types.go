@@ -246,10 +246,21 @@ type Customer struct {
 	// order every morning has an order in their head that no
 	// shortest-path calculation can know about, and this is where it
 	// goes. See RouteBand.
-	Rank      int       `json:"rank"`
-	AccountID *string   `json:"account_id"`
-	Active    bool      `json:"active"`
-	CreatedAt time.Time `json:"created_at"`
+	Rank int `json:"rank"`
+	// ServiceAreaID pins this customer to one service route by hand. Nil
+	// means "work it out from the pin", which is how every customer
+	// starts and how most of them stay.
+	//
+	// Geography alone cannot answer "morning or evening": two customers
+	// on the same street can be on different rounds, and no circle drawn
+	// on a map separates them. So a service route claims customers by
+	// their pin *and* accepts them by name, and two routes are allowed
+	// to cover exactly the same ground. See areaForCustomer in httpapi,
+	// which is where that resolution happens.
+	ServiceAreaID *string   `json:"service_area_id"`
+	AccountID     *string   `json:"account_id"`
+	Active        bool      `json:"active"`
+	CreatedAt     time.Time `json:"created_at"`
 	// CustomFields holds whatever extra information this business
 	// declared it keeps about a customer — a student's class and
 	// guardian, a gate code. Validated against the declared specs on the
