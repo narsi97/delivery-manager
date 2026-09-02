@@ -23,6 +23,7 @@ import PriorityPicker, { PriorityBadge, priorityRank } from '../PriorityPicker';
 import ProductQuantities, { chosenProducts } from '../ProductQuantities';
 import { nearestAreaFor, serviceRouteFor } from '../serviceAreas';
 import { colors, radius, spacing } from '../theme';
+import { UndoBar, useUndoStack } from '../undo';
 
 const WEEKDAYS = [
   { value: 1, label: 'Mon' },
@@ -57,6 +58,9 @@ export default function CustomersScreen({ token, business }) {
   // that can be dragged — see sortCustomers.
   const [sortBy, setSortBy] = useState('priority');
   const [reordering, setReordering] = useState('');
+  // Everything on this screen saves as soon as you press the button, so
+  // the browser's own undo cannot help once you have. See undo.js.
+  const undoStack = useUndoStack({ onError: setError });
   const [adding, setAdding] = useState(false);
   // The same customers, two ways of looking at them — see ViewToggle.
   const [view, setView] = useState('list');
@@ -125,6 +129,15 @@ export default function CustomersScreen({ token, business }) {
     <ScrollView contentContainerStyle={styles.page}>
       <Banner message={error} />
       <Banner message={notice} tone="success" />
+      <UndoBar
+        canUndo={undoStack.canUndo}
+        canRedo={undoStack.canRedo}
+        undoLabel={undoStack.undoLabel}
+        redoLabel={undoStack.redoLabel}
+        busy={undoStack.busy}
+        onUndo={undoStack.undo}
+        onRedo={undoStack.redo}
+      />
 
       <Card>
         <SectionTitle
@@ -217,13 +230,38 @@ export default function CustomersScreen({ token, business }) {
                   home={home}
                   areas={areas}
                   sortBy={sortBy}
+                  onRecord={undoStack.record}
                   busy={reordering === group.key}
                   onReorder={async (orderedIds, options) => {
                     setReordering(group.key);
                     setError('');
+                    // Captured before the write: if nobody in this group
+                    // was ranked, undoing means clearing rather than
+                    // writing back the order we happen to be showing,
+                    // which would leave them ranked when they weren't.
+                    const wasRanked = group.customers.some((customer) => customer.rank > 0);
+                    const previous = [...group.customers]
+                      .sort((a, b) => (a.rank || 0) - (b.rank || 0))
+                      .map((customer) => customer.id);
+                    const allIds = group.customers.map((customer) => customer.id);
                     try {
                       await api.setCustomerOrder(token, orderedIds, options);
                       await refresh();
+                      undoStack.record({
+                        label: options?.clear
+                          ? `${group.name}: back to the shortest route`
+                          : `${group.name}: delivery order changed`,
+                        undo: async () => {
+                          await api.setCustomerOrder(token, wasRanked ? previous : allIds, {
+                            clear: !wasRanked,
+                          });
+                          await refresh();
+                        },
+                        redo: async () => {
+                          await api.setCustomerOrder(token, orderedIds, options);
+                          await refresh();
+                        },
+                      });
                     } catch (err) {
                       setError(err.message);
                     } finally {
@@ -337,6 +375,7 @@ function CustomerGroup({
   sortBy,
   busy,
   onReorder,
+  onRecord,
   onChanged,
   onError,
 }) {
@@ -447,6 +486,7 @@ function CustomerGroup({
               fieldSpecs={fieldSpecs}
               home={home}
               areas={areas}
+              onRecord={onRecord}
               onChanged={onChanged}
               onError={onError}
             />
@@ -714,6 +754,7 @@ function CustomerCard({
   fieldSpecs,
   home,
   areas = [],
+  onRecord,
   onChanged,
   onError,
 }) {
@@ -727,19 +768,44 @@ function CustomerCard({
   });
   const [busy, setBusy] = useState(false);
 
+  // The standing order in one line. Shown under the name while
+  // collapsed, and as the order section's own heading once open —
+  // once in each state, never twice at the same time.
+  const orderSummary =
+    subscriptions.length === 0
+      ? 'No standing order yet'
+      : subscriptions
+          .map((sub) => `${sub.quantity} × ${productName(products, sub.product_id)} on ${weekdayLabel(sub.weekday_mask)}`)
+          .join('  ·  ');
+
   // What "from their pin" would actually resolve to, so the default
   // option says which round that is rather than making the admin work
   // it out from the map.
   const byPin = nearestAreaFor(customer.lat, customer.lng, areas);
   const pinnedRouteName = byPin ? byPin.name : '';
 
-  const savePin = async (newLat, newLng) => {
+  // Every edit on this card goes through here, so every one of them can
+  // be taken back. `before` is the same shape as `changes` — the fields
+  // as they were — which is all an undo needs: PATCH is partial, so
+  // sending the old values back is the reversal. See undo.js.
+  const save = async (changes, before, label) => {
     setBusy(true);
     try {
-      // Only the pin is sent — PATCH is partial, so the name, address and
-      // notes already saved are left untouched.
-      await api.updateCustomer(token, customer.id, { lat: newLat, lng: newLng });
+      await api.updateCustomer(token, customer.id, changes);
       await onChanged();
+      if (onRecord && before) {
+        onRecord({
+          label,
+          undo: async () => {
+            await api.updateCustomer(token, customer.id, before);
+            await onChanged();
+          },
+          redo: async () => {
+            await api.updateCustomer(token, customer.id, changes);
+            await onChanged();
+          },
+        });
+      }
     } catch (err) {
       onError(err.message);
     } finally {
@@ -747,17 +813,26 @@ function CustomerCard({
     }
   };
 
-  const saveDetails = async () => {
-    setBusy(true);
-    try {
-      await api.updateCustomer(token, customer.id, details);
-      await onChanged();
-    } catch (err) {
-      onError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
+  // Only the pin is sent — PATCH is partial, so the name, address and
+  // notes already saved are left untouched.
+  const savePin = (newLat, newLng) =>
+    save(
+      { lat: newLat, lng: newLng },
+      customer.lat || customer.lng ? { lat: customer.lat, lng: customer.lng } : null,
+      `${customer.name}: pin moved`,
+    );
+
+  const saveDetails = () =>
+    save(
+      details,
+      {
+        name: customer.name,
+        phone: customer.phone,
+        address: customer.address,
+        priority: customer.priority || 'normal',
+      },
+      `${customer.name}: details saved`,
+    );
 
   return (
     <Card>
@@ -775,20 +850,19 @@ function CustomerCard({
       >
         {customer.name}
       </Disclosure>
-      {customer.address || customer.phone ? (
-        <Text style={styles.customerMeta}>{[customer.address, customer.phone].filter(Boolean).join(' · ')}</Text>
+      {/* Collapsed, this is the whole customer at a glance. Expanded,
+          every line of it turns into the field that edits it just below
+          — so it is not repeated here. Showing the address as grey text
+          and again in a box two inches down made the card look like it
+          held two different customers. */}
+      {!expanded ? (
+        <View>
+          {customer.address || customer.phone ? (
+            <Text style={styles.customerMeta}>{[customer.address, customer.phone].filter(Boolean).join(' · ')}</Text>
+          ) : null}
+          <Text style={styles.subsHeading}>{orderSummary}</Text>
+        </View>
       ) : null}
-
-      <Text style={styles.subsHeading}>
-        {subscriptions.length === 0
-          ? 'No standing order yet'
-          : subscriptions
-              .map(
-                (sub) =>
-                  `${sub.quantity} × ${productName(products, sub.product_id)} on ${weekdayLabel(sub.weekday_mask)}`,
-              )
-              .join('  ·  ')}
-      </Text>
 
       {expanded ? (
         <View style={styles.expanded}>
@@ -844,18 +918,13 @@ function CustomerCard({
               <select
                 value={customer.service_area_id || ''}
                 style={groupBySelectStyle}
-                onChange={async (event) => {
-                  const value = event.target.value;
-                  setBusy(true);
-                  try {
-                    await api.updateCustomer(token, customer.id, { service_area_id: value });
-                    await onChanged();
-                  } catch (err) {
-                    onError(err.message);
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
+                onChange={(event) =>
+                  save(
+                    { service_area_id: event.target.value },
+                    { service_area_id: customer.service_area_id || '' },
+                    `${customer.name}: ${lower(labels.route)} changed`,
+                  )
+                }
               >
                 <option value="">From their pin{pinnedRouteName ? ` (${pinnedRouteName})` : ''}</option>
                 {areas.map((area) => (
@@ -890,17 +959,13 @@ function CustomerCard({
             <Button
               title={customer.active ? `Pause ${lower(labels.customer)}` : `Resume ${lower(labels.customer)}`}
               variant="secondary"
-              onPress={async () => {
-                setBusy(true);
-                try {
-                  await api.updateCustomer(token, customer.id, { active: !customer.active });
-                  await onChanged();
-                } catch (err) {
-                  onError(err.message);
-                } finally {
-                  setBusy(false);
-                }
-              }}
+              onPress={() =>
+                save(
+                  { active: !customer.active },
+                  { active: customer.active },
+                  `${customer.name}: ${customer.active ? 'paused' : 'resumed'}`,
+                )
+              }
               style={styles.flexButton}
             />
           </View>
@@ -912,21 +977,21 @@ function CustomerCard({
               <Button
                 title="Save details"
                 busy={busy}
-                onPress={async () => {
-                  setBusy(true);
-                  try {
-                    await api.updateCustomer(token, customer.id, { custom_fields: customFields });
-                    await onChanged();
-                  } catch (err) {
-                    onError(err.message);
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
+                onPress={() =>
+                  save(
+                    { custom_fields: customFields },
+                    { custom_fields: customer.custom_fields || {} },
+                    `${customer.name}: details saved`,
+                  )
+                }
               />
             </View>
           ) : null}
 
+          <View style={styles.orderSummaryBlock}>
+            <Text style={styles.label}>Order</Text>
+            <Text style={styles.subsHeading}>{orderSummary}</Text>
+          </View>
           <NewOrderForm
             token={token}
             customer={customer}
@@ -1277,6 +1342,7 @@ const styles = StyleSheet.create({
   customerMeta: { fontSize: 13, color: colors.subtitle, marginTop: 2 },
   pills: { flexDirection: 'row', gap: spacing.xs, alignItems: 'center' },
   subsHeading: { fontSize: 13, color: colors.label, marginTop: spacing.sm },
+  orderSummaryBlock: { marginTop: spacing.lg },
   expanded: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md },
   buttonRow: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
   flexButton: { flex: 1, minWidth: 140 },

@@ -59,12 +59,17 @@ func (s *Server) handleUpdateBusiness(w http.ResponseWriter, r *http.Request) {
 // ---------- customers ----------
 
 type customerRequest struct {
-	Name    string  `json:"name"`
-	Phone   string  `json:"phone"`
-	Address string  `json:"address"`
+	Name string `json:"name"`
+	// Pointers, so PATCH can tell "leave it alone" from "make it empty".
+	// They were plain strings, and an empty one was read as "not sent" —
+	// which meant a phone number or address, once saved, could never be
+	// removed through the API at all. Name is not one of these: a
+	// customer with no name is not a record anybody can act on.
+	Phone   *string `json:"phone"`
+	Address *string `json:"address"`
 	Lat     float64 `json:"lat"`
 	Lng     float64 `json:"lng"`
-	Notes   string  `json:"notes"`
+	Notes   *string `json:"notes"`
 	// Empty on PATCH means "leave it alone", same as every other field
 	// here — a customer's tier is not something a pin-drop should reset.
 	Priority string `json:"priority"`
@@ -134,11 +139,11 @@ func (s *Server) handleCreateCustomer(w http.ResponseWriter, r *http.Request) {
 		ID:            domain.NewID(),
 		BusinessID:    sess.Business.ID,
 		Name:          strings.TrimSpace(req.Name),
-		Phone:         strings.TrimSpace(req.Phone),
-		Address:       strings.TrimSpace(req.Address),
+		Phone:         strings.TrimSpace(text(req.Phone)),
+		Address:       strings.TrimSpace(text(req.Address)),
 		Lat:           req.Lat,
 		Lng:           req.Lng,
-		Notes:         strings.TrimSpace(req.Notes),
+		Notes:         strings.TrimSpace(text(req.Notes)),
 		Priority:      domain.NormalizePriority(priority),
 		ServiceAreaID: pinnedRoute,
 		Active:        true,
@@ -172,14 +177,14 @@ func (s *Server) handleUpdateCustomer(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(req.Name) != "" {
 		existing.Name = strings.TrimSpace(req.Name)
 	}
-	if strings.TrimSpace(req.Phone) != "" {
-		existing.Phone = strings.TrimSpace(req.Phone)
+	if req.Phone != nil {
+		existing.Phone = strings.TrimSpace(*req.Phone)
 	}
-	if strings.TrimSpace(req.Address) != "" {
-		existing.Address = strings.TrimSpace(req.Address)
+	if req.Address != nil {
+		existing.Address = strings.TrimSpace(*req.Address)
 	}
-	if strings.TrimSpace(req.Notes) != "" {
-		existing.Notes = strings.TrimSpace(req.Notes)
+	if req.Notes != nil {
+		existing.Notes = strings.TrimSpace(*req.Notes)
 	}
 	if req.Lat != 0 || req.Lng != 0 {
 		if !validCoordinates(req.Lat, req.Lng) {
@@ -303,6 +308,15 @@ func (s *Server) detachTodaysStops(r *http.Request, sess session, customerID str
 		}
 	}
 	return nil
+}
+
+// text reads an optional string field, treating "not sent" as empty —
+// which is what creating a customer without one means.
+func text(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }
 
 // validCoordinates also treats the exact 0,0 pair as "no pin set" rather

@@ -198,6 +198,23 @@ their pin.
 together. The endpoint rename is the only part that is not mechanical —
 it needs the old path kept alive until every client has moved.
 
+### Undo lives on one screen and forgets itself
+
+**Now:** `undo.js` — every save on the customer roster records how to
+reverse itself, and an Undo/Redo bar sits above the list. The stack is
+in React state: twenty entries, gone on reload or when you leave the
+tab.
+
+**Costs:** nothing on Today, Drivers or Business can be undone, and
+"undo" means "PATCH the old values back" rather than a real revert. If
+somebody else edited that customer in between, undo silently overwrites
+their change too — last write wins, with no warning.
+
+**To undo:** row versions on the customer, so an undo can refuse when
+the row moved underneath it. That is the piece the backend does not have,
+and inventing it for undo alone would be the tail wagging the dog — the
+same versioning is what a real multi-user story needs anyway.
+
 ### A new route never takes settled customers, even when it should
 
 **Now:** creating a service route pins anybody it would have taken off

@@ -223,3 +223,32 @@ func TestAssigningADriverToAnOverlappingRouteLeavesTheOtherAlone(t *testing.T) {
 	}
 	_ = morning
 }
+
+// A phone number or address, once saved, could never be removed: an
+// empty string on PATCH was read as "not sent". Undo depends on this —
+// putting a field back the way it was means being able to put it back
+// to empty.
+func TestAPhoneAndAddressCanBeCleared(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+
+	created := admin.mustDo(http.MethodPost, "/api/v1/customers", map[string]any{
+		"name": "Anitha", "phone": "9694451276", "address": "115, NG College Road", "lat": 17.058, "lng": 79.269,
+	}, http.StatusCreated)
+	id := str(created, "id")
+
+	cleared := admin.mustDo(http.MethodPatch, "/api/v1/customers/"+id,
+		map[string]any{"phone": "", "address": ""}, http.StatusOK)
+	if str(cleared, "phone") != "" || str(cleared, "address") != "" {
+		t.Fatalf("phone %q and address %q survived being cleared", str(cleared, "phone"), str(cleared, "address"))
+	}
+
+	// And a PATCH that doesn't mention them still leaves them alone.
+	admin.mustDo(http.MethodPatch, "/api/v1/customers/"+id,
+		map[string]any{"phone": "9000000001", "address": "Somewhere"}, http.StatusOK)
+	pinned := admin.mustDo(http.MethodPatch, "/api/v1/customers/"+id,
+		map[string]any{"lat": 17.06, "lng": 79.27}, http.StatusOK)
+	if str(pinned, "phone") != "9000000001" || str(pinned, "address") != "Somewhere" {
+		t.Fatalf("dropping a pin wiped the contact details: %q / %q", str(pinned, "phone"), str(pinned, "address"))
+	}
+}
