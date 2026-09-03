@@ -49,8 +49,8 @@ func main() {
 	// design. The one-time-code path is still compiled in and still
 	// tested; OTP_SIGNIN_DISABLED decides whether it is reachable.
 	if cfg.OTPSignInDisabled {
-		log.Printf("sign-in: phone + password (one-time codes are switched off — no SMS provider); " +
-			"sessions last " + cfg.TokenTTL.String() + " and refresh on use")
+		log.Printf("sign-in: phone + password (one-time codes are switched off — no SMS provider); "+
+			"sessions last %s and refresh on use", cfg.TokenTTL)
 	} else {
 		log.Printf("sign-in: phone + password, or a one-time code; sessions last %s and refresh on use", cfg.TokenTTL)
 	}
