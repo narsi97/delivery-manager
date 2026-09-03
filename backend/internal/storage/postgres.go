@@ -83,12 +83,20 @@ func (s *PostgresStore) CreateBusiness(ctx context.Context, b domain.Business, a
 
 	admin.BusinessID = b.ID
 	admin.Email = strings.ToLower(strings.TrimSpace(admin.Email))
+	admin.Phone = domain.NormalizePhone(admin.Phone)
 	admin.Active = true
 	admin.CreatedAt = now
+	// The phone used to be hardcoded null here, from when an owner
+	// signed in with Google and only drivers had numbers. Every owner
+	// created by phone since then has silently lost it on the way in —
+	// which, once the phone became the way you sign in, meant an account
+	// nobody could ever get back into. MemoryStore always stored it, so
+	// the whole test suite agreed this worked.
 	if _, err := tx.Exec(ctx,
 		`insert into users (id, business_id, role, name, email, phone, pin_hash, active, created_at)
-		 values ($1,$2,$3,$4,$5,null,null,$6,$7)`,
-		admin.ID, admin.BusinessID, string(admin.Role), admin.Name, nullableText(admin.Email), admin.Active, admin.CreatedAt); err != nil {
+		 values ($1,$2,$3,$4,$5,$6,null,$7,$8)`,
+		admin.ID, admin.BusinessID, string(admin.Role), admin.Name, nullableText(admin.Email),
+		nullableText(admin.Phone), admin.Active, admin.CreatedAt); err != nil {
 		if isUniqueViolation(err) {
 			return domain.Business{}, domain.User{}, ErrConflict
 		}
