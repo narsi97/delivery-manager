@@ -17,6 +17,10 @@ export default function DriversScreen({ token, currentUserId, business }) {
   const [adding, setAdding] = useState(false);
   // The same drivers, two ways of looking at them — see ViewToggle.
   const [view, setView] = useState('list');
+  // Today's routes, so the roster can answer the question it is actually
+  // opened to answer: who is out, and with how much. "finishes at the
+  // farm" is a setting; "Nalgonda town, 15 stops" is the morning.
+  const [day, setDay] = useState(null);
 
   // Scopes the "see everyone" map below to the business's own operating
   // area instead of an India-wide default — see MapPicker.web.js.
@@ -25,14 +29,16 @@ export default function DriversScreen({ token, currentUserId, business }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [driverResponse, customerResponse, areaResponse] = await Promise.all([
+      const [driverResponse, customerResponse, areaResponse, dayResponse] = await Promise.all([
         api.listDrivers(token),
         api.listCustomers(token),
         api.listServiceAreas(token),
+        api.getDay(token),
       ]);
       setDrivers(driverResponse.drivers || []);
       setCustomers(customerResponse.customers || []);
       setAreas(areaResponse.service_areas || []);
+      setDay(dayResponse);
       setError('');
     } catch (err) {
       setError(err.message);
@@ -47,6 +53,23 @@ export default function DriversScreen({ token, currentUserId, business }) {
 
   if (loading) {
     return <ActivityIndicator style={styles.loader} color={colors.accent} />;
+  }
+
+  // What each driver is carrying today, by driver id. Built from the
+  // same day read every other screen uses, so the roster and Today can
+  // never disagree about who is out.
+  const todayByDriver = new Map();
+  for (const route of day?.routes || []) {
+    if (!route.driver_id) {
+      continue;
+    }
+    const stops = (day?.stops || []).filter((stop) => stop.route_id === route.id);
+    const existing = todayByDriver.get(route.driver_id);
+    todayByDriver.set(route.driver_id, {
+      names: [...(existing?.names || []), route.name],
+      stops: (existing?.stops || 0) + stops.length,
+      done: (existing?.done || 0) + stops.filter((stop) => stop.status !== 'pending').length,
+    });
   }
 
   return (
@@ -110,6 +133,7 @@ export default function DriversScreen({ token, currentUserId, business }) {
             <DriverRow
               key={driver.id}
               driver={driver}
+              today={todayByDriver.get(driver.id) || null}
               token={token}
               business={business}
               isSelf={driver.id === currentUserId}
@@ -173,7 +197,7 @@ function NewDriverForm({ token, onCreated, onError }) {
 // A divider stands in for the border every separate Card used to draw,
 // so three drivers still read as three distinct records without three
 // boxes of whitespace between them.
-function DriverRow({ driver, token, business, isSelf, isFirst, onChanged, onError, onNotice }) {
+function DriverRow({ driver, today, token, business, isSelf, isFirst, onChanged, onError, onNotice }) {
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [editingHome, setEditingHome] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -239,6 +263,19 @@ function DriverRow({ driver, token, business, isSelf, isFirst, onChanged, onErro
         <View style={styles.driverHeaderText}>
           <Text style={styles.driverName}>{driver.name}</Text>
           <Text style={styles.driverMeta}>{meta}</Text>
+          {/* The morning, not the settings: what this driver is actually
+              carrying today and how far through it they are. */}
+          {today ? (
+            <Text style={styles.driverToday}>
+              {/* A split round is named "<area> · <driver>", which reads
+                  as a stutter on the driver's own row. */}
+              {today.names.map((name) => name.replace(` · ${driver.name}`, '')).join(' · ')} — {today.stops}{' '}
+              {today.stops === 1 ? 'stop' : 'stops'}
+              {today.done > 0 ? `, ${today.done} done` : ''}
+            </Text>
+          ) : (
+            <Text style={styles.driverIdle}>Nothing assigned today</Text>
+          )}
         </View>
         <View style={styles.driverHeaderRight}>
           <Pill label={driver.active ? 'active' : 'deactivated'} tone={driver.active ? 'success' : 'neutral'} />
@@ -464,6 +501,8 @@ const styles = StyleSheet.create({
   driverHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   driverName: { fontSize: 16, fontWeight: '700', color: colors.text },
   driverMeta: { fontSize: 13, color: colors.subtitle, marginTop: 2 },
+  driverToday: { fontSize: 13, color: colors.accent, fontWeight: '600', marginTop: 2 },
+  driverIdle: { fontSize: 13, color: colors.hint, marginTop: 2 },
   optionsButton: {
     width: 32,
     height: 32,

@@ -5,6 +5,7 @@ import * as api from './api';
 import { Banner, Button } from './components';
 import { ReadOnlyEntityCard } from './EntityCard';
 import { InlineLocationEditor } from './LocationPicker';
+import { splitOutliers } from './mapFit';
 import { selectStyle } from './routeCards';
 import RouteMap from './RouteMap';
 import { colors, radius, spacing } from './theme';
@@ -31,6 +32,14 @@ export default function DayRouteMapPanel({ token, stops, routes, drivers, home, 
   // Stop selection is re-read from the freshly loaded list on every
   // render, so after a move or a location edit it shows the new state
   // rather than the stale copy captured when it was tapped.
+  // How many pins the opening view deliberately leaves off — the same
+  // split the map itself uses, so the count and the view can't disagree.
+  const offMap = splitOutliers(
+    (stops || [])
+      .map((stop) => ({ lat: stop.lat, lng: stop.lng }))
+      .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng) && (p.lat !== 0 || p.lng !== 0)),
+  ).outliers.length;
+
   const selectedStop = selected?.kind === 'stop' ? stops.find((stop) => stop.id === selected.id) || null : null;
   const currentRoute = selectedStop ? routes.find((route) => route.id === selectedStop.route_id) : null;
 
@@ -114,7 +123,18 @@ export default function DayRouteMapPanel({ token, stops, routes, drivers, home, 
           <Button title="Done" variant="secondary" onPress={() => setSelected(null)} style={styles.spaced} />
         </View>
       ) : (
-        <Text style={styles.note}>Tap any pin to see who it is and act on it.</Text>
+        <View>
+          <Text style={styles.note}>Tap any pin to see who it is and act on it.</Text>
+          {/* The view frames the bulk of the work, so a genuine outlier
+              can sit off-screen. Saying so beats a map that quietly
+              leaves somebody out — see splitOutliers in mapFit.js. */}
+          {offMap > 0 ? (
+            <Text style={styles.note}>
+              {offMap} {offMap === 1 ? 'delivery sits' : 'deliverys sit'} far outside the rest — zoom out to see
+              {offMap === 1 ? ' it' : ' them'}.
+            </Text>
+          ) : null}
+        </View>
       )}
     </View>
   );

@@ -5,6 +5,7 @@ import * as api from './api';
 import { Button } from './components';
 import { ReadOnlyEntityCard } from './EntityCard';
 import EntityMap from './EntityMap';
+import { splitOutliers } from './mapFit';
 import { InlineLocationEditor } from './LocationPicker';
 import { colors, radius, spacing } from './theme';
 
@@ -33,6 +34,17 @@ export default function EntityMapPanel({
   onChanged,
   onError,
 }) {
+  // How many pins the opening view deliberately leaves off — the same
+  // split the map itself uses, so the count and the view can't disagree.
+  // Same list, in the same shape, that EntityMap fits the view to —
+  // drivers keep their location in home_lat/home_lng, not lat/lng.
+  const offMap = splitOutliers(
+    [
+      ...(customers || []).map((c) => ({ lat: c.lat, lng: c.lng })),
+      ...(drivers || []).map((d) => ({ lat: d.home_lat, lng: d.home_lng })),
+      ...(home ? [{ lat: home.lat, lng: home.lng }] : []),
+    ].filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng) && (p.lat !== 0 || p.lng !== 0)),
+  ).outliers.length;
   const [selected, setSelected] = useState(null); // { kind, data }
 
   const save = async (lat, lng) => {
@@ -94,7 +106,18 @@ export default function EntityMapPanel({
           <Button title="Done" variant="secondary" onPress={() => setSelected(null)} style={styles.spaced} />
         </View>
       ) : (
-        <Text style={styles.note}>Tap any pin to see who it is and act on it.</Text>
+        <View>
+          <Text style={styles.note}>Tap any pin to see who it is and act on it.</Text>
+          {/* The view frames the bulk of the work, so a genuine outlier
+              can sit off-screen. Saying so beats a map that quietly
+              leaves somebody out — see splitOutliers in mapFit.js. */}
+          {offMap > 0 ? (
+            <Text style={styles.note}>
+              {offMap} {offMap === 1 ? 'pin sits' : 'pins sit'} far outside the rest — zoom out to see
+              {offMap === 1 ? ' it' : ' them'}.
+            </Text>
+          ) : null}
+        </View>
       )}
     </View>
   );

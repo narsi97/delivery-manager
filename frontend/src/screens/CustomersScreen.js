@@ -217,6 +217,7 @@ export default function CustomersScreen({ token, business }) {
                 <CustomerGroup
                   key={group.key}
                   name={group.name}
+                  routed={group.key !== 'unassigned'}
                   customers={group.customers}
                   defaultExpanded={group.defaultExpanded}
                   forceExpanded={words.length > 0}
@@ -360,6 +361,7 @@ function groupCustomers(groupBy, customers, areas) {
 // matches are never hidden behind a closed chevron.
 function CustomerGroup({
   name,
+  routed,
   customers,
   defaultExpanded,
   forceExpanded,
@@ -395,7 +397,11 @@ function CustomerGroup({
   const isExpanded = expanded || forceExpanded;
 
   const ordered = sortCustomers(sortBy, customers);
-  const canReorder = sortBy === 'priority';
+  // Nothing to order in the catch-all: these customers are on no round
+  // at all, so "which order are they driven in" has no answer to give.
+  // Offering the grip there was the app asking a question it could not
+  // act on.
+  const canReorder = sortBy === 'priority' && routed;
   const anyRanked = customers.some((customer) => customer.rank > 0);
 
   // Moving a row is the same operation whether it came from a drag or an
@@ -421,6 +427,11 @@ function CustomerGroup({
       >
         {name}
       </Disclosure>
+      {isExpanded && !routed ? (
+        <Text style={styles.orderHint}>
+          Not on any {lower(labels.route)} yet — give them a pin inside one, or put them on one from their card.
+        </Text>
+      ) : null}
       {isExpanded && canReorder ? (
         <View style={styles.orderHintRow}>
           <Text style={styles.orderHint}>
