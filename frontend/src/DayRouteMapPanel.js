@@ -29,9 +29,6 @@ export default function DayRouteMapPanel({ token, stops, routes, drivers, home, 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  // Stop selection is re-read from the freshly loaded list on every
-  // render, so after a move or a location edit it shows the new state
-  // rather than the stale copy captured when it was tapped.
   // How many pins the opening view deliberately leaves off — the same
   // split the map itself uses, so the count and the view can't disagree.
   const offMap = splitOutliers(
@@ -40,6 +37,9 @@ export default function DayRouteMapPanel({ token, stops, routes, drivers, home, 
       .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng) && (p.lat !== 0 || p.lng !== 0)),
   ).outliers.length;
 
+  // Stop selection is re-read from the freshly loaded list on every
+  // render, so after a move or a location edit it shows the new state
+  // rather than the stale copy captured when it was tapped.
   const selectedStop = selected?.kind === 'stop' ? stops.find((stop) => stop.id === selected.id) || null : null;
   const currentRoute = selectedStop ? routes.find((route) => route.id === selectedStop.route_id) : null;
 
@@ -130,7 +130,7 @@ export default function DayRouteMapPanel({ token, stops, routes, drivers, home, 
               leaves somebody out — see splitOutliers in mapFit.js. */}
           {offMap > 0 ? (
             <Text style={styles.note}>
-              {offMap} {offMap === 1 ? 'delivery sits' : 'deliverys sit'} far outside the rest — zoom out to see
+              {offMap} {offMap === 1 ? 'delivery sits' : 'deliveries sit'} far outside the rest — zoom out to see
               {offMap === 1 ? ' it' : ' them'}.
             </Text>
           ) : null}
