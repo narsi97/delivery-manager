@@ -105,17 +105,24 @@ function AppShell() {
     };
   }, []);
 
+  // The account menu closes on every session change. It is a menu about
+  // who is signed in, so leaving it hanging open over a *different*
+  // person's screen is the one state it must never be in — and signing
+  // out from it left it open across the sign-in screen and into the next
+  // session.
   const startSession = useCallback((next) => {
     saveSession({ token: next.token });
     setSession(next);
     setDriving(!next.user?.role?.includes('admin'));
     setTab('today');
+    setAccountOpen(false);
   }, []);
 
   const signOut = useCallback(() => {
     clearSession();
     setSession(null);
     setDriving(false);
+    setAccountOpen(false);
   }, []);
 
   if (restoring) {
@@ -177,7 +184,13 @@ function AppShell() {
               ? adminTabs(labels, t).map((item) => (
                   <Pressable
                     key={item.key}
-                    onPress={() => setTab(item.key)}
+                    onPress={() => {
+                      setTab(item.key);
+                      // Moving to another screen answers whatever the
+                      // menu was open for; leaving it hanging over the
+                      // new one just pushes the page down.
+                      setAccountOpen(false);
+                    }}
                     accessibilityRole="button"
                     style={[styles.navTab, tab === item.key && styles.navTabActive]}
                   >

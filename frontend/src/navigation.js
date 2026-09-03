@@ -45,3 +45,24 @@ export function currentPosition() {
     );
   });
 }
+
+// Ringing the customer from the doorstep.
+//
+// The single most common thing that goes wrong on a round is not finding
+// the door — a gate that looks like the neighbour's, a name that isn't on
+// the house, nobody answering. The number is already on the stop; the
+// driver just had no way to reach it without leaving the app and
+// searching for it. Same division of labour as navigation: this app knows
+// which stop is next, the phone knows how to make calls.
+export function callUrl(phone) {
+  const digits = String(phone || '').replace(/[^\d+]/g, '');
+  return digits ? `tel:${digits}` : '';
+}
+
+export function openCall(phone) {
+  const url = callUrl(phone);
+  if (url) {
+    Linking.openURL(url).catch(() => {});
+  }
+  return !!url;
+}

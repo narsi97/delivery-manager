@@ -16,7 +16,7 @@ import {
 } from '../components';
 import { useLanguage } from '../i18n';
 import { labelsFor, lower } from '../labels';
-import { openNavigation } from '../navigation';
+import { openCall, openNavigation } from '../navigation';
 import { colors, spacing } from '../theme';
 
 // The driver's whole app. Everything is one column, one action per stop,
@@ -244,6 +244,17 @@ function StopActions({ stop, token, captures, onChanged, onError }) {
           onPress={() => openNavigation(stop.lat, stop.lng, stop.customer_name)}
           style={styles.flexButton}
         />
+        {/* The most common thing that goes wrong on a round is not
+            finding the door. The number was already on the stop; there
+            was just no way to ring it without leaving the app. */}
+        {stop.customer_phone ? (
+          <Button
+            title={t('call_customer')}
+            variant="secondary"
+            onPress={() => openCall(stop.customer_phone)}
+            style={styles.flexButton}
+          />
+        ) : null}
         <Button title={t('delivered_action')} onPress={() => choose('delivered')} busy={busy === 'delivered'} style={styles.flexButton} />
       </View>
       <View style={styles.buttonRow}>
