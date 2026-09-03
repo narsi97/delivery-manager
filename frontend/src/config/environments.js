@@ -18,8 +18,22 @@ const environments = {
 // Every EXPO_PUBLIC_* var below is its own static expression, not a helper
 // function taking the name as a parameter.
 export function getFrontendConfig() {
-  const appEnv = process.env.EXPO_PUBLIC_APP_ENV || process.env.NODE_ENV || 'local';
-  const environment = environments[appEnv] ? appEnv : 'local';
+  // Unknown means production, not local.
+  //
+  // This used to fall back to 'local' for anything it didn't recognise,
+  // and NODE_ENV is 'production' during an Expo export — which is not a
+  // key here. So a build where EXPO_PUBLIC_APP_ENV failed to arrive
+  // resolved to *local*, and the deployed app showed the local-dev
+  // sign-in door. The endpoint behind it 404s in production, so nothing
+  // was reachable, but the guess ran the wrong way: an environment we
+  // cannot identify is the one to be strict about.
+  const declared = process.env.EXPO_PUBLIC_APP_ENV || '';
+  const nodeEnv = process.env.NODE_ENV || '';
+  const environment = environments[declared]
+    ? declared
+    : nodeEnv === 'development'
+      ? 'local'
+      : 'prod';
   const defaults = environments[environment];
 
   return {
