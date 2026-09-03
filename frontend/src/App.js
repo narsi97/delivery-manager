@@ -7,6 +7,7 @@ import { clearSession, loadSession, saveSession } from './session';
 import { labelsFor, lower } from './labels';
 import { LanguageProvider, useLanguage } from './i18n';
 import LanguageSwitcher from './LanguageSwitcher';
+import AccountScreen from './screens/AccountScreen';
 import BusinessScreen from './screens/BusinessScreen';
 import CustomersScreen from './screens/CustomersScreen';
 import DriverScreen from './screens/DriverScreen';
@@ -60,7 +61,6 @@ function AppShell() {
   const [driving, setDriving] = useState(false);
   const [restoring, setRestoring] = useState(true);
   const [accountOpen, setAccountOpen] = useState(false);
-  const [changingPassword, setChangingPassword] = useState(false);
   const { t } = useLanguage();
 
   // The server slides the session forward on use (see api.js). Persist
@@ -118,7 +118,6 @@ function AppShell() {
     setDriving(!next.user?.role?.includes('admin'));
     setTab('today');
     setAccountOpen(false);
-    setChangingPassword(false);
   }, []);
 
   const signOut = useCallback(() => {
@@ -126,7 +125,6 @@ function AppShell() {
     setSession(null);
     setDriving(false);
     setAccountOpen(false);
-    setChangingPassword(false);
   }, []);
 
   if (restoring) {
@@ -158,30 +156,20 @@ function AppShell() {
 
       <View style={styles.topBar}>
         <View style={styles.topBarInner}>
-          {/* The account is the menu. Language, driver mode and sign out are
-              all "about me and this session" rather than about the screen,
-              and they were competing with the section tabs for the same
-              row — three of the four things in the top bar were chrome
-              nobody touches in a normal morning. Hanging them off the name
-              that already identifies who is signed in puts them where
-              people look for them, and gives the tabs the room back. */}
-          <Pressable
-            onPress={() => setAccountOpen((prev) => !prev)}
-            accessibilityRole="button"
-            accessibilityLabel={accountOpen ? 'Close account menu' : 'Account menu'}
-            accessibilityState={{ expanded: accountOpen }}
-            style={[styles.account, accountOpen && styles.accountOpen]}
-          >
-            <View style={styles.topBarText}>
-              <Text style={styles.businessName} numberOfLines={1}>
-                {business.name}
-              </Text>
-              <Text style={styles.userName} numberOfLines={1}>
-                {user.name} · {showDriverView ? lowerRole(labels) : t('role_admin')}
-              </Text>
-            </View>
-            <Text style={styles.accountChevron}>{accountOpen ? '▴' : '▾'}</Text>
-          </Pressable>
+          {/* Who you are, not a control. Hanging the menu off the
+              business name made the name look like a button and the
+              menu hard to find — nobody's instinct is to tap their own
+              company to sign out. It is the avatar at the end of the
+              row that does that, which is where every other app in this
+              suite puts it. */}
+          <View style={styles.topBarText}>
+            <Text style={styles.businessName} numberOfLines={1}>
+              {business.name}
+            </Text>
+            <Text style={styles.userName} numberOfLines={1}>
+              {user.name} · {showDriverView ? lowerRole(labels) : t('role_admin')}
+            </Text>
+          </View>
 
           <View style={styles.topBarActions}>
             {!showDriverView
@@ -202,6 +190,16 @@ function AppShell() {
                   </Pressable>
                 ))
               : null}
+
+            <Pressable
+              onPress={() => setAccountOpen((prev) => !prev)}
+              accessibilityRole="button"
+              accessibilityLabel={accountOpen ? 'Close account menu' : 'Account menu'}
+              accessibilityState={{ expanded: accountOpen }}
+              style={[styles.avatar, accountOpen && styles.avatarOpen]}
+            >
+              <Text style={[styles.avatarText, accountOpen && styles.avatarTextOpen]}>{initialOf(user.name)}</Text>
+            </Pressable>
           </View>
         </View>
       </View>
@@ -217,25 +215,23 @@ function AppShell() {
               <LanguageSwitcher />
             </View>
 
-            {/* Changing your own password. It lives here because it is
-                about you and this session, like everything else in this
-                menu — and because with no way to send a reset link, the
-                only other route back is asking whoever set you up. */}
-            <Pressable
-              onPress={() => setChangingPassword((prev) => !prev)}
-              accessibilityRole="button"
-              style={styles.accountItem}
-            >
-              <Text style={styles.accountItemText}>{t('change_password')}</Text>
-            </Pressable>
-            {changingPassword ? (
-              <ChangePassword
-                token={session.token}
-                onDone={() => {
-                  setChangingPassword(false);
+            {/* A menu is the right shape for "sign out" and the wrong
+                shape for a form with three fields in it, so the password
+                and the business's own details live on a screen and this
+                is the way in. Admins only: a driver has no business
+                details to manage, and their password is on their own
+                account screen — which they reach the same way. */}
+            {isAdmin && !showDriverView ? (
+              <Pressable
+                onPress={() => {
+                  setTab('account');
                   setAccountOpen(false);
                 }}
-              />
+                accessibilityRole="button"
+                style={styles.accountItem}
+              >
+                <Text style={styles.accountItemText}>{t('manage_account')}</Text>
+              </Pressable>
             ) : null}
 
             {isAdmin && canDrive ? (
@@ -269,6 +265,13 @@ function AppShell() {
           <CustomersScreen token={token} business={business} />
         ) : tab === 'team' ? (
           <DriversScreen token={token} business={business} currentUserId={user.id} />
+        ) : tab === 'account' ? (
+          <AccountScreen
+            token={token}
+            business={business}
+            user={user}
+            onBusinessUpdated={(updated) => setSession((prev) => ({ ...prev, business: updated }))}
+          />
         ) : (
           <BusinessScreen
             token={token}
@@ -285,59 +288,11 @@ function lowerRole(labels) {
   return lower(labels.driver);
 }
 
-// Changing your own password, inline in the account menu.
-//
-// Asks for the current one — an unlocked phone on a van seat should not
-// be enough to lock its owner out of their own business. An account that
-// has never had a password (a driver created before this existed) sets
-// one instead; the server decides that, not this form.
-function ChangePassword({ token, onDone }) {
-  const { t } = useLanguage();
-  const [current, setCurrent] = useState('');
-  const [next, setNext] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [done, setDone] = useState('');
-
-  const submit = async () => {
-    setBusy(true);
-    setError('');
-    try {
-      await api.changePassword(token, current, next);
-      setDone(t('password_changed'));
-      setCurrent('');
-      setNext('');
-      setTimeout(onDone, 1200);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <View style={styles.passwordForm}>
-      <Banner message={error} />
-      <Banner message={done} tone="success" />
-      <Field
-        label={t('current_password')}
-        size="md"
-        value={current}
-        onChangeText={setCurrent}
-        secureTextEntry
-        placeholder="••••••"
-      />
-      <Field
-        label={t('new_password')}
-        size="md"
-        value={next}
-        onChangeText={setNext}
-        secureTextEntry
-        placeholder="••••••"
-      />
-      <Button title={t('change_password')} onPress={submit} busy={busy} disabled={!next} />
-    </View>
-  );
+// The first letter of whoever is signed in. Falls back to a dot rather
+// than an empty circle, so the target is always visibly there.
+function initialOf(name) {
+  const first = String(name || '').trim().charAt(0);
+  return first ? first.toUpperCase() : '•';
 }
 
 const styles = StyleSheet.create({
@@ -386,6 +341,20 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   accountOpen: { backgroundColor: colors.surfaceAlt },
+  avatar: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: spacing.xs,
+  },
+  avatarOpen: { backgroundColor: colors.accent, borderColor: colors.accent },
+  avatarText: { fontSize: 14, fontWeight: '700', color: colors.accent },
+  avatarTextOpen: { color: colors.accentText },
   accountChevron: { fontSize: 11, color: colors.subtitle, flexShrink: 0 },
   accountMenu: {
     backgroundColor: colors.surface,
@@ -417,7 +386,6 @@ const styles = StyleSheet.create({
     minHeight: 44,
     justifyContent: 'center',
   },
-  passwordForm: { paddingVertical: spacing.sm },
   accountItemText: { fontSize: 15, fontWeight: '600', color: colors.link },
   topBarText: { paddingRight: spacing.xs, flexShrink: 1 },
   businessName: { fontSize: 16, fontWeight: '800', color: colors.text },

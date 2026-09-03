@@ -33,6 +33,11 @@ const STRINGS = {
     change_password: 'Change password',
     current_password: 'Current password',
     new_password: 'New password',
+    confirm_password: 'Type it again',
+    passwords_do_not_match: "Those two don't match."
+    ,
+    manage_account: 'Manage account',
+    nav_account: 'Account',
     password_changed: 'Password changed.',
     send_me_a_code: 'Send me a code',
     the_code: 'The code',
@@ -106,6 +111,11 @@ const STRINGS = {
     change_password: 'పాస్‌వర్డ్ మార్చండి',
     current_password: 'ప్రస్తుత పాస్‌వర్డ్',
     new_password: 'కొత్త పాస్‌వర్డ్',
+    confirm_password: 'మళ్ళీ టైప్ చేయండి',
+    passwords_do_not_match: 'ఆ రెండూ సరిపోలడం లేదు.'
+    ,
+    manage_account: 'ఖాతా నిర్వహణ',
+    nav_account: 'ఖాతా',
     password_changed: 'పాస్‌వర్డ్ మార్చబడింది.',
     send_me_a_code: 'కోడ్ పంపండి',
     the_code: 'కోడ్',
