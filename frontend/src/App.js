@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, SafeAreaView, StatusBar, StyleSheet, Text, View } from 'react-native';
 
 import * as api from './api';
+import { Banner, Button, Field } from './components';
 import { clearSession, loadSession, saveSession } from './session';
 import { labelsFor, lower } from './labels';
 import { LanguageProvider, useLanguage } from './i18n';
@@ -59,6 +60,7 @@ function AppShell() {
   const [driving, setDriving] = useState(false);
   const [restoring, setRestoring] = useState(true);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
   const { t } = useLanguage();
 
   // The server slides the session forward on use (see api.js). Persist
@@ -116,6 +118,7 @@ function AppShell() {
     setDriving(!next.user?.role?.includes('admin'));
     setTab('today');
     setAccountOpen(false);
+    setChangingPassword(false);
   }, []);
 
   const signOut = useCallback(() => {
@@ -123,6 +126,7 @@ function AppShell() {
     setSession(null);
     setDriving(false);
     setAccountOpen(false);
+    setChangingPassword(false);
   }, []);
 
   if (restoring) {
@@ -213,6 +217,27 @@ function AppShell() {
               <LanguageSwitcher />
             </View>
 
+            {/* Changing your own password. It lives here because it is
+                about you and this session, like everything else in this
+                menu — and because with no way to send a reset link, the
+                only other route back is asking whoever set you up. */}
+            <Pressable
+              onPress={() => setChangingPassword((prev) => !prev)}
+              accessibilityRole="button"
+              style={styles.accountItem}
+            >
+              <Text style={styles.accountItemText}>{t('change_password')}</Text>
+            </Pressable>
+            {changingPassword ? (
+              <ChangePassword
+                token={session.token}
+                onDone={() => {
+                  setChangingPassword(false);
+                  setAccountOpen(false);
+                }}
+              />
+            ) : null}
+
             {isAdmin && canDrive ? (
               <Pressable
                 onPress={() => {
@@ -258,6 +283,61 @@ function AppShell() {
 
 function lowerRole(labels) {
   return lower(labels.driver);
+}
+
+// Changing your own password, inline in the account menu.
+//
+// Asks for the current one — an unlocked phone on a van seat should not
+// be enough to lock its owner out of their own business. An account that
+// has never had a password (a driver created before this existed) sets
+// one instead; the server decides that, not this form.
+function ChangePassword({ token, onDone }) {
+  const { t } = useLanguage();
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [done, setDone] = useState('');
+
+  const submit = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await api.changePassword(token, current, next);
+      setDone(t('password_changed'));
+      setCurrent('');
+      setNext('');
+      setTimeout(onDone, 1200);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={styles.passwordForm}>
+      <Banner message={error} />
+      <Banner message={done} tone="success" />
+      <Field
+        label={t('current_password')}
+        size="md"
+        value={current}
+        onChangeText={setCurrent}
+        secureTextEntry
+        placeholder="••••••"
+      />
+      <Field
+        label={t('new_password')}
+        size="md"
+        value={next}
+        onChangeText={setNext}
+        secureTextEntry
+        placeholder="••••••"
+      />
+      <Button title={t('change_password')} onPress={submit} busy={busy} disabled={!next} />
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -337,6 +417,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
     justifyContent: 'center',
   },
+  passwordForm: { paddingVertical: spacing.sm },
   accountItemText: { fontSize: 15, fontWeight: '600', color: colors.link },
   topBarText: { paddingRight: spacing.xs, flexShrink: 1 },
   businessName: { fontSize: 16, fontWeight: '800', color: colors.text },

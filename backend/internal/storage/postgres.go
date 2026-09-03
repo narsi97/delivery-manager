@@ -231,6 +231,29 @@ func (s *PostgresStore) SetUserMaxStops(ctx context.Context, businessID string, 
 	return scanUser(row)
 }
 
+func (s *PostgresStore) SetUserPassword(ctx context.Context, businessID string, id string, hash string) error {
+	tag, err := s.pool.Exec(ctx,
+		`update users set password_hash = $3 where id = $1 and business_id = $2`,
+		id, businessID, nullableText(hash))
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *PostgresStore) GetUserPasswordHash(ctx context.Context, userID string) (string, error) {
+	var hash string
+	err := s.pool.QueryRow(ctx,
+		`select coalesce(password_hash,'') from users where id = $1`, userID).Scan(&hash)
+	if err != nil {
+		return "", noRows(err)
+	}
+	return hash, nil
+}
+
 func (s *PostgresStore) SetUserPIN(ctx context.Context, businessID string, id string, pinHash string) error {
 	tag, err := s.pool.Exec(ctx,
 		`update users set pin_hash = $3 where id = $1 and business_id = $2`, id, businessID, nullableText(pinHash))

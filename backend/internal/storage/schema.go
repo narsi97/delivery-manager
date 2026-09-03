@@ -218,6 +218,11 @@ var schemaStatements = []string{
 	// means no limit — which is what every driver did before this.
 	`alter table users add column if not exists max_stops int not null default 0`,
 
+	// A password, for the deployment with no SMS provider. The one-time
+	// code path is still there and still works — see auth/password.go
+	// for why this exists alongside it rather than instead of it.
+	`alter table users add column if not exists password_hash text`,
+
 	// Who gets visited first, ahead of what the shortest path would say.
 	// Defaults to 'normal', so every customer that existed before
 	// priorities did sorts exactly where it always has.

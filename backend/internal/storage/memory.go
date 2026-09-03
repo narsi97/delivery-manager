@@ -24,6 +24,7 @@ type MemoryStore struct {
 	businesses   map[string]domain.Business
 	users        map[string]domain.User
 	pinHashes    map[string]string
+	passwords    map[string]string
 	customers    map[string]domain.Customer
 	serviceAreas map[string]domain.ServiceArea
 	products     map[string]domain.Product
@@ -40,6 +41,7 @@ func NewMemoryStore() *MemoryStore {
 		businesses:   map[string]domain.Business{},
 		users:        map[string]domain.User{},
 		pinHashes:    map[string]string{},
+		passwords:    map[string]string{},
 		customers:    map[string]domain.Customer{},
 		serviceAreas: map[string]domain.ServiceArea{},
 		products:     map[string]domain.Product{},
@@ -204,6 +206,32 @@ func (s *MemoryStore) SetUserHome(ctx context.Context, businessID string, id str
 	u.HomeLat, u.HomeLng = lat, lng
 	s.users[id] = u
 	return u, nil
+}
+
+func (s *MemoryStore) SetUserPassword(_ context.Context, businessID string, id string, hash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	u, ok := s.users[id]
+	if !ok || u.BusinessID != businessID {
+		return ErrNotFound
+	}
+	if hash == "" {
+		delete(s.passwords, id)
+		return nil
+	}
+	s.passwords[id] = hash
+	return nil
+}
+
+func (s *MemoryStore) GetUserPasswordHash(_ context.Context, userID string) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if _, ok := s.users[userID]; !ok {
+		return "", ErrNotFound
+	}
+	return s.passwords[userID], nil
 }
 
 func (s *MemoryStore) SetUserPIN(ctx context.Context, businessID string, id string, pinHash string) error {

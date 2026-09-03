@@ -26,6 +26,25 @@ type Config struct {
 	// a private demo with no SMS provider; it must come off in the same
 	// change that wires a real one.
 	AllowLogOTPSender bool
+	// OTPSignInDisabled hides the one-time-code sign-in routes.
+	//
+	// Phrased as the negative so the zero value leaves them on: a Config
+	// built in a test or by future code that has never heard of this
+	// flag gets the behaviour the product was designed around, and only
+	// a deployment that deliberately says so loses it. The deployment
+	// does say so, because no SMS provider is wired and a door nobody
+	// can walk through is worse than no door.
+	//
+	// Nothing about the OTP code is removed — see httpapi/server.go's
+	// route registration.
+	OTPSignInDisabled bool
+	// The first account, for a deployment where nobody can sign up. Used
+	// once, when that phone number has no account yet — see
+	// httpapi.BootstrapOwner.
+	BootstrapBusiness string
+	BootstrapPhone    string
+	BootstrapPassword string
+	BootstrapOwner    string
 	AllowedOrigin     string
 	// DefaultTimezone is the IANA zone new businesses get when signup
 	// doesn't specify one. Every "today" in this product resolves in the
@@ -50,6 +69,11 @@ func Load() (Config, error) {
 		JWTSecret:         stringFromEnv("JWT_SECRET", defaults.JWTSecret),
 		TokenTTL:          time.Duration(tokenHours) * time.Hour,
 		AllowLogOTPSender: boolFromEnv("OTP_ALLOW_LOG_SENDER", false),
+		OTPSignInDisabled: boolFromEnv("OTP_SIGNIN_DISABLED", false),
+		BootstrapBusiness: stringFromEnv("BOOTSTRAP_BUSINESS", ""),
+		BootstrapPhone:    stringFromEnv("BOOTSTRAP_PHONE", ""),
+		BootstrapPassword: stringFromEnv("BOOTSTRAP_PASSWORD", ""),
+		BootstrapOwner:    stringFromEnv("BOOTSTRAP_OWNER", ""),
 		GoogleClientID:    stringFromEnv("GOOGLE_CLIENT_ID", ""),
 		AllowedOrigin:     stringFromEnv("ALLOWED_ORIGIN", defaults.AllowedOrigin),
 		DefaultTimezone:   stringFromEnv("DEFAULT_TIMEZONE", "Asia/Kolkata"),

@@ -14,6 +14,24 @@ actually involves. Delete an entry when it stops being true.
 
 ## Auth and security
 
+### Sign-in is a password, and the one-time code is switched off
+
+**Now:** phone number + password (`auth/password.go`, `httpapi/
+passwordauth.go`). The OTP path is untouched — it compiles, its tests
+run, and `OTP_SIGNIN_DISABLED=0` puts its routes back — but no SMS
+provider is wired, so a code can only reach the server log.
+
+**Costs:** a password is something to forget, and there is no channel to
+send a reset down, so the reset path is a human: the owner sets each
+driver's, and whoever runs the deployment sets the owner's. Passwords
+therefore travel by word of mouth and are often never changed. There is
+also no self-serve signup and no phone verification — accounts are
+created *for* people (`BootstrapOwner`, and the owner adding drivers).
+
+**To undo:** configure a provider in `internal/notify`, drop
+`OTP_SIGNIN_DISABLED`, and the designed door opens again. The password
+door can stay alongside it or go; nothing else depends on it.
+
 ### Codes are written to the log, not sent as SMS
 
 **Now:** `internal/notify` is a one-method `Sender`; the shipped

@@ -44,15 +44,25 @@ func main() {
 
 	authService := auth.NewService(cfg.JWTSecret, cfg.TokenTTL)
 
-	// Sign-in is a phone number and a code, for owners and drivers alike
-	// — there is nothing to configure for it to work, but there *is*
-	// something to configure before codes actually reach a handset. Say
-	// which of those two states this process is in, loudly, because the
-	// difference is "anyone with log access can sign in as anyone".
-	log.Printf("sign-in: phone + one-time code; sessions last %s and refresh on use", cfg.TokenTTL)
+	// Which door is open is the thing about this process most worth
+	// knowing from the logs, so it says so rather than describing the
+	// design. The one-time-code path is still compiled in and still
+	// tested; OTP_SIGNIN_DISABLED decides whether it is reachable.
+	if cfg.OTPSignInDisabled {
+		log.Printf("sign-in: phone + password (one-time codes are switched off — no SMS provider); " +
+			"sessions last " + cfg.TokenTTL.String() + " and refresh on use")
+	} else {
+		log.Printf("sign-in: phone + password, or a one-time code; sessions last %s and refresh on use", cfg.TokenTTL)
+	}
 	log.Printf("new businesses default to timezone %s", cfg.DefaultTimezone)
 
 	api := httpapi.NewServer(store, authService, cfg)
+	// The first account, when nobody can sign up. A no-op unless it is
+	// configured and that number has no account yet.
+	if err := api.BootstrapOwner(ctx, cfg.BootstrapBusiness, cfg.BootstrapPhone,
+		cfg.BootstrapPassword, cfg.BootstrapOwner); err != nil {
+		log.Fatalf("bootstrap owner: %v", err)
+	}
 	httpapi.SetAllowedOrigin(cfg.AllowedOrigin)
 	log.Printf("CORS allowed origin: %s", cfg.AllowedOrigin)
 

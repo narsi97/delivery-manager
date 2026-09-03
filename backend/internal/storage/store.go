@@ -104,6 +104,13 @@ type Store interface {
 	// SetUserMaxStops caps how many deliveries this driver takes in a
 	// round. Zero clears the cap — see domain.User.MaxStops.
 	SetUserMaxStops(ctx context.Context, businessID string, id string, max int) (domain.User, error)
+	// SetUserPassword stores a bcrypt hash, or clears it with an empty
+	// string. GetUserPasswordHash reads it back for sign-in, and is the
+	// only place the hash leaves storage — it is deliberately not on
+	// domain.User, so it cannot be serialized into an API response by
+	// accident. Same reasoning the PIN hash had before it.
+	SetUserPassword(ctx context.Context, businessID string, id string, hash string) error
+	GetUserPasswordHash(ctx context.Context, userID string) (string, error)
 	SetUserPIN(ctx context.Context, businessID string, id string, pinHash string) error
 
 	CreateCustomer(ctx context.Context, c domain.Customer) (domain.Customer, error)

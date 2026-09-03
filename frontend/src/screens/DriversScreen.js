@@ -186,7 +186,8 @@ function NewDriverForm({ token, onCreated, onError }) {
       />
       <Button title="Add driver" onPress={submit} busy={busy} disabled={!name.trim() || !phone.trim()} />
       <Text style={styles.note}>
-        They sign in with this number and a code sent to it — nothing for you to issue, tell them, or reset.
+        They sign in with this number and a password. Set it from their card once they&apos;re added, and tell them
+        what it is.
       </Text>
     </View>
   );
@@ -206,6 +207,7 @@ function DriverRow({ driver, today, token, business, isSelf, isFirst, onChanged,
   // Blank means no limit, which is what most drivers are — so it stays
   // blank rather than being pre-filled with a number to think about.
   const [maxStops, setMaxStops] = useState(driver.max_stops ? String(driver.max_stops) : '');
+  const [password, setPassword] = useState('');
 
   const act = async (action, after) => {
     setBusy(true);
@@ -411,9 +413,40 @@ function DriverRow({ driver, today, token, business, isSelf, isFirst, onChanged,
                 </View>
               ) : null}
 
-              {/* No "reset PIN" any more — there is no PIN. A driver who
-                  can't get in asks for a code like anyone else, which is
-                  one fewer secret for the owner to be responsible for. */}
+              {/* Somebody has to be able to hand a driver their first
+                  password and a new one when they forget it, because
+                  there is no channel to send a reset link down. That
+                  somebody is the person who employs them. */}
+              <Text style={[styles.finishLabel, styles.spacedLabel]}>Their password</Text>
+              <View style={styles.maxRow}>
+                <input
+                  type="password"
+                  value={password}
+                  placeholder="at least 6 characters"
+                  aria-label={`Set a password for ${driver.name}`}
+                  onChange={(event) => setPassword(event.target.value)}
+                  style={passwordInputStyle}
+                />
+                <Button
+                  title="Set"
+                  variant="secondary"
+                  busy={busy}
+                  disabled={password.length < 6}
+                  onPress={() =>
+                    act(
+                      () => api.setDriverPassword(token, driver.id, password),
+                      () => {
+                        setPassword('');
+                        onNotice(`${driver.name} can now sign in with ${driver.phone} and that password.`);
+                      },
+                    )
+                  }
+                />
+              </View>
+              <Text style={styles.note}>
+                Tell them yourself — the app has no way to send it. They can change it from their own account menu.
+              </Text>
+
               <View style={styles.buttonRow}>
                 {!isSelf ? (
                   <Button
@@ -444,6 +477,23 @@ function DriverRow({ driver, today, token, business, isSelf, isFirst, onChanged,
 // A raw input rather than Field: this is a number beside a button on one
 // line, not a labelled form row, and Field's block layout would give it a
 // paragraph of its own. Same treatment as the caps on the Today card.
+const passwordInputStyle = {
+  flex: 1,
+  minWidth: 160,
+  maxWidth: 260,
+  borderWidth: 1,
+  borderColor: colors.border,
+  borderRadius: radius.md,
+  paddingTop: 8,
+  paddingBottom: 8,
+  paddingLeft: spacing.sm,
+  paddingRight: spacing.sm,
+  fontSize: 15,
+  color: colors.text,
+  backgroundColor: colors.surface,
+  fontFamily: 'inherit',
+};
+
 const maxInputStyle = {
   width: 110,
   borderWidth: 1,

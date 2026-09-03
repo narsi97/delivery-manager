@@ -12,69 +12,40 @@ import { colors, radius, spacing } from '../theme';
 //
 // This screen used to have two tabs — "Business admin", who signed in
 // with Google, and "Driver", who typed a phone number and a PIN their
-// employer had issued them. Both are gone: everyone now types a phone
-// number and the code sent to it, so the app no longer needs to ask who
-// you are before it can let you in. It finds out from the number.
+// employer had issued them. Both are gone: everyone types a phone number
+// now, so the app no longer needs to ask who you are before it can let
+// you in. It finds out from the number.
 //
-// What's left is two steps. Type a number; type the code. The only extra
-// is for a number the server doesn't recognise, which needs a business
-// name before there is anything to create.
+// The second half of that pair is a password, not the one-time code the
+// product was designed around. Nothing about the code path is deleted —
+// api.requestOTP and api.verifyOTP are still there and still work — but
+// there is no SMS provider wired, so a code can only reach the server
+// log, and a door nobody can walk through is worse than no door. See
+// backend auth/password.go for the whole trade, and the OTP_SIGNIN_
+// DISABLED flag for how it comes back.
+//
+// No sign-up either, while the product is being shaped around one
+// business: accounts are created for people rather than by them.
 export default function SignInScreen({ onSession }) {
   const { t } = useLanguage();
   const { environment } = getFrontendConfig();
 
   const [phone, setPhone] = useState('');
-  const [code, setCode] = useState('');
-  // 'phone' -> asking for the number. 'code' -> a code is out.
-  // 'signup' -> the number is new, so we need a business too.
-  const [step, setStep] = useState('phone');
-  const [businessName, setBusinessName] = useState('');
-  const [ownerName, setOwnerName] = useState('');
+  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
 
-  const sendCode = async (extra = {}) => {
+  const submit = async () => {
     setBusy(true);
     setError('');
     try {
-      await api.requestOTP({ phone, ...extra });
-      setNotice(t('code_sent'));
-      setStep('code');
-    } catch (err) {
-      // The server telling us it doesn't know this number isn't an
-      // error to show — it's the answer to "are you new?", so the form
-      // grows the fields a signup needs instead.
-      if (err.code === 'no_account') {
-        setStep('signup');
-        setError('');
-      } else {
-        setError(err.message);
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const verify = async () => {
-    setBusy(true);
-    setError('');
-    try {
-      const session = await api.verifyOTP(phone, code);
-      onSession(session);
+      onSession(await api.signIn(phone, password));
     } catch (err) {
       setError(err.message);
-      setCode('');
+      setPassword('');
     } finally {
       setBusy(false);
     }
-  };
-
-  const startOver = () => {
-    setStep('phone');
-    setCode('');
-    setError('');
-    setNotice('');
   };
 
   return (
@@ -89,76 +60,27 @@ export default function SignInScreen({ onSession }) {
 
       <View style={styles.card}>
         <Banner message={error} />
-        {step === 'code' ? <Banner message={notice} tone="success" /> : null}
 
-        {step === 'code' ? (
-          <View>
-            <Text style={styles.lead}>{t('code_sent_to', { phone })}</Text>
-            <Field
-              label={t('the_code')}
-              size="sm"
-              value={code}
-              onChangeText={setCode}
-              keyboardType="number-pad"
-              maxLength={6}
-              placeholder="6 digits"
-              autoFocus
-            />
-            <Button title={t('sign_in')} onPress={verify} busy={busy} disabled={code.length !== 6} />
-            <Pressable onPress={startOver} accessibilityRole="button" style={styles.linkRow}>
-              <Text style={styles.link}>{t('use_a_different_number')}</Text>
-            </Pressable>
-          </View>
-        ) : step === 'signup' ? (
-          <View>
-            <Text style={styles.lead}>{t('no_account_yet')}</Text>
-            <Field
-              label={t('business_name')}
-              size="md"
-              value={businessName}
-              onChangeText={setBusinessName}
-              placeholder="Nalgonda Dairy"
-              autoFocus
-            />
-            <Field label={t('your_name')} size="md" value={ownerName} onChangeText={setOwnerName} placeholder="Narsi" />
-
-            {/* Dairy is the only vertical open to self-signup for now.
-                The engine runs schools, water and grocery too (see
-                domain.PresetFor), so this is a list with one entry
-                rather than a hardcoded value — adding the others is a
-                line each, not a redesign. */}
-            <Text style={styles.label}>{t('kind_of_business')}</Text>
-            <View style={styles.chipRow}>
-              <View style={[styles.chip, styles.chipActive]}>
-                <Text style={styles.chipTextActive}>{t('business_type_dairy')}</Text>
-              </View>
-            </View>
-
-            <Button
-              title={t('send_me_a_code')}
-              onPress={() => sendCode({ businessName, ownerName, businessType: 'dairy' })}
-              busy={busy}
-              disabled={!businessName.trim()}
-            />
-            <Pressable onPress={startOver} accessibilityRole="button" style={styles.linkRow}>
-              <Text style={styles.link}>{t('use_a_different_number')}</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <View>
-            <Field
-              label={t('phone_number')}
-              size="md"
-              value={phone}
-              onChangeText={setPhone}
-              keyboardType="phone-pad"
-              placeholder="98765 43210"
-              autoFocus
-            />
-            <Button title={t('send_me_a_code')} onPress={() => sendCode()} busy={busy} disabled={!phone.trim()} />
-            <Text style={styles.hint}>{t('signin_hint')}</Text>
-          </View>
-        )}
+        <Field
+          label={t('phone_number')}
+          size="md"
+          value={phone}
+          onChangeText={setPhone}
+          keyboardType="phone-pad"
+          placeholder="98765 43210"
+          autoFocus
+        />
+        <Field
+          label={t('password')}
+          size="md"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
+          placeholder="••••••"
+          onSubmitEditing={phone.trim() && password ? submit : undefined}
+        />
+        <Button title={t('sign_in')} onPress={submit} busy={busy} disabled={!phone.trim() || !password} />
+        <Text style={styles.hint}>{t('signin_password_hint')}</Text>
 
         {environment !== 'prod' ? <DevLogin onSession={onSession} onError={setError} /> : null}
       </View>

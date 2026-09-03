@@ -44,7 +44,11 @@ type Server struct {
 	// when disabled rather than existing-but-403ing, so it doesn't
 	// advertise a backdoor.
 	devLoginEnabled bool
-	driverLogins    *ratelimit.Limiter
+	// otpSignInDisabled hides the one-time-code routes. The code behind
+	// them is still there and still tested — see the route registration
+	// below.
+	otpSignInDisabled bool
+	driverLogins      *ratelimit.Limiter
 	// otpLimiter caps how often a code can be *asked for* per phone
 	// number — the control that stops this being used to text someone
 	// repeatedly, and to run up an SMS bill once a real provider is
@@ -56,14 +60,15 @@ type Server struct {
 
 func NewServer(store storage.Store, authService *auth.Service, cfg config.Config) *Server {
 	s := &Server{
-		store:           store,
-		auth:            authService,
-		mux:             http.NewServeMux(),
-		defaultTimezone: cfg.DefaultTimezone,
-		devLoginEnabled: cfg.Environment != config.EnvironmentProd,
-		driverLogins:    ratelimit.New(driverLoginLimit, driverLoginWindow),
-		otpLimiter:      ratelimit.New(otpRequestBurst, otpRequestWindow),
-		otpSender:       notify.New(string(cfg.Environment), cfg.AllowLogOTPSender),
+		store:             store,
+		auth:              authService,
+		mux:               http.NewServeMux(),
+		defaultTimezone:   cfg.DefaultTimezone,
+		devLoginEnabled:   cfg.Environment != config.EnvironmentProd,
+		otpSignInDisabled: cfg.OTPSignInDisabled,
+		driverLogins:      ratelimit.New(driverLoginLimit, driverLoginWindow),
+		otpLimiter:        ratelimit.New(otpRequestBurst, otpRequestWindow),
+		otpSender:         notify.New(string(cfg.Environment), cfg.AllowLogOTPSender),
 	}
 	s.routes()
 	return s
@@ -90,8 +95,21 @@ func (s *Server) routes() {
 	// One door for everyone: a phone number, then the code sent to it.
 	// The owner's Google sign-in and the driver's admin-issued PIN both
 	// used to live here; see otpauth.go for why neither survived.
-	s.mux.HandleFunc("POST /api/v1/auth/otp/request", s.handleRequestOTP)
-	s.mux.HandleFunc("POST /api/v1/auth/otp/verify", s.handleVerifyOTP)
+	// The door that is actually open: phone number + password. See
+	// passwordauth.go for why, and auth/password.go for what it costs.
+	s.mux.HandleFunc("POST /api/v1/auth/signin", s.handlePasswordSignIn)
+	s.mux.HandleFunc("POST /api/v1/auth/password", s.withAuth(s.handleChangePassword))
+
+	// The one-time code path, intact and switched off. Nothing here is
+	// deleted or commented out — it compiles, its tests run, and one
+	// env var (OTP_SIGNIN_DISABLED=0) brings it back the day an SMS
+	// provider is configured. Routes rather than code are what get
+	// disabled, because commented-out Go is code that has stopped being
+	// checked by anything.
+	if !s.otpSignInDisabled {
+		s.mux.HandleFunc("POST /api/v1/auth/otp/request", s.handleRequestOTP)
+		s.mux.HandleFunc("POST /api/v1/auth/otp/verify", s.handleVerifyOTP)
+	}
 	if s.devLoginEnabled {
 		s.mux.HandleFunc("POST /api/v1/auth/dev-login", s.handleDevLogin)
 	}
@@ -124,6 +142,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/drivers/{id}/home", s.withAdmin(s.handleSetDriverHome))
 	s.mux.HandleFunc("POST /api/v1/drivers/{id}/finish", s.withAdmin(s.handleSetDriverFinish))
 	s.mux.HandleFunc("POST /api/v1/drivers/{id}/max-stops", s.withAdmin(s.handleSetDriverMaxStops))
+	s.mux.HandleFunc("POST /api/v1/drivers/{id}/password", s.withAdmin(s.handleSetDriverPassword))
 
 	s.mux.HandleFunc("GET /api/v1/recurring-orders", s.withAdmin(s.handleListRecurringOrders))
 	s.mux.HandleFunc("POST /api/v1/recurring-orders", s.withAdmin(s.handleCreateRecurringOrder))

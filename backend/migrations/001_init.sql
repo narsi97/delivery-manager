@@ -203,6 +203,9 @@ alter table users add column if not exists finish_lng double precision not null 
 -- How many deliveries fit in this driver's van. Zero means no limit.
 alter table users add column if not exists max_stops int not null default 0;
 
+-- A password, for the deployment with no SMS provider.
+alter table users add column if not exists password_hash text;
+
 -- Who gets visited first, ahead of what the shortest path would say.
 alter table customers add column if not exists priority text not null default 'normal';
 

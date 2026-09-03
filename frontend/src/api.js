@@ -70,6 +70,38 @@ async function request(path, options = {}) {
 
 // ---------- auth ----------
 
+// Sign in with a phone number and a password.
+//
+// The one-time-code calls below are intact and still work against a
+// server that has them switched on — see passwordauth.go for why this is
+// the door that is open today.
+export function signIn(phone, password) {
+  return request('/api/v1/auth/signin', {
+    method: 'POST',
+    body: JSON.stringify({ phone, password }),
+  });
+}
+
+// Change your own. The current one is required, so an unlocked phone
+// can't be used to lock its owner out.
+export function changePassword(token, currentPassword, newPassword) {
+  return request('/api/v1/auth/password', {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+}
+
+// The owner setting a driver's — their first one, and a new one when
+// they forget it. There is no channel to send a reset link down.
+export function setDriverPassword(token, id, password) {
+  return request(`/api/v1/drivers/${id}/password`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ password }),
+  });
+}
+
 // Ask for a one-time code.
 //
 // The same call covers signing in and signing up: a number the server
