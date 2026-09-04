@@ -113,29 +113,88 @@ func (s *Server) handleSuggestServiceAreas(w http.ResponseWriter, r *http.Reques
 // from the addresses already typed against them.
 //
 // Indian addresses this product sees run specific-to-general — "39, Clock
-// Tower, Nalgonda" — so the last comma-separated part is the locality,
-// and the one most of a cluster agrees on is its name. This is a
-// suggestion the admin can overwrite in a text field, not a fact, which
-// is what makes a guess acceptable here at all.
+// Tower, Nalgonda" — so the end of the address is the locality, and the
+// one most of a cluster agrees on is its name. This is a suggestion the
+// admin can overwrite in a text field, not a fact, which is what makes a
+// guess acceptable here at all.
+//
+// "The end" used to mean the last comma-separated part, which assumed a
+// tidiness real lists do not have. The first business onboarded here had
+// thirty-four households and four commas between them: "H No : 5-2-5
+// Lateefsab dargha khamman near clocktower nalgonda" is one field of
+// free text, so the comma rule handed back the whole address, no two
+// customers agreed on anything, and the suggestion arrived with an empty
+// name. The last *word* was "nalgonda" for twenty-eight of the
+// thirty-four.
+//
+// So both are tried, commas first because a comma is a deliberate mark
+// and a space is not. Matching ignores case: the same town was typed
+// "Nalgonda" and "nalgonda" in the same list, and counting those apart is
+// how a clear majority turns into two losing halves.
 //
 // Deliberately not reverse-geocoding. That would mean a network call to a
 // third party on a setup screen, an API key to hold, and a dependency the
 // architecture note is explicit about avoiding — to produce a string the
 // admin is going to read and correct anyway.
 func placeNameFor(group []route.Point, addressOf map[string]string) string {
+	if name := agreedName(group, addressOf, localityByComma); name != "" {
+		return name
+	}
+	return agreedName(group, addressOf, localityByWord)
+}
+
+// The last comma-separated part, ignoring empty ones — a trailing comma
+// is common and means nothing.
+func localityByComma(address string) string {
+	parts := strings.Split(address, ",")
+	for i := len(parts) - 1; i >= 0; i-- {
+		if part := strings.TrimSpace(parts[i]); part != "" {
+			// Only a comma-delimited field short enough to be a place
+			// name. A whole free-text address has no commas at all and
+			// would otherwise come back here as one enormous "locality"
+			// that only its own customer agrees with.
+			if len(part) <= maxLocalityLen {
+				return part
+			}
+			return ""
+		}
+	}
+	return ""
+}
+
+// The last word, for the free-text address that has no commas to split.
+func localityByWord(address string) string {
+	fields := strings.Fields(strings.Trim(address, " ,"))
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.Trim(fields[len(fields)-1], ",.")
+}
+
+// About as long as a place name gets before it is plainly a sentence.
+const maxLocalityLen = 40
+
+func agreedName(group []route.Point, addressOf map[string]string, localityOf func(string) string) string {
 	counts := map[string]int{}
+	// The spelling to hand back, per lowercased key: whichever form was
+	// seen first, so the field offers "Nalgonda" rather than a
+	// lowercased or title-cased invention of ours.
+	spelling := map[string]string{}
 	for _, p := range group {
 		address := strings.TrimSpace(addressOf[p.ID])
 		if address == "" {
 			continue
 		}
-		parts := strings.Split(address, ",")
-		locality := strings.TrimSpace(parts[len(parts)-1])
+		locality := localityOf(address)
 		// A trailing PIN code or house number is not a place name.
 		if locality == "" || len(locality) < 3 || isMostlyDigits(locality) {
 			continue
 		}
-		counts[locality]++
+		key := strings.ToLower(locality)
+		counts[key]++
+		if _, seen := spelling[key]; !seen {
+			spelling[key] = locality
+		}
 	}
 	if len(counts) == 0 {
 		return ""
@@ -162,7 +221,7 @@ func placeNameFor(group []route.Point, addressOf map[string]string) string {
 	if tallies[0].n*2 < len(group) {
 		return ""
 	}
-	return tallies[0].name
+	return spelling[tallies[0].name]
 }
 
 func isMostlyDigits(s string) bool {
