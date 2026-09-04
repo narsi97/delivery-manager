@@ -377,6 +377,13 @@ export function createAdHocOrder(token, order) {
   return request('/api/v1/orders', { method: 'POST', token, body: JSON.stringify(order) });
 }
 
+// One customer's deliveries either side of today: their history looking
+// back, and what is already booked looking forward. `back` and `ahead`
+// are day counts, both capped server-side.
+export function customerOrders(token, id, { back = 60, ahead = 30 } = {}) {
+  return request(`/api/v1/customers/${id}/orders?back=${back}&ahead=${ahead}`, { token });
+}
+
 
 // Moves one delivery onto a different route, or off every route with an
 // empty route_id. Both affected routes are re-ordered server-side.

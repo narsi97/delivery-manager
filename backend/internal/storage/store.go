@@ -159,6 +159,10 @@ type Store interface {
 	EnsureDailyOrder(ctx context.Context, o domain.DailyOrder) (domain.DailyOrder, bool, error)
 	CreateDailyOrder(ctx context.Context, o domain.DailyOrder) (domain.DailyOrder, error)
 	ListDailyOrders(ctx context.Context, businessID string, date string) ([]domain.DailyOrder, error)
+	// ListCustomerDailyOrders is one customer's deliveries between two
+	// inclusive dates, newest date first — their history looking back and
+	// what is already booked looking forward.
+	ListCustomerDailyOrders(ctx context.Context, businessID, customerID, from, to string) ([]domain.DailyOrder, error)
 	GetDailyOrder(ctx context.Context, businessID string, id string) (domain.DailyOrder, error)
 	UpdateDailyOrder(ctx context.Context, o domain.DailyOrder) (domain.DailyOrder, error)
 

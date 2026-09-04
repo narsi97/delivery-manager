@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import AddCustomerDialog from '../AddCustomerDialog';
+import CustomerTimeline from '../CustomerTimeline';
 import * as api from '../api';
 import {
   AddButton,
@@ -1008,6 +1009,17 @@ function CustomerCard({
             subscriptions={subscriptions}
             products={products}
             labels={labels}
+            todayDate={todayDate}
+            onChanged={onChanged}
+            onError={onError}
+          />
+          {/* Under the standing order, because it is the exceptions to
+              it: what has been booked on top, and what has actually been
+              delivered. Both only make sense once you know what "normal"
+              is for this customer, and normal is the line above. */}
+          <CustomerTimeline
+            token={token}
+            customer={customer}
             todayDate={todayDate}
             onChanged={onChanged}
             onError={onError}

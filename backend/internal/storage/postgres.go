@@ -607,6 +607,31 @@ func (s *PostgresStore) ListDailyOrders(ctx context.Context, businessID string, 
 	return out, rows.Err()
 }
 
+// ListCustomerDailyOrders is one customer's deliveries over a span of
+// dates, newest first. The date bounds are inclusive, and both directions
+// matter: backwards it is the customer's history, forwards it is what is
+// already booked for them.
+func (s *PostgresStore) ListCustomerDailyOrders(ctx context.Context, businessID, customerID, from, to string) ([]domain.DailyOrder, error) {
+	rows, err := s.pool.Query(ctx,
+		`select `+dailyOrderColumns+` from daily_orders
+		 where business_id=$1 and customer_id=$2 and delivery_date >= $3 and delivery_date <= $4
+		 order by delivery_date desc, created_at`, businessID, customerID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []domain.DailyOrder{}
+	for rows.Next() {
+		o, err := scanDailyOrder(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
 func (s *PostgresStore) GetDailyOrder(ctx context.Context, businessID string, id string) (domain.DailyOrder, error) {
 	row := s.pool.QueryRow(ctx,
 		`select `+dailyOrderColumns+` from daily_orders where id=$1 and business_id=$2`, id, businessID)

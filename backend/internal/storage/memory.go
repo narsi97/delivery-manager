@@ -506,6 +506,33 @@ func (s *MemoryStore) ListDailyOrders(ctx context.Context, businessID string, da
 	return out, nil
 }
 
+// ListCustomerDailyOrders mirrors the Postgres implementation: one
+// customer's deliveries between two inclusive dates, newest date first.
+func (s *MemoryStore) ListCustomerDailyOrders(ctx context.Context, businessID, customerID, from, to string) ([]domain.DailyOrder, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := []domain.DailyOrder{}
+	for _, o := range s.daily {
+		if o.BusinessID != businessID || o.CustomerID != customerID {
+			continue
+		}
+		// Dates are ISO strings, so a lexical comparison is a date
+		// comparison — same trick the rest of the store relies on.
+		if o.DeliveryDate < from || o.DeliveryDate > to {
+			continue
+		}
+		out = append(out, o)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].DeliveryDate != out[j].DeliveryDate {
+			return out[i].DeliveryDate > out[j].DeliveryDate
+		}
+		return out[i].CreatedAt.Before(out[j].CreatedAt)
+	})
+	return out, nil
+}
+
 func (s *MemoryStore) GetDailyOrder(ctx context.Context, businessID string, id string) (domain.DailyOrder, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
