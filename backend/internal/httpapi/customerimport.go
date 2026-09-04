@@ -112,8 +112,19 @@ func (s *Server) handleImportCustomers(w http.ResponseWriter, r *http.Request) {
 	// households has two people called "Jyothi" more often than it has
 	// one person twice, and a name on its own would refuse the second.
 	seen := map[string]bool{}
+	// The order this file arrives in is the order the business drives.
+	// A delivery list is numbered 1..N because somebody worked out that
+	// round, often years ago, and importing it as an unordered bag threw
+	// that away — the roster came back alphabetical, which is nobody's
+	// route. Ranks continue past whatever is already ranked, so a
+	// top-up import lands after the existing round rather than
+	// interleaved through it.
+	rank := 0
 	for _, c := range existing {
 		seen[customerKey(c.Name, c.Phone)] = true
+		if c.Rank > rank {
+			rank = c.Rank
+		}
 	}
 
 	results := make([]importResult, 0, len(req.Rows))
@@ -139,7 +150,8 @@ func (s *Server) handleImportCustomers(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if !req.DryRun && result.Verdict == "new" {
-			id, err := s.createImportedCustomer(r, sess, row, products)
+			rank++
+			id, err := s.createImportedCustomer(r, sess, row, products, rank)
 			if err != nil {
 				result.Verdict = "error"
 				result.Problem = err.Error()
@@ -192,7 +204,13 @@ func (s *Server) checkImportRow(row importRow, products []domain.Product) (strin
 	return "", matched
 }
 
-func (s *Server) createImportedCustomer(r *http.Request, sess session, row importRow, products []domain.Product) (string, error) {
+func (s *Server) createImportedCustomer(r *http.Request, sess session, row importRow, products []domain.Product, rank int) (string, error) {
+	// A rank beyond the band width would collide with the next priority
+	// tier — see domain.Customer.RouteBand. A file that long is not a
+	// round, but the guard costs nothing.
+	if rank >= domain.MaxRank {
+		rank = 0
+	}
 	customer := domain.Customer{
 		ID:         domain.NewID(),
 		BusinessID: sess.Business.ID,
@@ -203,6 +221,7 @@ func (s *Server) createImportedCustomer(r *http.Request, sess session, row impor
 		Lng:        row.Lng,
 		Notes:      strings.TrimSpace(row.Notes),
 		Priority:   domain.NormalizePriority(""),
+		Rank:       rank,
 		Active:     true,
 	}
 	saved, err := s.store.CreateCustomer(r.Context(), customer)

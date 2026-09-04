@@ -119,7 +119,13 @@ export default function CustomersScreen({ token, business }) {
           return words.every((word) => haystack.includes(word));
         });
 
-  const groups = groupCustomers(groupBy, visibleCustomers, areas, labels);
+  // Grouped on everybody, not on what the search left behind. A group
+  // is a round, and a round's length and order are facts about the
+  // business rather than about what is in the search box — see
+  // CustomerGroup, which filters for display and keeps the positions
+  // honest.
+  const groups = groupCustomers(groupBy, customers, areas, labels);
+  const matching = words.length === 0 ? null : new Set(visibleCustomers.map((customer) => customer.id));
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
@@ -250,6 +256,7 @@ export default function CustomersScreen({ token, business }) {
                   routed={groupBy === 'city' && group.key !== 'unassigned'}
                   empty={group.empty}
                   customers={group.customers}
+                  matching={matching}
                   defaultExpanded={group.defaultExpanded}
                   forceExpanded={words.length > 0}
                   products={products}
@@ -448,6 +455,10 @@ function CustomerGroup({
   routed,
   empty,
   customers,
+  // The ids the search left, or null when nothing is being searched for.
+  // Only which rows are drawn depends on this; the round underneath them
+  // does not.
+  matching,
   defaultExpanded,
   forceExpanded,
   products,
@@ -481,7 +492,13 @@ function CustomerGroup({
   const [over, setOver] = useState(null);
   const isExpanded = expanded || forceExpanded;
 
+  // The whole round, in order. Positions and moves are both computed
+  // against this rather than against what happens to be on screen: a
+  // search that matches one customer used to number them "1" and, worse,
+  // send that single id as the entire new order — which set their rank
+  // to 1 and moved them to the front of a round nobody meant to touch.
   const ordered = sortCustomers(sortBy, customers);
+  const shown = matching ? ordered.filter((customer) => matching.has(customer.id)) : ordered;
   // Nothing to order in the catch-all: these customers are on no round
   // at all, so "which order are they driven in" has no answer to give.
   // Offering the grip there was the app asking a question it could not
@@ -503,16 +520,22 @@ function CustomerGroup({
     onReorder(next.map((customer) => customer.id));
   };
 
+  // A round the search matched nobody in is not an empty round; it is a
+  // round with nothing to say right now.
+  if (matching && shown.length === 0) {
+    return null;
+  }
+
   return (
     <View style={styles.group}>
       <Disclosure
         open={isExpanded}
         onToggle={() => setExpanded((prev) => !prev)}
-        right={<Pill label={String(customers.length)} tone="neutral" />}
+        right={<Pill label={matching ? `${shown.length} of ${customers.length}` : String(customers.length)} tone="neutral" />}
       >
         {name}
       </Disclosure>
-      {isExpanded && customers.length === 0 ? <Empty>{empty || 'Nothing here.'}</Empty> : null}
+      {isExpanded && shown.length === 0 ? <Empty>{empty || 'Nothing here.'}</Empty> : null}
       {isExpanded && !routed && customers.length > 0 && empty === undefined ? (
         <Text style={styles.orderHint}>
           Not on any {lower(labels.route)} yet — give them a pin inside one, or put them on one from their card.
@@ -537,10 +560,19 @@ function CustomerGroup({
         </View>
       ) : null}
       {isExpanded
-        ? ordered.map((customer, index) => (
+        ? shown.map((customer) => {
+            // Where this customer actually is in the round, not where
+            // they are in what the search left on screen.
+            const index = ordered.indexOf(customer);
+            return (
             <SortableRow
               key={customer.id}
-              draggable={canReorder && !busy}
+              // Dragging needs somewhere to drop. With rows hidden by a
+              // search the gaps between what is left are other people,
+              // so a drag would mean nothing — the number and the arrows
+              // still work, because those name a position rather than
+              // pointing at one.
+              draggable={canReorder && !matching && !busy}
               isDragging={dragging === customer.id}
               isOver={over === customer.id && dragging !== customer.id}
               onDragStart={() => {
@@ -596,7 +628,8 @@ function CustomerGroup({
               onError={onError}
             />
             </SortableRow>
-          ))
+            );
+          })
         : null}
     </View>
   );
@@ -709,6 +742,11 @@ function ReorderControls({ position, total, onUp, onDown, onJump }) {
           onBlur={commit}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
+              // Committed here rather than by asking the blur to do it.
+              // Leaving on the blur made Enter depend on a second event
+              // arriving, and commit clears what it consumed, so the
+              // blur that follows is a no-op either way.
+              commit();
               event.target.blur();
             } else if (event.key === 'Escape') {
               // Cleared before the blur, so the commit that follows has

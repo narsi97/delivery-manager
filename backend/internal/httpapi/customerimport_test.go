@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 )
@@ -252,5 +253,62 @@ func TestImportKeepsMillilitresApartFromLitres(t *testing.T) {
 	}
 	if got, _ := matched[0].(string); got != "1 × Milk 500ml" {
 		t.Errorf("500 ML matched %q, want the 500ml product", got)
+	}
+}
+
+// A delivery list is numbered 1..N because somebody worked that round
+// out, often years ago. Importing it as an unordered bag threw that away
+// and the roster came back alphabetical, which is nobody's route.
+func TestImportKeepsTheOrderTheFileIsIn(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+
+	names := []string{"G Pavani", "Md Imran", "Rapolu hariprasad", "B Venu"}
+	rows := make([]map[string]any, 0, len(names))
+	for i, name := range names {
+		rows = append(rows, map[string]any{
+			"name": name, "phone": fmt.Sprintf("70000000%02d", i), "lat": 17.05 + float64(i)/1000, "lng": 79.26,
+		})
+	}
+	admin.mustDo(http.MethodPost, "/api/v1/customers/import",
+		map[string]any{"rows": importRows(rows...)}, http.StatusOK)
+
+	body := admin.mustDo(http.MethodGet, "/api/v1/customers", nil, http.StatusOK)
+	list, _ := body["customers"].([]any)
+	byRank := map[int]string{}
+	for _, item := range list {
+		c, _ := item.(map[string]any)
+		byRank[int(num(c, "rank"))] = str(c, "name")
+	}
+	for i, name := range names {
+		if got := byRank[i+1]; got != name {
+			t.Errorf("rank %d is %q, want %q — the file's own order", i+1, got, name)
+		}
+	}
+}
+
+// A second import lands after the round that is already there, rather
+// than interleaved through it.
+func TestImportRanksATopUpAfterTheExistingRound(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+
+	admin.mustDo(http.MethodPost, "/api/v1/customers/import", map[string]any{
+		"rows": importRows(
+			map[string]any{"name": "First", "phone": "7000000001", "lat": 17.05, "lng": 79.26},
+			map[string]any{"name": "Second", "phone": "7000000002", "lat": 17.06, "lng": 79.26},
+		),
+	}, http.StatusOK)
+	admin.mustDo(http.MethodPost, "/api/v1/customers/import", map[string]any{
+		"rows": importRows(map[string]any{"name": "Later", "phone": "7000000003", "lat": 17.07, "lng": 79.26}),
+	}, http.StatusOK)
+
+	body := admin.mustDo(http.MethodGet, "/api/v1/customers", nil, http.StatusOK)
+	list, _ := body["customers"].([]any)
+	for _, item := range list {
+		c, _ := item.(map[string]any)
+		if str(c, "name") == "Later" && int(num(c, "rank")) != 3 {
+			t.Errorf("the later import got rank %d, want 3 — after the two already there", int(num(c, "rank")))
+		}
 	}
 }

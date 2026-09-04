@@ -274,6 +274,12 @@ type Customer struct {
 // one tier can never collide with a ranked customer in the next.
 const rankSpan = 10000
 
+// MaxRank is the highest hand-set position a customer can hold before it
+// would spill into the next priority tier's band. Exported so callers
+// that assign ranks in bulk — importing a numbered delivery list, say —
+// can check the same limit RouteBand enforces.
+const MaxRank = rankSpan - 1
+
 // RouteBand is the band this customer's stops are ordered in — see
 // route.OptimizePrioritised. The tier decides the broad group; within
 // it, a hand-ranked customer gets a band of their own (so the order the
