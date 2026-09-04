@@ -60,6 +60,7 @@ export default function NotGoingOut({ token, stops, areas, home, date, products,
         token={token}
         onChanged={onChanged}
         onError={onError}
+        home={home}
       />
 
       <CauseGroup
@@ -71,6 +72,7 @@ export default function NotGoingOut({ token, stops, areas, home, date, products,
         token={token}
         onChanged={onChanged}
         onError={onError}
+        home={home}
       >
         <OneOffRoute token={token} stops={outside} areas={areas} home={home} date={date} labels={labels} onDone={onNotice} />
       </CauseGroup>
@@ -84,6 +86,7 @@ export default function NotGoingOut({ token, stops, areas, home, date, products,
         token={token}
         onChanged={onChanged}
         onError={onError}
+        home={home}
       />
     </Card>
   );
@@ -92,7 +95,7 @@ export default function NotGoingOut({ token, stops, areas, home, date, products,
 // One reason, its explanation, its deliveries, and whatever action is
 // specific to it. Hidden entirely when nothing has this problem, so a
 // business only ever reads the causes it actually has.
-function CauseGroup({ title, count, explanation, stops, products, token, onChanged, onError, children }) {
+function CauseGroup({ title, count, explanation, stops, products, token, home, onChanged, onError, children }) {
   const [expanded, setExpanded] = useState(false);
   if (count === 0) {
     return null;
@@ -119,6 +122,8 @@ function CauseGroup({ title, count, explanation, stops, products, token, onChang
               token={token}
               onChanged={onChanged}
               onError={onError}
+        home={home}
+              home={home}
             />
           ))}
         </View>

@@ -32,6 +32,7 @@ export default function AreaRoutesCard({
   routes,
   stops,
   drivers,
+  home,
   products,
   date,
   onChanged,
@@ -293,6 +294,8 @@ export default function AreaRoutesCard({
                       onReorder={(position) => moveStop(door[0].id, position)}
                       canMoveUp={index > 0}
                       canMoveDown={index < doors.length - 1}
+                      home={home}
+                      drivers={drivers}
                     />
                   ))
                 )}
@@ -309,7 +312,7 @@ export default function AreaRoutesCard({
 // built by hand, or one left over from a service area since removed.
 // Shown plainly rather than hidden, with the same driver picker it always
 // had, so nothing an admin made ever disappears from the screen.
-export function LooseRouteCard({ route, stops, drivers, products, token, onChanged, onError, onDelete, labels }) {
+export function LooseRouteCard({ route, stops, drivers, home, products, token, onChanged, onError, onDelete, labels }) {
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const routeStops = stops.filter((stop) => stop.route_id === route.id);
@@ -373,6 +376,8 @@ export function LooseRouteCard({ route, stops, drivers, products, token, onChang
               token={token}
               onChanged={onChanged}
               onError={onError}
+              home={home}
+              drivers={drivers}
             />
           ))}
         </View>

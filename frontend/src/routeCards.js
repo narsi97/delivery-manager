@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import * as api from './api';
 import { Banner, Button, Card, Disclosure, Empty, Field, Pill, Stepper } from './components';
+import { InlineLocationEditor } from './LocationPicker';
 import { openNavigation } from './navigation';
 import { WEEKDAYS } from './frequency';
 import { colors, radius, spacing } from './theme';
@@ -89,11 +90,26 @@ export function StopCard({
   onReorder,
   canMoveUp,
   canMoveDown,
+  // Only for the door map's own context — the farm and the drivers'
+  // finishing points, so a pin is placed against something recognisable
+  // rather than against bare tiles. Both optional: the map is still a
+  // map without them.
+  home,
+  drivers,
 }) {
   const stop = stops[0];
   const [adding, setAdding] = useState(false);
+  const [showingDoor, setShowingDoor] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  // Moving the pin is a change to the customer, not to today's delivery:
+  // the door is where it is tomorrow too. Same call the day's map view
+  // makes for the same edit.
+  const saveDoor = async (lat, lng) => {
+    await api.updateCustomer(token, stop.customer_id, { lat, lng });
+    await onChanged();
+  };
 
   // Errors belong next to the button that caused them, not in a banner at
   // the top of a page the admin has already scrolled away from — so this
@@ -176,11 +192,12 @@ export function StopCard({
       <View style={styles.doorActions}>
         {stop.lat || stop.lng ? (
           <Pressable
-            onPress={() => openNavigation(stop.lat, stop.lng, stop.customer_name)}
+            onPress={() => setShowingDoor((prev) => !prev)}
             accessibilityRole="button"
+            accessibilityState={{ expanded: showingDoor }}
             style={({ pressed }) => [styles.doorAction, pressed && styles.pressed]}
           >
-            <Text style={styles.doorActionText}>🧭 Map</Text>
+            <Text style={styles.doorActionText}>{showingDoor ? 'Hide map' : '📍 Map'}</Text>
           </Pressable>
         ) : null}
         {products.length > 0 ? (
@@ -194,6 +211,41 @@ export function StopCard({
           </Pressable>
         ) : null}
       </View>
+
+      {/* Where the door is, not directions to it.
+          This button used to hand the stop straight to Apple or Google
+          Maps. That is the right thing in a driver's hand and the wrong
+          thing in the office: an admin pressing "Map" on the day's list
+          is checking a pin or fixing one that is on the wrong side of
+          the street, and being thrown out of the app into a navigation
+          app answers a question nobody asked. The map view of the same
+          day already did the right thing — the address, the pin, and a
+          way to move it — so this is that, in the card.
+          Navigation is still one press away, for the times somebody in
+          the office genuinely wants to look at the route there, and it
+          is untouched on the driver's own screen. */}
+      {showingDoor ? (
+        <View style={styles.doorPanel}>
+          {/* The written address is already the second line of this
+              card, so it is not repeated here — printing it twice is
+              what made a card about one delivery look like two. */}
+          <InlineLocationEditor
+            lat={stop.lat}
+            lng={stop.lng}
+            onSave={saveDoor}
+            home={home}
+            drivers={drivers}
+            height={200}
+          />
+          <Pressable
+            onPress={() => openNavigation(stop.lat, stop.lng, stop.customer_name)}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.navigateButton, pressed && styles.pressed]}
+          >
+            <Text style={styles.navigateText}>🧭 Navigate there</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       {adding ? (
         <View style={styles.addItemSection}>
@@ -520,6 +572,23 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     marginBottom: spacing.sm,
   },
+  doorPanel: {
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  navigateButton: {
+    marginTop: spacing.sm,
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.md,
+    paddingVertical: 7,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceAlt,
+  },
+  navigateText: { fontSize: 13, fontWeight: '700', color: colors.link },
   doorActionText: { fontSize: 14, fontWeight: '700', color: colors.link },
   note: { fontSize: 12, color: colors.hint, marginTop: spacing.sm, lineHeight: 17 },
   label: { fontSize: 13, fontWeight: '600', color: colors.label, marginTop: spacing.md, marginBottom: spacing.xs },

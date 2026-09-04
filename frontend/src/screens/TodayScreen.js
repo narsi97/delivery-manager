@@ -270,6 +270,7 @@ export default function TodayScreen({ token, business }) {
                   routes={routesByArea.get(area.id)}
                   stops={allStops}
                   drivers={drivers}
+                  home={home}
                   products={products}
                   date={selectedDate}
                   onChanged={refresh}
@@ -286,6 +287,7 @@ export default function TodayScreen({ token, business }) {
                   labels={labels}
                   stops={allStops}
                   drivers={drivers}
+                  home={home}
                   products={products}
                   token={token}
                   onChanged={refresh}
