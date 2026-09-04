@@ -399,10 +399,16 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     marginBottom: spacing.md,
   },
+  // Wraps, like the disclosure row and for the same reason: a heading,
+  // the buttons that belong to it and a view switch do not fit across a
+  // phone, and a row that will not wrap resolves that by letting them
+  // overlap — "Import" was sitting underneath the List/Map toggle.
   sectionTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
     marginBottom: spacing.sm + 2,
   },
   sectionTitle: { fontSize: 17, fontWeight: '700', color: colors.text },
@@ -451,7 +457,7 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     backgroundColor: colors.surfaceAlt,
   },
-  sectionTitleLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexShrink: 1 },
+  sectionTitleLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexShrink: 1, flexWrap: 'wrap' },
   addButton: {
     paddingHorizontal: spacing.sm + 2,
     paddingVertical: 5,
@@ -501,10 +507,22 @@ const styles = StyleSheet.create({
   stepperPressed: { opacity: 0.6 },
   stepperSymbol: { fontSize: 22, fontWeight: '700', color: colors.link, lineHeight: 26 },
   stepperValue: { minWidth: 52, textAlign: 'center', fontSize: 18, fontWeight: '700', color: colors.text },
-  disclosureRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
+  // Wraps. A title, a control and a row of badges do not fit across a
+  // phone, and a row that cannot wrap resolves that by giving the title
+  // no width at all — which turned "G Pavani" into a column one letter
+  // wide rather than into two lines.
+  disclosureRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44, flexWrap: 'wrap' },
   // Both halves stay big enough to hit — splitting the row into two
-  // targets must not make either of them smaller than a thumb.
-  disclosureTitleTarget: { flex: 1, justifyContent: 'center', minHeight: 44, paddingVertical: spacing.xs },
+  // targets must not make either of them smaller than a thumb. The
+  // minWidth is what forces the wrap instead of the squeeze: a name gets
+  // this much or the rest of the row goes below it.
+  disclosureTitleTarget: {
+    flex: 1,
+    minWidth: 130,
+    justifyContent: 'center',
+    minHeight: 44,
+    paddingVertical: spacing.xs,
+  },
   disclosureMiddle: { flexDirection: 'row', alignItems: 'center' },
   disclosureEnd: {
     flexDirection: 'row',
@@ -512,6 +530,10 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     justifyContent: 'flex-end',
     minHeight: 44,
+    // Takes the rest of the line once it has wrapped onto one of its
+    // own, so the badges stay right-aligned rather than stranded in the
+    // middle of a phone.
+    flexGrow: 1,
   },
   disclosureTitle: { fontSize: 17, fontWeight: '700', color: colors.text },
   disclosureTitleCompact: { fontSize: 15, color: colors.link },

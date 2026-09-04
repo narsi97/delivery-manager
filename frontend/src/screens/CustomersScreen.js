@@ -28,6 +28,7 @@ import { placeOrders } from '../orders';
 import { nearestAreaFor, serviceRouteFor } from '../serviceAreas';
 import { colors, radius, spacing } from '../theme';
 import { EVERY_DAY, daysFromMask, describeDays } from '../frequency';
+import { useNarrow, useTouchOnly } from '../layout';
 import { UndoBar, useUndoStack } from '../undo';
 
 export default function CustomersScreen({ token, business }) {
@@ -491,6 +492,7 @@ function CustomerGroup({
   const draggingRef = useRef(null);
   const [over, setOver] = useState(null);
   const isExpanded = expanded || forceExpanded;
+  const touchOnly = useTouchOnly();
 
   // The whole round, in order. Positions and moves are both computed
   // against this rather than against what happens to be on screen: a
@@ -543,10 +545,19 @@ function CustomerGroup({
       ) : null}
       {isExpanded && canReorder ? (
         <View style={styles.orderHintRow}>
+          {/* What to actually do, on the device you are holding. HTML5
+              drag-and-drop does not exist under a thumb, so telling a
+              phone to drag a row is an instruction that cannot be
+              followed — the number and the arrows are the whole answer
+              there. */}
           <Text style={styles.orderHint}>
             {anyRanked
-              ? 'Delivered in this order. Drag a row, or use the arrows, to change it.'
-              : 'Ordered by the shortest route. Drag a row to set your own order instead.'}
+              ? touchOnly
+                ? 'Delivered in this order. Tap a number to move somebody, or use the arrows.'
+                : 'Delivered in this order. Drag a row, or use the arrows, to change it.'
+              : touchOnly
+                ? 'Ordered by the shortest route. Tap a number to set your own order instead.'
+                : 'Ordered by the shortest route. Drag a row to set your own order instead.'}
           </Text>
           {anyRanked ? (
             <Pressable
@@ -572,7 +583,7 @@ function CustomerGroup({
               // so a drag would mean nothing — the number and the arrows
               // still work, because those name a position rather than
               // pointing at one.
-              draggable={canReorder && !matching && !busy}
+              draggable={canReorder && !matching && !touchOnly && !busy}
               isDragging={dragging === customer.id}
               isOver={over === customer.id && dragging !== customer.id}
               onDragStart={() => {
@@ -618,6 +629,7 @@ function CustomerGroup({
                   ? {
                       position: index + 1,
                       total: ordered.length,
+                      showGrip: !touchOnly && !matching,
                       onUp: index > 0 ? () => moveTo(index, index - 1) : null,
                       onDown: index < ordered.length - 1 ? () => moveTo(index, index + 1) : null,
                       onJump: (to) => moveTo(index, to - 1),
@@ -679,7 +691,7 @@ function SortableRow({ children, draggable, isDragging, isOver, onDragStart, onD
 // that customer was, and left an empty channel running down the whole
 // list. Across the top of the card it belongs to the card, lines up with
 // every other row, and gives the card its full width back.
-function ReorderControls({ position, total, onUp, onDown, onJump }) {
+function ReorderControls({ position, total, onUp, onDown, onJump, showGrip = true }) {
   // What is in the box while it is being typed. Null means "show the
   // position" — which is every moment except the one where somebody is
   // halfway through replacing 17 with 3 and would not thank us for
@@ -719,10 +731,14 @@ function ReorderControls({ position, total, onUp, onDown, onJump }) {
       {/* The eight dots are the universal "you can pick this up", turned
           the way the strip runs. Decorative — everything it hints at is
           also on the two buttons, which is what keeps this usable
-          without a mouse. */}
-      <Text style={styles.grip} accessibilityElementsHidden importantForAccessibility="no">
-        ⠿
-      </Text>
+          without a mouse. Gone entirely where picking a row up is not
+          possible: a handle that does nothing is worse than no handle,
+          because somebody will spend a while trying to use it. */}
+      {showGrip ? (
+        <Text style={styles.grip} accessibilityElementsHidden importantForAccessibility="no">
+          ⠿
+        </Text>
+      ) : null}
       {/* Typing the number beats pressing an arrow thirty times.
           Somewhere past about the fifth press the arrows stop being a
           way to move a customer and start being a way to lose count, and
@@ -831,6 +847,7 @@ function CustomerCard({
   onChanged,
   onError,
 }) {
+  const narrow = useNarrow();
   const [expanded, setExpanded] = useState(false);
   const [customFields, setCustomFields] = useState(customer.custom_fields || {});
   const [details, setDetails] = useState({
@@ -918,7 +935,7 @@ function CustomerCard({
         onToggle={() => setExpanded((prev) => !prev)}
         middle={reorder ? <ReorderControls {...reorder} /> : null}
         right={
-          <View style={styles.pills}>
+          <View style={[styles.pills, !narrow && styles.pillsAligned]}>
             <PriorityBadge value={customer.priority} />
             {today ? <Pill label={today.status} tone={STATUS_TONE[today.status] || 'neutral'} /> : null}
             {customer.lat || customer.lng ? null : <Pill label="no pin" tone="warning" />}
@@ -1530,8 +1547,11 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     alignItems: 'center',
     justifyContent: 'flex-end',
-    minWidth: 148,
   },
+  // Only where there is room to spend on tidiness. On a phone those 148
+  // pixels are half the row, and they were being taken out of the
+  // customer's name.
+  pillsAligned: { minWidth: 148 },
   subsHeading: { fontSize: 13, color: colors.label, marginTop: spacing.sm },
   orderSummaryBlock: { marginTop: spacing.lg },
   expanded: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md },
