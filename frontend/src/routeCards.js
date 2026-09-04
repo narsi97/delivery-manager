@@ -315,6 +315,16 @@ function StopItem({ item, busy, onSave }) {
   );
 }
 
+const WEEKDAYS = [
+  { value: 1, label: 'Mon' },
+  { value: 2, label: 'Tue' },
+  { value: 3, label: 'Wed' },
+  { value: 4, label: 'Thu' },
+  { value: 5, label: 'Fri' },
+  { value: 6, label: 'Sat' },
+  { value: 0, label: 'Sun' },
+];
+
 const ITEM_TONE = { delivered: 'success', failed: 'error', skipped: 'warning' };
 
 // A one-off extra on this date: pick a product, pick how many, done. The
@@ -332,25 +342,51 @@ function AddItemForm({ stop, existing = [], products, token, onError, onAdded })
   const firstNew = products.find((product) => !alreadyToday.has(product.id));
   const [productId, setProductId] = useState((firstNew || products[0])?.id || '');
   const [quantity, setQuantity] = useState(1);
+  // 'once' is today and nothing else; 'weekly' is a change to what they
+  // always get. Both start here because the answer to "she also wants
+  // curd" is sometimes "today" and sometimes "from now on", and having
+  // only the first meant the second was done twice — once here and again
+  // on the customer's card.
+  const [kind, setKind] = useState('once');
+  const [weekdays, setWeekdays] = useState([1, 2, 3, 4, 5, 6, 0]);
   const [busy, setBusy] = useState(false);
 
-  // Adding something they are already down for makes a *second*,
-  // separate delivery of it rather than more of the first. That is
-  // occasionally what somebody means and usually a slip — two taps of a
-  // button with nothing in between to say so. Naming what they already
-  // have is the whole warning: it either reads as "yes, another one" or
-  // as "oh, I wanted to change that one".
-  const duplicate = existing.find((item) => item.product_id === productId);
+  // Something they are already down for is added *to that line* rather
+  // than beside it. Two lines of the same product at one door is a
+  // question the driver cannot answer from the van — is it two drops or
+  // one of three? — and the honest answer is always one of three.
+  //
+  // Only a line still pending can absorb it. One already delivered or
+  // skipped is a record of what happened, and adding to it would rewrite
+  // this morning; that genuinely does need a second delivery.
+  const sameProduct = existing.filter((item) => item.product_id === productId);
+  // Only a one-off merges. A standing order is a different kind of fact
+  // — it says what happens every week — so it is created, and today's
+  // delivery follows from it.
+  const mergeInto = kind === 'once' ? sameProduct.find((item) => item.status === 'pending') : null;
+  const closed = !mergeInto && sameProduct.length > 0 ? sameProduct[0] : null;
+  const merged = mergeInto ? Number(mergeInto.quantity) + Number(quantity) : 0;
 
   const submit = async () => {
     setBusy(true);
     try {
-      await api.createAdHocOrder(token, {
-        customer_id: stop.customer_id,
-        product_id: productId,
-        quantity,
-        date: stop.delivery_date,
-      });
+      if (mergeInto) {
+        await api.overrideOrder(token, mergeInto.id, { quantity: merged });
+      } else if (kind === 'weekly') {
+        await api.createRecurringOrder(token, {
+          customer_id: stop.customer_id,
+          product_id: productId,
+          quantity,
+          weekdays,
+        });
+      } else {
+        await api.createAdHocOrder(token, {
+          customer_id: stop.customer_id,
+          product_id: productId,
+          quantity,
+          date: stop.delivery_date,
+        });
+      }
       setQuantity(1);
       await onAdded();
     } catch (err) {
@@ -372,21 +408,66 @@ function AddItemForm({ stop, existing = [], products, token, onError, onAdded })
         ))}
       </select>
       <Stepper label="How many" value={quantity} onChange={setQuantity} min={1} />
-      {duplicate ? (
+
+      <Text style={styles.label}>How often</Text>
+      <select value={kind} disabled={busy} onChange={(event) => setKind(event.target.value)} style={productSelectStyle}>
+        <option value="once">Just today</option>
+        <option value="weekly">Every week, from now on</option>
+      </select>
+
+      {kind === 'weekly' ? (
+        <View style={styles.daysBlock}>
+          <Text style={styles.label}>Which days</Text>
+          <View style={styles.dayRow}>
+            {WEEKDAYS.map((day) => {
+              const on = weekdays.includes(day.value);
+              return (
+                <Pressable
+                  key={day.value}
+                  onPress={() =>
+                    setWeekdays((prev) =>
+                      prev.includes(day.value) ? prev.filter((d) => d !== day.value) : [...prev, day.value],
+                    )
+                  }
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on }}
+                  style={[styles.day, on && styles.dayOn]}
+                >
+                  <Text style={[styles.dayText, on && styles.dayTextOn]}>{day.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
+
+      {mergeInto ? (
+        <Text style={styles.mergeNote}>
+          They&apos;re already down for {mergeInto.quantity} × {mergeInto.product_name} today, so this is added to that
+          line — the driver sees one delivery of {merged}, not two.
+        </Text>
+      ) : null}
+      {closed ? (
         <Text style={styles.duplicateWarning}>
-          They&apos;re already down for {duplicate.quantity} × {duplicate.product_name} today. Adding this makes a
-          second, separate delivery of it — to send more in one go, close this and change the line above instead.
+          Today&apos;s {closed.product_name} is already marked {closed.status}, so this goes on as a separate delivery.
         </Text>
       ) : null}
       <Button
-        title={duplicate ? 'Add a second one anyway' : 'Add to this delivery'}
-        variant={duplicate ? 'secondary' : 'primary'}
+        title={
+          mergeInto
+            ? `Make it ${merged} × ${mergeInto.product_name}`
+            : kind === 'weekly'
+              ? 'Save standing order'
+              : 'Add to this delivery'
+        }
         onPress={submit}
         busy={busy}
-        disabled={!productId}
+        disabled={!productId || (kind === 'weekly' && weekdays.length === 0)}
       />
       <Text style={styles.note}>
-        A one-off for this date only — it doesn&apos;t change what they normally get.
+        {kind === 'weekly'
+          ? 'From now on, on the days you picked — and it starts with this one.'
+          : "For this date only — it doesn't change what they normally get."}
       </Text>
     </View>
   );
@@ -421,6 +502,26 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
   },
   doorAction: { paddingVertical: spacing.xs },
+  daysBlock: { marginBottom: spacing.sm },
+  dayRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  day: {
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  dayOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  dayText: { fontSize: 12, fontWeight: '700', color: colors.label },
+  dayTextOn: { color: colors.accentText },
+  mergeNote: {
+    fontSize: 13,
+    color: colors.subtitle,
+    lineHeight: 19,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+  },
   duplicateWarning: {
     fontSize: 13,
     color: colors.warning,
