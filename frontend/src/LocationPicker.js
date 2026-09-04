@@ -21,8 +21,10 @@ import { colors, radius, spacing } from './theme';
 //     that works while standing in a field pointing at a gate.
 //   - Use my current location. The right answer when the admin is at the
 //     door, which is exactly when a customer gets added.
-//   - Paste a map link. How a location arrives in practice — someone
-//     sends a Google Maps link on WhatsApp. See mapLinks.js.
+//   - Paste a location. How one arrives in practice — a Google Maps
+//     link on WhatsApp, a plus code for a farm with no street address,
+//     or degrees and minutes copied off a list somebody has been keeping
+//     for years. See mapLinks.js.
 //   - Type the coordinates. Last, and deliberately so — but a business
 //     that has been running a while already holds a list of them, from a
 //     previous system or a spreadsheet or a driver's phone, and telling
@@ -106,7 +108,13 @@ export default function LocationPicker({
   };
 
   const applyLink = () => {
-    const parsed = parseMapLink(link);
+    // A short plus code ("X429+VC") only means something near somewhere
+    // else. The pin already on this picker is the best answer to "near
+    // where?", and the business's own location is the fallback — which
+    // is exactly right when the pin is not set yet, because the customer
+    // being added is on the round that starts at the farm.
+    const reference = hasPin ? { lat, lng } : home;
+    const parsed = parseMapLink(link, reference);
     if (!parsed) {
       setError(mapLinkError(link));
       return;
@@ -132,7 +140,7 @@ export default function LocationPicker({
       <View style={styles.buttonRow}>
         <Button title="Use my current location" variant="secondary" onPress={useMyLocation} style={styles.flexButton} />
         <Button
-          title={pasting ? 'Cancel' : 'Paste a map link'}
+          title={pasting ? 'Cancel' : 'Paste a location'}
           variant="secondary"
           onPress={() => {
             setPasting((prev) => !prev);
@@ -145,16 +153,22 @@ export default function LocationPicker({
       {pasting ? (
         <View style={styles.pasteBox}>
           <Field
-            label="Map link"
+            label="Link, plus code or coordinates"
             value={link}
             onChangeText={setLink}
-            placeholder="https://maps.google.com/..."
+            placeholder={'https://maps.google.com/…  ·  X429+VC  ·  17°03\'24"N 79°16\'05"E'}
             autoCapitalize="none"
           />
-          <Button title="Use this link" onPress={applyLink} disabled={!link.trim()} />
+          <Button title="Use this" onPress={applyLink} disabled={!link.trim()} />
+          {/* Everything Maps will actually hand somebody. A business
+              keeping its own list holds these as degrees and minutes,
+              and a farm on an unnamed road has a plus code and nothing
+              else — so the box that says "paste it here" has to mean
+              it. */}
           <Text style={styles.hint}>
-            Paste a link shared from Google Maps, Apple Maps or OpenStreetMap. Short links (maps.app.goo.gl) need
-            opening once in Maps first, then copy the full address bar link.
+            A link from Google, Apple or OpenStreetMap; a plus code like X429+VC; or coordinates, decimal or in
+            degrees. Short links (maps.app.goo.gl) need opening once in Maps first, then copy the full address bar
+            link.
           </Text>
         </View>
       ) : null}
