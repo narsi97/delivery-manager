@@ -104,18 +104,34 @@ export function Dialog({ open, title, onClose, children, footer }) {
 // says which way it goes. `compact` is for a disclosure nested inside
 // something that already has its own heading — a route's stop list — so
 // it reads as subordinate to the card's title rather than competing.
-export function Disclosure({ children, open, onToggle, right, compact }) {
+export function Disclosure({ children, open, onToggle, right, middle, compact }) {
   return (
-    <Pressable
-      onPress={onToggle}
-      accessibilityRole="button"
-      accessibilityState={{ expanded: !!open }}
-      style={({ pressed }) => [styles.disclosure, pressed && styles.disclosurePressed]}
-    >
-      <Text style={[styles.disclosureTitle, compact && styles.disclosureTitleCompact]}>{children}</Text>
-      {right ? <View style={styles.disclosureRight}>{right}</View> : null}
-      <Text style={[styles.disclosureChevron, compact && styles.disclosureChevronCompact]}>{open ? '▾' : '▸'}</Text>
-    </Pressable>
+    <View style={styles.disclosureRow}>
+      <Pressable
+        onPress={onToggle}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: !!open }}
+        style={({ pressed }) => [styles.disclosureTitleTarget, pressed && styles.disclosurePressed]}
+      >
+        <Text style={[styles.disclosureTitle, compact && styles.disclosureTitleCompact]}>{children}</Text>
+      </Pressable>
+
+      {/* `middle` sits between the title and whatever is on the right,
+          and is deliberately *outside* the pressable: it is for controls
+          of its own, and a button inside the row's tap target would
+          expand the section every time somebody used it. */}
+      {middle ? <View style={styles.disclosureMiddle}>{middle}</View> : null}
+
+      <Pressable
+        onPress={onToggle}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: !!open }}
+        style={({ pressed }) => [styles.disclosureEnd, pressed && styles.disclosurePressed]}
+      >
+        {right ? <View style={styles.disclosureRight}>{right}</View> : null}
+        <Text style={[styles.disclosureChevron, compact && styles.disclosureChevronCompact]}>{open ? '▾' : '▸'}</Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -485,7 +501,19 @@ const styles = StyleSheet.create({
   stepperPressed: { opacity: 0.6 },
   stepperSymbol: { fontSize: 22, fontWeight: '700', color: colors.link, lineHeight: 26 },
   stepperValue: { minWidth: 52, textAlign: 'center', fontSize: 18, fontWeight: '700', color: colors.text },
-  disclosureTitle: { flex: 1, fontSize: 17, fontWeight: '700', color: colors.text },
+  disclosureRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
+  // Both halves stay big enough to hit — splitting the row into two
+  // targets must not make either of them smaller than a thumb.
+  disclosureTitleTarget: { flex: 1, justifyContent: 'center', minHeight: 44, paddingVertical: spacing.xs },
+  disclosureMiddle: { flexDirection: 'row', alignItems: 'center' },
+  disclosureEnd: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    justifyContent: 'flex-end',
+    minHeight: 44,
+  },
+  disclosureTitle: { fontSize: 17, fontWeight: '700', color: colors.text },
   disclosureTitleCompact: { fontSize: 15, color: colors.link },
   disclosureRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   disclosureChevron: { fontSize: 20, fontWeight: '700', color: colors.link, width: 20, textAlign: 'center' },

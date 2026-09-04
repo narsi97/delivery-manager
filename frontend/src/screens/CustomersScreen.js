@@ -456,7 +456,6 @@ function CustomerGroup({
         ? ordered.map((customer, index) => (
             <SortableRow
               key={customer.id}
-              position={index + 1}
               draggable={canReorder && !busy}
               isDragging={dragging === customer.id}
               isOver={over === customer.id && dragging !== customer.id}
@@ -480,8 +479,6 @@ function CustomerGroup({
                   moveTo(from, index);
                 }
               }}
-              onUp={index > 0 ? () => moveTo(index, index - 1) : null}
-              onDown={index < ordered.length - 1 ? () => moveTo(index, index + 1) : null}
             >
             <CustomerCard
               customer={customer}
@@ -500,6 +497,15 @@ function CustomerGroup({
               home={home}
               areas={areas}
               onRecord={onRecord}
+              reorder={
+                canReorder
+                  ? {
+                      position: index + 1,
+                      onUp: index > 0 ? () => moveTo(index, index - 1) : null,
+                      onDown: index < ordered.length - 1 ? () => moveTo(index, index + 1) : null,
+                    }
+                  : null
+              }
               onChanged={onChanged}
               onError={onError}
             />
@@ -520,19 +526,7 @@ function CustomerGroup({
 //
 // A raw <div> because RN's View has no drag events on web; same reason
 // the <select>s and coordinate boxes in this app are raw elements.
-function SortableRow({
-  children,
-  position,
-  draggable,
-  isDragging,
-  isOver,
-  onDragStart,
-  onDragEnter,
-  onDragEnd,
-  onDrop,
-  onUp,
-  onDown,
-}) {
+function SortableRow({ children, draggable, isDragging, isOver, onDragStart, onDragEnter, onDragEnd, onDrop }) {
   if (!draggable) {
     return <View style={styles.plainRow}>{children}</View>;
   }
@@ -548,44 +542,54 @@ function SortableRow({
         onDrop();
       }}
       style={{
-        display: 'flex',
-        alignItems: 'flex-start',
-        gap: 8,
+        display: 'block',
         opacity: isDragging ? 0.4 : 1,
         borderTop: isOver ? `2px solid ${colors.accent}` : '2px solid transparent',
         cursor: 'grab',
       }}
     >
-      <View style={styles.orderControls}>
-        {/* The eight dots are the universal "you can pick this up".
-            Decorative — every action it hints at is also on the two
-            buttons below, which is what keeps this usable without a
-            mouse. */}
-        <Text style={styles.grip} accessibilityElementsHidden importantForAccessibility="no">
-          ⠿
-        </Text>
-        <Text style={styles.position}>{position}</Text>
-        <Pressable
-          onPress={onUp || undefined}
-          disabled={!onUp}
-          accessibilityRole="button"
-          accessibilityLabel="Move up"
-          style={[styles.moveButton, !onUp && styles.moveButtonOff]}
-        >
-          <Text style={[styles.moveGlyph, !onUp && styles.moveGlyphOff]}>↑</Text>
-        </Pressable>
-        <Pressable
-          onPress={onDown || undefined}
-          disabled={!onDown}
-          accessibilityRole="button"
-          accessibilityLabel="Move down"
-          style={[styles.moveButton, !onDown && styles.moveButtonOff]}
-        >
-          <Text style={[styles.moveGlyph, !onDown && styles.moveGlyphOff]}>↓</Text>
-        </Pressable>
-      </View>
-      <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
+      <div>{children}</div>
     </div>
+  );
+}
+
+// The reorder strip, rendered inside the customer's own card.
+//
+// It was a column in the gutter beside the card, which squeezed the card,
+// put the arrows at a different height on every row depending on how tall
+// that customer was, and left an empty channel running down the whole
+// list. Across the top of the card it belongs to the card, lines up with
+// every other row, and gives the card its full width back.
+function ReorderControls({ position, onUp, onDown }) {
+  return (
+    <View style={styles.orderControls}>
+      {/* The eight dots are the universal "you can pick this up", turned
+          the way the strip runs. Decorative — everything it hints at is
+          also on the two buttons, which is what keeps this usable
+          without a mouse. */}
+      <Text style={styles.grip} accessibilityElementsHidden importantForAccessibility="no">
+        ⠿
+      </Text>
+      <Text style={styles.position}>{position}</Text>
+      <Pressable
+        onPress={onUp || undefined}
+        disabled={!onUp}
+        accessibilityRole="button"
+        accessibilityLabel="Move up"
+        style={[styles.moveButton, !onUp && styles.moveButtonOff]}
+      >
+        <Text style={[styles.moveGlyph, !onUp && styles.moveGlyphOff]}>↑</Text>
+      </Pressable>
+      <Pressable
+        onPress={onDown || undefined}
+        disabled={!onDown}
+        accessibilityRole="button"
+        accessibilityLabel="Move down"
+        style={[styles.moveButton, !onDown && styles.moveButtonOff]}
+      >
+        <Text style={[styles.moveGlyph, !onDown && styles.moveGlyphOff]}>↓</Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -633,6 +637,7 @@ function CustomerCard({
   home,
   areas = [],
   onRecord,
+  reorder = null,
   onChanged,
   onError,
 }) {
@@ -717,6 +722,7 @@ function CustomerCard({
       <Disclosure
         open={expanded}
         onToggle={() => setExpanded((prev) => !prev)}
+        middle={reorder ? <ReorderControls {...reorder} /> : null}
         right={
           <View style={styles.pills}>
             <PriorityBadge value={customer.priority} />
@@ -1157,27 +1163,59 @@ const styles = StyleSheet.create({
   // A narrow rail beside the card rather than controls inside it: the
   // card is about the customer, this is about where they sit in the
   // round, and mixing the two made every row look like a form.
-  orderControls: { alignItems: 'center', paddingTop: spacing.md, gap: 2, width: 30 },
-  grip: { fontSize: 16, color: colors.hint, lineHeight: 17 },
-  position: { fontSize: 12, fontWeight: '700', color: colors.subtitle, marginBottom: 2 },
-  moveButton: {
-    width: 26,
-    height: 22,
+  // One pill holding the handle, the position and the two arrows —
+  // they are a single control, and three separate outlines above a card
+  // that already has one read as clutter stacked on clutter.
+  orderControls: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.sm,
+    alignSelf: 'center',
+    gap: spacing.xs,
+    paddingVertical: 3,
+    paddingHorizontal: spacing.sm,
+    borderRadius: 999,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.surfaceAlt,
+  },
+  // Rotated a quarter turn: the eight dots read as a vertical handle in
+  // a column and as a horizontal one in a row, and the wrong orientation
+  // reads as decoration rather than something to grab.
+  grip: { fontSize: 15, color: colors.hint, lineHeight: 16, transform: [{ rotate: '90deg' }] },
+  position: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.subtitle,
+    minWidth: 16,
+    textAlign: 'center',
+    paddingHorizontal: 2,
+  },
+  moveButton: {
+    width: 26,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 999,
   },
   moveButtonOff: { opacity: 0.35 },
-  moveGlyph: { fontSize: 12, fontWeight: '700', color: colors.link, lineHeight: 14 },
+  moveGlyph: { fontSize: 13, fontWeight: '700', color: colors.link, lineHeight: 15 },
   moveGlyphOff: { color: colors.hint },
   groupByLabel: { fontSize: 13, fontWeight: '600', color: colors.label, marginBottom: spacing.xs },
   todayLine: { fontSize: 13, color: colors.label, marginBottom: spacing.md, fontWeight: '600' },
   note: { fontSize: 12, color: colors.hint, marginTop: spacing.sm, marginBottom: spacing.md, lineHeight: 17 },
   customerMeta: { fontSize: 13, color: colors.subtitle, marginTop: 2 },
-  pills: { flexDirection: 'row', gap: spacing.xs, alignItems: 'center' },
+  // Right-aligned inside a fixed block, so the reorder pill beside them
+  // lands in the same column on every row. Without it a customer with
+  // one badge pushed their pill 70px further right than the customer
+  // above, and a list of controls that do not line up reads as a list
+  // of different controls.
+  pills: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    minWidth: 148,
+  },
   subsHeading: { fontSize: 13, color: colors.label, marginTop: spacing.sm },
   orderSummaryBlock: { marginTop: spacing.lg },
   expanded: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md },

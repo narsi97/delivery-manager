@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import * as api from './api';
 import { Button, DeclaredFields, Dialog, Field, FieldRow } from './components';
 import { lower } from './labels';
+import { nearestAreaFor } from './serviceAreas';
 import LocationPicker from './LocationPicker';
 import PriorityPicker from './PriorityPicker';
 import ProductQuantities, { chosenProducts } from './ProductQuantities';
@@ -55,11 +56,6 @@ export default function AddCustomerDialog({
       onClose={onClose}
       title={serviceArea ? `Add a ${lower(labels.customer)} to ${serviceArea.name}` : `Add a ${lower(labels.customer)}`}
     >
-      {serviceArea ? (
-        <Text style={styles.pinnedNote}>
-          They&apos;ll go on {serviceArea.name} whatever their pin says. Move them later from their own card.
-        </Text>
-      ) : null}
       <CustomerForm
         token={token}
         labels={labels}
@@ -76,6 +72,10 @@ export default function AddCustomerDialog({
 }
 
 function CustomerForm({ token, labels, fieldSpecs, home, areas, products, serviceAreaId, onCreated, onError }) {
+  // Seeded from the route this was opened from, and changeable either
+  // way — geography cannot tell a morning round from an evening one
+  // over the same streets, so this is the only thing that can.
+  const [routeId, setRouteId] = useState(serviceAreaId || '');
   const [form, setForm] = useState({ name: '', phone: '', address: '', lat: '', lng: '', notes: '', priority: 'normal' });
   const [customFields, setCustomFields] = useState({});
   const [quantities, setQuantities] = useState({});
@@ -86,6 +86,10 @@ function CustomerForm({ token, labels, fieldSpecs, home, areas, products, servic
   const toggleDay = (day) =>
     setWeekdays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
   const chosen = chosenProducts(quantities);
+  // Recomputed as the pin moves, so the default option names the route
+  // it would actually land on rather than a guess made when it opened.
+  const byPin = nearestAreaFor(Number(form.lat) || 0, Number(form.lng) || 0, areas);
+  const byPinName = byPin ? byPin.name : '';
 
   const submit = async () => {
     setBusy(true);
@@ -100,7 +104,7 @@ function CustomerForm({ token, labels, fieldSpecs, home, areas, products, servic
         priority: form.priority,
         // Pinned to the route this was opened from, when it was
         // opened from one — see domain.Customer.ServiceAreaID.
-        service_area_id: serviceAreaId || undefined,
+        service_area_id: routeId || '',
         custom_fields: customFields,
       });
       // The standing order is optional — skipping it just means nothing
@@ -157,6 +161,32 @@ function CustomerForm({ token, labels, fieldSpecs, home, areas, products, servic
         placeholder="12, 3rd Cross, Jayanagar"
       />
       <PriorityPicker value={form.priority} onChange={set('priority')} />
+
+      {/* Which round they go on. Two service routes can cover exactly
+          the same streets — a morning one and an evening one — so a pin
+          cannot answer this and the default has to be askable. */}
+      {areas.length > 0 ? (
+        <View style={styles.routePicker}>
+          <Text style={styles.label}>Which {lower(labels.route)}?</Text>
+          <select value={routeId} style={routeSelectStyle} onChange={(event) => setRouteId(event.target.value)}>
+            <option value="">From their pin{byPinName ? ` (${byPinName})` : ''}</option>
+            {areas
+              .filter((area) => area.active)
+              .map((area) => (
+                <option key={area.id} value={area.id}>
+                  {area.name}
+                </option>
+              ))}
+          </select>
+          <Text style={styles.hint}>
+            {routeId
+              ? `They'll go on this ${lower(labels.route)} whatever their pin says.`
+              : byPinName
+                ? `Their pin puts them on ${byPinName}.`
+                : `Their pin is not inside any ${lower(labels.route)} yet.`}
+          </Text>
+        </View>
+      ) : null}
       <Field
         label={`Notes for the ${lower(labels.driver)}`}
         value={form.notes}
@@ -207,8 +237,28 @@ function CustomerForm({ token, labels, fieldSpecs, home, areas, products, servic
   );
 }
 
+// A raw select, like every other picker in this app — sized to its
+// content rather than stretched across the dialog.
+const routeSelectStyle = {
+  width: 'auto',
+  minWidth: 200,
+  maxWidth: '100%',
+  borderWidth: 1,
+  borderColor: colors.border,
+  borderRadius: radius.md,
+  paddingTop: spacing.sm,
+  paddingBottom: spacing.sm,
+  paddingLeft: spacing.md,
+  paddingRight: spacing.md,
+  fontSize: 14,
+  color: colors.text,
+  backgroundColor: colors.surface,
+  fontFamily: 'inherit',
+};
+
 const styles = StyleSheet.create({
-  pinnedNote: { fontSize: 13, color: colors.subtitle, lineHeight: 19, marginBottom: spacing.md },
+  routePicker: { marginBottom: spacing.sm },
+  hint: { fontSize: 12, color: colors.hint, marginTop: 3, lineHeight: 16 },
   label: { fontSize: 13, fontWeight: '600', color: colors.label, marginBottom: spacing.xs, marginTop: spacing.sm },
   orderSection: {
     marginTop: spacing.sm,

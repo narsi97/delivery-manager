@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Banner, Button, Field } from './components';
@@ -55,6 +55,12 @@ export default function LocationPicker({
   // except the one where somebody is halfway through typing "17.0" and
   // would not thank us for snapping the map to the equator.
   const [typed, setTyped] = useState(null);
+  // What is in the boxes right now, kept outside React's render cycle.
+  // The blur handler is what commits, and it closes over state as it was
+  // when the input last rendered — which is not necessarily what has
+  // been typed into it. A paste followed immediately by a blur, or a
+  // browser autofilling both boxes at once, would commit nothing at all.
+  const typedRef = useRef(null);
 
   const hasPin = Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0);
   const shown = typed || {
@@ -66,13 +72,15 @@ export default function LocationPicker({
   // location once it is finished, and moving the pin to each prefix of
   // what someone is typing is a map that jumps around under them.
   const commitTyped = () => {
-    if (!typed) {
+    const pending = typedRef.current;
+    if (!pending) {
       return;
     }
-    const nextLat = Number(typed.lat);
-    const nextLng = Number(typed.lng);
+    const nextLat = Number(pending.lat);
+    const nextLng = Number(pending.lng);
+    typedRef.current = null;
     setTyped(null);
-    if (typed.lat.trim() === '' && typed.lng.trim() === '') {
+    if (pending.lat.trim() === '' && pending.lng.trim() === '') {
       return;
     }
     if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) {
@@ -162,7 +170,11 @@ export default function LocationPicker({
             inputMode="decimal"
             placeholder="17.057500"
             aria-label="Latitude"
-            onChange={(event) => setTyped({ ...shown, lat: event.target.value })}
+            onChange={(event) => {
+              const next = { ...shown, lat: event.target.value };
+              typedRef.current = next;
+              setTyped(next);
+            }}
             onBlur={commitTyped}
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
@@ -179,7 +191,11 @@ export default function LocationPicker({
             inputMode="decimal"
             placeholder="79.268400"
             aria-label="Longitude"
-            onChange={(event) => setTyped({ ...shown, lng: event.target.value })}
+            onChange={(event) => {
+              const next = { ...shown, lng: event.target.value };
+              typedRef.current = next;
+              setTyped(next);
+            }}
             onBlur={commitTyped}
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
@@ -196,6 +212,7 @@ export default function LocationPicker({
         lng={lng}
         onChange={(newLat, newLng) => {
           setError('');
+          typedRef.current = null;
           setTyped(null);
           onChange(newLat, newLng);
         }}
