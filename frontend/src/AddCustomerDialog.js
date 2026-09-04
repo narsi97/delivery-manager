@@ -1,25 +1,16 @@
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import * as api from './api';
 import { Button, DeclaredFields, Dialog, Field, FieldRow } from './components';
 import { lower } from './labels';
 import { nearestAreaFor } from './serviceAreas';
 import LocationPicker from './LocationPicker';
+import { EVERY_DAY } from './frequency';
 import PriorityPicker from './PriorityPicker';
 import ProductQuantities, { chosenProducts } from './ProductQuantities';
 import { placeOrders } from './orders';
 import { colors, radius, spacing } from './theme';
-
-const WEEKDAYS = [
-  { value: 1, label: 'Mon' },
-  { value: 2, label: 'Tue' },
-  { value: 3, label: 'Wed' },
-  { value: 4, label: 'Thu' },
-  { value: 5, label: 'Fri' },
-  { value: 6, label: 'Sat' },
-  { value: 0, label: 'Sun' },
-];
 
 // Adding a customer, from wherever you happened to think of it.
 //
@@ -79,12 +70,13 @@ function CustomerForm({ token, labels, fieldSpecs, home, areas, products, servic
   const [form, setForm] = useState({ name: '', phone: '', address: '', lat: '', lng: '', notes: '', priority: 'normal' });
   const [customFields, setCustomFields] = useState({});
   const [quantities, setQuantities] = useState({});
-  const [weekdays, setWeekdays] = useState([1, 2, 3, 4, 5, 6, 0]);
+  // Per product, like the customer's own card. A new customer usually
+  // takes everything every day, so every row starts there and only the
+  // ones that differ need touching.
+  const [dayMasks, setDayMasks] = useState({});
   const [busy, setBusy] = useState(false);
 
   const set = (key) => (value) => setForm((prev) => ({ ...prev, [key]: value }));
-  const toggleDay = (day) =>
-    setWeekdays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
   const chosen = chosenProducts(quantities);
   // Recomputed as the pin moves, so the default option names the route
   // it would actually land on rather than a guess made when it opened.
@@ -113,7 +105,7 @@ function CustomerForm({ token, labels, fieldSpecs, home, areas, products, servic
       // keeps "signed up a new customer for 2L a day" a single action,
       // which is how it actually happens at the door.
       if (chosen.length > 0) {
-        await placeOrders({ token, customerId: customer.id, kind: 'weekly', chosen, weekdays });
+        await placeOrders({ token, customerId: customer.id, kind: 'weekly', chosen, days: dayMasks });
       }
       const created = form.name;
       setForm({ name: '', phone: '', address: '', lat: '', lng: '', notes: '', priority: 'normal' });
@@ -209,26 +201,10 @@ function CustomerForm({ token, labels, fieldSpecs, home, areas, products, servic
             quantities={quantities}
             onChange={setQuantities}
             unitLabel="Leave everything at zero to skip — you can set this up later from their card."
+            days={dayMasks}
+            onDaysChange={setDayMasks}
           />
 
-          {chosen.length > 0 ? (
-            <View>
-              <Text style={styles.label}>Delivery days</Text>
-              <View style={styles.chipRow}>
-                {WEEKDAYS.map((day) => (
-                  <Pressable
-                    key={day.value}
-                    onPress={() => toggleDay(day.value)}
-                    style={[styles.chip, weekdays.includes(day.value) && styles.chipActive]}
-                  >
-                    <Text style={[styles.chipText, weekdays.includes(day.value) && styles.chipTextActive]}>
-                      {day.label}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-          ) : null}
         </View>
       ) : null}
 
@@ -236,7 +212,7 @@ function CustomerForm({ token, labels, fieldSpecs, home, areas, products, servic
         title={chosen.length > 0 ? `Add ${lower(labels.customer)} and their order` : `Add ${lower(labels.customer)}`}
         onPress={submit}
         busy={busy}
-        disabled={!form.name.trim() || (chosen.length > 0 && weekdays.length === 0)}
+        disabled={!form.name.trim() || chosen.some((item) => (dayMasks[item.product_id] || EVERY_DAY).length === 0)}
       />
     </View>
   );
@@ -278,16 +254,4 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm },
-  chip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
-  chipText: { fontSize: 13, color: colors.label, fontWeight: '600' },
-  chipTextActive: { color: colors.accentText },
 });

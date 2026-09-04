@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import * as api from './api';
 import { Banner, Button, Card, Disclosure, Empty, Field, Pill, Stepper } from './components';
 import { openNavigation } from './navigation';
+import { WEEKDAYS } from './frequency';
 import { colors, radius, spacing } from './theme';
 
 // How a single delivery is drawn, wherever it appears — inside a route,
@@ -314,16 +315,6 @@ function StopItem({ item, busy, onSave }) {
     </View>
   );
 }
-
-const WEEKDAYS = [
-  { value: 1, label: 'Mon' },
-  { value: 2, label: 'Tue' },
-  { value: 3, label: 'Wed' },
-  { value: 4, label: 'Thu' },
-  { value: 5, label: 'Fri' },
-  { value: 6, label: 'Sat' },
-  { value: 0, label: 'Sun' },
-];
 
 const ITEM_TONE = { delivered: 'success', failed: 'error', skipped: 'warning' };
 

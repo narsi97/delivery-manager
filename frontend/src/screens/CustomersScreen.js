@@ -25,17 +25,8 @@ import ProductQuantities, { chosenProducts } from '../ProductQuantities';
 import { placeOrders } from '../orders';
 import { nearestAreaFor, serviceRouteFor } from '../serviceAreas';
 import { colors, radius, spacing } from '../theme';
+import { EVERY_DAY, daysFromMask, describeDays } from '../frequency';
 import { UndoBar, useUndoStack } from '../undo';
-
-const WEEKDAYS = [
-  { value: 1, label: 'Mon' },
-  { value: 2, label: 'Tue' },
-  { value: 3, label: 'Wed' },
-  { value: 4, label: 'Thu' },
-  { value: 5, label: 'Fri' },
-  { value: 6, label: 'Sat' },
-  { value: 0, label: 'Sun' },
-];
 
 export default function CustomersScreen({ token, business }) {
   const labels = labelsFor(business);
@@ -706,7 +697,7 @@ function CustomerCard({
     subscriptions.length === 0
       ? 'No standing order yet'
       : subscriptions
-          .map((sub) => `${sub.quantity} × ${productName(products, sub.product_id)} on ${weekdayLabel(sub.weekday_mask)}`)
+          .map((sub) => `${sub.quantity} × ${productName(products, sub.product_id)} on ${describeDays(daysFromMask(sub.weekday_mask))}`)
           .join('  ·  ');
 
   // What "from their pin" would actually resolve to, so the default
@@ -1067,25 +1058,21 @@ function NewOrderForm({ token, customer, subscriptions = [], products, labels, t
   const [quantities, setQuantities] = useState(() =>
     Object.fromEntries(Object.entries(existing).map(([productId, sub]) => [productId, sub.quantity])),
   );
-  const [weekdays, setWeekdays] = useState(() => {
-    const masks = Object.values(existing).map((sub) => sub.weekday_mask);
-    // Only adopt the existing days when every standing order agrees on
-    // them; a customer on different days per product has no single answer
-    // this one control can show, so fall back to every day.
-    if (masks.length > 0 && masks.every((m) => m === masks[0])) {
-      return WEEKDAYS.map((d) => d.value).filter((v) => masks[0] & (1 << v));
-    }
-    return [1, 2, 3, 4, 5, 6, 0];
-  });
+  // Each product keeps its own days, which is how they are stored. The
+  // form used to ask once and apply the answer to everything, so a
+  // customer on milk daily and curd on alternate days showed "every day"
+  // for both — and any edit that touched curd's quantity wrote that back,
+  // quietly moving them onto seven deliveries a week of something they
+  // wanted three of.
+  const seedDays = () =>
+    Object.fromEntries(Object.entries(existing).map(([productId, sub]) => [productId, daysFromMask(sub.weekday_mask)]));
+  const [dayMasks, setDayMasks] = useState(seedDays);
   // Defaults to the business's own today (server-resolved, see
   // domain.Business.Today) rather than the device's — an admin on a
   // laptop in another zone must not silently book tomorrow.
   const [date, setDate] = useState(todayDate || '');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
-
-  const toggleDay = (day) =>
-    setWeekdays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
 
   // Re-seed once a save has landed and the refreshed standing orders come
   // back, so reopening the form shows what the customer now takes rather
@@ -1094,7 +1081,9 @@ function NewOrderForm({ token, customer, subscriptions = [], products, labels, t
   useEffect(() => {
     if (!expanded) {
       setQuantities(Object.fromEntries(Object.entries(existing).map(([id, sub]) => [id, sub.quantity])));
+      setDayMasks(seedDays());
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existing, expanded]);
 
   const chosen = chosenProducts(quantities);
@@ -1111,7 +1100,7 @@ function NewOrderForm({ token, customer, subscriptions = [], products, labels, t
         customerId: customer.id,
         kind,
         chosen,
-        weekdays,
+        days: dayMasks,
         date,
         note,
         // Weekly saves replace this customer's standing orders rather than
@@ -1136,7 +1125,11 @@ function NewOrderForm({ token, customer, subscriptions = [], products, labels, t
     );
   }
 
-  const ready = chosen.length > 0 && (kind === 'once' ? !!date : weekdays.length > 0);
+  // Every chosen product needs a day of its own now, so one product left
+  // on an empty week blocks the save rather than saving as "never".
+  const ready =
+    chosen.length > 0 &&
+    (kind === 'once' ? !!date : chosen.every((item) => (dayMasks[item.product_id] || EVERY_DAY).length > 0));
   const hasStandingOrder = Object.keys(existing).length > 0;
 
   return (
@@ -1175,6 +1168,8 @@ function NewOrderForm({ token, customer, subscriptions = [], products, labels, t
             quantities={quantities}
             onChange={setQuantities}
             unitLabel="Set a quantity for everything they want — leave the rest at zero."
+            days={kind === 'weekly' ? dayMasks : undefined}
+            onDaysChange={setDayMasks}
           />
 
           {kind === 'once' ? (
@@ -1202,24 +1197,7 @@ function NewOrderForm({ token, customer, subscriptions = [], products, labels, t
                 untouched.
               </Text>
             </View>
-          ) : (
-            <View>
-              <Text style={styles.label}>Delivery days</Text>
-              <View style={styles.chipRow}>
-                {WEEKDAYS.map((day) => (
-                  <Pressable
-                    key={day.value}
-                    onPress={() => toggleDay(day.value)}
-                    style={[styles.chip, weekdays.includes(day.value) && styles.chipActive]}
-                  >
-                    <Text style={[styles.chipText, weekdays.includes(day.value) && styles.chipTextActive]}>
-                      {day.label}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-          )}
+          ) : null}
 
           <Button
             title={
@@ -1264,14 +1242,6 @@ const dateInputStyle = {
 
 function productName(products, id) {
   return products.find((product) => product.id === id)?.name || 'item';
-}
-
-function weekdayLabel(mask) {
-  const days = WEEKDAYS.filter((day) => mask & (1 << day.value));
-  if (days.length === 7) {
-    return 'every day';
-  }
-  return days.map((day) => day.label).join(', ') || 'no days';
 }
 
 const styles = StyleSheet.create({
