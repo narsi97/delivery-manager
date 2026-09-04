@@ -169,22 +169,33 @@ export function StopCard({
         <StopItem key={item.id} item={item} busy={busy} onSave={save} />
       ))}
 
-      <View style={styles.buttonRow}>
+      {/* The two things you do to the door rather than to one line of
+          it, on one row and sized to their words — a full-width "Map"
+          was the loudest control on a card about what to deliver. */}
+      <View style={styles.doorActions}>
         {stop.lat || stop.lng ? (
-          <Button
-            title="Map"
-            variant="secondary"
+          <Pressable
             onPress={() => openNavigation(stop.lat, stop.lng, stop.customer_name)}
-            style={styles.flexButton}
-          />
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.doorAction, pressed && styles.pressed]}
+          >
+            <Text style={styles.doorActionText}>🧭 Map</Text>
+          </Pressable>
+        ) : null}
+        {products.length > 0 ? (
+          <Pressable
+            onPress={() => setAdding((prev) => !prev)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: adding }}
+            style={({ pressed }) => [styles.doorAction, pressed && styles.pressed]}
+          >
+            <Text style={styles.doorActionText}>{adding ? 'Cancel' : '+ Add another item'}</Text>
+          </Pressable>
         ) : null}
       </View>
 
-      {products.length > 0 ? (
+      {adding ? (
         <View style={styles.addItemSection}>
-          <Disclosure compact open={adding} onToggle={() => setAdding((prev) => !prev)}>
-            {adding ? 'Cancel' : '+ Add another item'}
-          </Disclosure>
           {adding ? (
             <AddItemForm
               stop={stop}
@@ -203,38 +214,54 @@ export function StopCard({
   );
 }
 
-// One line of the order: what it is, how many, and what to do about it.
+// One line of the order: what it is, how many, and — only once you ask
+// — what to do about it.
 //
-// Its own state, so opening "Change" on the curd does not also open it on
-// the milk — they are separate deliveries that happen to share a door.
+// Every line used to carry a full-width Change and a full-width Skip. A
+// customer taking three things meant six large buttons stacked down the
+// card, and the thing an admin actually opens the list to read — what is
+// going to this door — was buried between them. The line is the content;
+// the controls are a tap away, which is the same bargain every other
+// disclosure in this app makes.
+//
+// Its own state, so opening the curd does not also open the milk — they
+// are separate deliveries that happen to share a door.
 function StopItem({ item, busy, onSave }) {
-  const [editing, setEditing] = useState(false);
+  const [open, setOpen] = useState(false);
   const [quantity, setQuantity] = useState(Number(item.quantity) || 0);
   const [reason, setReason] = useState(item.override_reason || '');
 
   const done = item.status !== 'pending';
+  const notes = [
+    item.base_quantity === 0 ? 'one-off' : '',
+    item.base_quantity > 0 && item.quantity !== item.base_quantity ? `usually ${item.base_quantity}` : '',
+    // The backend writes "one-off order" into the reason field too;
+    // saying it twice is the app telling you one fact in two voices.
+    item.override_reason && item.override_reason !== 'one-off order' ? item.override_reason : '',
+  ].filter(Boolean);
 
   return (
     <View style={styles.item}>
-      <View style={styles.itemHead}>
-        <Text style={[styles.itemName, done && styles.itemNameDone]}>
-          {item.quantity} × {item.product_name}
-          {item.base_quantity > 0 && item.quantity !== item.base_quantity ? `  (usually ${item.base_quantity})` : ''}
-        </Text>
+      <Pressable
+        onPress={() => setOpen((prev) => !prev)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={`${item.quantity} ${item.product_name} — change or skip`}
+        style={({ pressed }) => [styles.itemHead, pressed && styles.pressed]}
+      >
+        <View style={styles.itemHeadText}>
+          <Text style={[styles.itemName, done && styles.itemNameDone]}>
+            {item.quantity} × {item.product_name}
+          </Text>
+          {notes.length > 0 ? <Text style={styles.itemNote}>{notes.join(' · ')}</Text> : null}
+        </View>
         {/* Only when it isn't the ordinary state — a "pending" badge on
             every line of every stop is a badge on nothing. */}
         {done ? <Pill label={item.status} tone={ITEM_TONE[item.status] || 'neutral'} /> : null}
-      </View>
-      {/* A one-off is structurally base_quantity 0, and the backend also
-          writes it into override_reason. Saying it twice is the app
-          telling you the same fact in two voices, so the reason line
-          stays for reasons a human actually typed. */}
-      {item.base_quantity === 0 ? <Text style={styles.itemOneOff}>one-off order</Text> : null}
-      {item.override_reason && item.override_reason !== 'one-off order' ? (
-        <Text style={styles.stopReason}>{item.override_reason}</Text>
-      ) : null}
+        <Text style={styles.itemChevron}>{open ? '▾' : '▸'}</Text>
+      </Pressable>
 
-      {editing ? (
+      {open ? (
         <View style={styles.editor}>
           <Stepper
             label={`${item.product_name} for this date`}
@@ -255,48 +282,34 @@ function StopItem({ item, busy, onSave }) {
               title="Save"
               onPress={async () => {
                 await onSave(item.id, { quantity, reason });
-                setEditing(false);
+                setOpen(false);
               }}
               busy={busy}
               style={styles.flexButton}
             />
-            <Button
-              title="Cancel"
-              variant="secondary"
-              onPress={() => {
-                setQuantity(Number(item.quantity) || 0);
-                setReason(item.override_reason || '');
-                setEditing(false);
-              }}
-              style={styles.flexButton}
-            />
+            {item.status === 'skipped' ? (
+              <Button
+                title="Un-skip"
+                variant="secondary"
+                onPress={() => onSave(item.id, { status: 'pending', quantity: item.base_quantity || 1 })}
+                busy={busy}
+                style={styles.flexButton}
+              />
+            ) : (
+              <Button
+                title="Skip"
+                variant="danger"
+                onPress={() => onSave(item.id, { status: 'skipped', reason: 'skipped by admin' })}
+                busy={busy}
+                style={styles.flexButton}
+              />
+            )}
           </View>
           <Text style={styles.note}>
             This changes this date only. The customer&apos;s standing subscription stays exactly as it is.
           </Text>
         </View>
-      ) : (
-        <View style={styles.itemButtons}>
-          <Button title="Change" variant="secondary" onPress={() => setEditing(true)} style={styles.itemButton} />
-          {item.status === 'skipped' ? (
-            <Button
-              title="Un-skip"
-              variant="secondary"
-              onPress={() => onSave(item.id, { status: 'pending', quantity: item.base_quantity || 1 })}
-              busy={busy}
-              style={styles.itemButton}
-            />
-          ) : (
-            <Button
-              title="Skip"
-              variant="danger"
-              onPress={() => onSave(item.id, { status: 'skipped', reason: 'skipped by admin' })}
-              busy={busy}
-              style={styles.itemButton}
-            />
-          )}
-        </View>
-      )}
+      ) : null}
     </View>
   );
 }
@@ -361,13 +374,30 @@ function AddItemForm({ stop, products, token, onError, onAdded }) {
 const productSelectStyle = { ...selectStyle, width: 'auto', minWidth: 160, maxWidth: 280, flexGrow: 0 };
 
 const styles = StyleSheet.create({
-  item: { marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
-  itemHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
-  itemName: { fontSize: 15, fontWeight: '600', color: colors.text, flexShrink: 1 },
+  item: { borderTopWidth: 1, borderTopColor: colors.border },
+  itemHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    minHeight: 44,
+    paddingVertical: spacing.xs,
+  },
+  itemHeadText: { flex: 1 },
+  itemName: { fontSize: 15, fontWeight: '600', color: colors.text },
   itemNameDone: { color: colors.subtitle, textDecorationLine: 'line-through' },
-  itemOneOff: { fontSize: 12, fontStyle: 'italic', color: colors.warning, marginTop: 2 },
-  itemButtons: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, flexWrap: 'wrap' },
-  itemButton: { flex: 1, minWidth: 110 },
+  itemNote: { fontSize: 12, color: colors.hint, marginTop: 1 },
+  itemChevron: { fontSize: 14, fontWeight: '700', color: colors.link, width: 14, textAlign: 'center' },
+  doorActions: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    flexWrap: 'wrap',
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  doorAction: { paddingVertical: spacing.xs },
+  doorActionText: { fontSize: 14, fontWeight: '700', color: colors.link },
   note: { fontSize: 12, color: colors.hint, marginTop: spacing.sm, lineHeight: 17 },
   label: { fontSize: 13, fontWeight: '600', color: colors.label, marginTop: spacing.md, marginBottom: spacing.xs },
   addItemSection: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs },
