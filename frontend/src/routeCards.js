@@ -100,6 +100,7 @@ export function StopCard({
   const stop = stops[0];
   const [adding, setAdding] = useState(false);
   const [showingDoor, setShowingDoor] = useState(false);
+  const hasPin = Number.isFinite(stop.lat) && Number.isFinite(stop.lng) && (stop.lat !== 0 || stop.lng !== 0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -190,16 +191,21 @@ export function StopCard({
           it, on one row and sized to their words — a full-width "Map"
           was the loudest control on a card about what to deliver. */}
       <View style={styles.doorActions}>
-        {stop.lat || stop.lng ? (
-          <Pressable
-            onPress={() => setShowingDoor((prev) => !prev)}
-            accessibilityRole="button"
-            accessibilityState={{ expanded: showingDoor }}
-            style={({ pressed }) => [styles.doorAction, pressed && styles.pressed]}
-          >
-            <Text style={styles.doorActionText}>{showingDoor ? 'Hide map' : '📍 Map'}</Text>
-          </Pressable>
-        ) : null}
+        {/* Always offered, and loudest on the doors that have no pin.
+            It used to appear only once a customer had one, which put the
+            control out of reach of exactly the deliveries that need it:
+            "We don't know where they live" listed them, explained the
+            problem, and then gave the admin nowhere to fix it. */}
+        <Pressable
+          onPress={() => setShowingDoor((prev) => !prev)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: showingDoor }}
+          style={({ pressed }) => [styles.doorAction, !hasPin && styles.doorActionWanted, pressed && styles.pressed]}
+        >
+          <Text style={[styles.doorActionText, !hasPin && styles.doorActionWantedText]}>
+            {showingDoor ? 'Hide map' : hasPin ? '📍 Map' : '📍 Drop a pin'}
+          </Text>
+        </Pressable>
         {products.length > 0 ? (
           <Pressable
             onPress={() => setAdding((prev) => !prev)}
@@ -237,13 +243,16 @@ export function StopCard({
             drivers={drivers}
             height={200}
           />
-          <Pressable
-            onPress={() => openNavigation(stop.lat, stop.lng, stop.customer_name)}
-            accessibilityRole="button"
-            style={({ pressed }) => [styles.navigateButton, pressed && styles.pressed]}
-          >
-            <Text style={styles.navigateText}>🧭 Navigate there</Text>
-          </Pressable>
+          {/* Nothing to navigate to until the pin exists. */}
+          {hasPin ? (
+            <Pressable
+              onPress={() => openNavigation(stop.lat, stop.lng, stop.customer_name)}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.navigateButton, pressed && styles.pressed]}
+            >
+              <Text style={styles.navigateText}>🧭 Navigate there</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
 
@@ -589,6 +598,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceAlt,
   },
   navigateText: { fontSize: 13, fontWeight: '700', color: colors.link },
+  // A door with no pin cannot be driven to, so the way to give it one is
+  // the only thing on this card worth pressing.
+  doorActionWanted: {
+    backgroundColor: colors.warningBg,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.sm,
+  },
+  doorActionWantedText: { color: colors.warning },
   doorActionText: { fontSize: 14, fontWeight: '700', color: colors.link },
   note: { fontSize: 12, color: colors.hint, marginTop: spacing.sm, lineHeight: 17 },
   label: { fontSize: 13, fontWeight: '600', color: colors.label, marginTop: spacing.md, marginBottom: spacing.xs },
