@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import AddCustomerDialog from '../AddCustomerDialog';
 import * as api from '../api';
 import {
   AddButton,
@@ -21,6 +22,7 @@ import { customFieldsFor, labelsFor, lower } from '../labels';
 import LocationPicker from '../LocationPicker';
 import PriorityPicker, { PriorityBadge, priorityRank } from '../PriorityPicker';
 import ProductQuantities, { chosenProducts } from '../ProductQuantities';
+import { placeOrders } from '../orders';
 import { nearestAreaFor, serviceRouteFor } from '../serviceAreas';
 import { colors, radius, spacing } from '../theme';
 import { UndoBar, useUndoStack } from '../undo';
@@ -164,22 +166,22 @@ export default function CustomersScreen({ token, business }) {
         </SectionTitle>
         <View style={styles.headingDivider} />
 
-        {adding ? (
-          <NewCustomerForm
-            token={token}
-            labels={labels}
-            fieldSpecs={fieldSpecs}
-            home={home}
-            areas={areas}
-            products={products}
-            onCreated={async (name) => {
-              setNotice(`Added ${name}.`);
-              setAdding(false);
-              await refresh();
-            }}
-            onError={setError}
-          />
-        ) : null}
+        <AddCustomerDialog
+          open={adding}
+          onClose={() => setAdding(false)}
+          token={token}
+          labels={labels}
+          fieldSpecs={fieldSpecs}
+          home={home}
+          areas={areas}
+          products={products}
+          onCreated={async (name) => {
+            setNotice(`Added ${name}.`);
+            setAdding(false);
+            await refresh();
+          }}
+          onError={setError}
+        />
 
         {view === 'list' ? (
           <>
@@ -615,141 +617,6 @@ function sortCustomers(sortBy, customers) {
     }
     return a.name.localeCompare(b.name);
   });
-}
-
-// The add form lives inside the roster card, revealed by the "+" on its
-// heading — same control as Drivers, Service areas and Products. It used
-// to be a card of its own above the list, which made adding a customer
-// look like a peer of the whole roster rather than a rare action against
-// it, and put a permanently half-empty box at the top of the screen an
-// admin mostly visits to look something up.
-function NewCustomerForm({ token, labels, fieldSpecs, home, areas, products, onCreated, onError }) {
-  const [form, setForm] = useState({ name: '', phone: '', address: '', lat: '', lng: '', notes: '', priority: 'normal' });
-  const [customFields, setCustomFields] = useState({});
-  const [quantities, setQuantities] = useState({});
-  const [weekdays, setWeekdays] = useState([1, 2, 3, 4, 5, 6, 0]);
-  const [busy, setBusy] = useState(false);
-
-  const set = (key) => (value) => setForm((prev) => ({ ...prev, [key]: value }));
-  const toggleDay = (day) =>
-    setWeekdays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
-  const chosen = chosenProducts(quantities);
-
-  const submit = async () => {
-    setBusy(true);
-    try {
-      const customer = await api.createCustomer(token, {
-        name: form.name,
-        phone: form.phone,
-        address: form.address,
-        notes: form.notes,
-        lat: Number(form.lat) || 0,
-        lng: Number(form.lng) || 0,
-        priority: form.priority,
-        custom_fields: customFields,
-      });
-      // The standing order is optional — skipping it just means nothing
-      // here runs, and the customer can be given one later from their own
-      // card. Doing it in the same submit rather than as a second step
-      // keeps "signed up a new customer for 2L a day" a single action,
-      // which is how it actually happens at the door.
-      if (chosen.length > 0) {
-        await placeOrders({ token, customerId: customer.id, kind: 'weekly', chosen, weekdays });
-      }
-      const created = form.name;
-      setForm({ name: '', phone: '', address: '', lat: '', lng: '', notes: '', priority: 'normal' });
-      setCustomFields({});
-      setQuantities({});
-      await onCreated(created);
-    } catch (err) {
-      onError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <View style={styles.inlineForm}>
-      <FieldRow>
-        <Field label="Name" size="md" value={form.name} onChangeText={set('name')} placeholder="Anita Sharma" />
-        <Field
-          label="Phone"
-          size="sm"
-          value={form.phone}
-          onChangeText={set('phone')}
-          keyboardType="phone-pad"
-          placeholder="98765 43210"
-        />
-      </FieldRow>
-      {/* Where comes before what it's called. The pin is what routes
-          the delivery; the written address is a note for a human who is
-          already standing there, so it reads better as a caption under
-          the map than as a question asked before it. */}
-      <LocationPicker
-        label="Where do we deliver?"
-        hint="Leave it unset if you're not at the door yet — you can drop the pin later."
-        lat={Number(form.lat) || 0}
-        lng={Number(form.lng) || 0}
-        onChange={(newLat, newLng) => setForm((prev) => ({ ...prev, lat: newLat.toFixed(6), lng: newLng.toFixed(6) }))}
-        home={home}
-        areas={areas}
-      />
-      <Field
-        label="Address"
-        size="md"
-        value={form.address}
-        onChangeText={set('address')}
-        placeholder="12, 3rd Cross, Jayanagar"
-      />
-      <PriorityPicker value={form.priority} onChange={set('priority')} />
-      <Field
-        label={`Notes for the ${lower(labels.driver)}`}
-        value={form.notes}
-        onChangeText={set('notes')}
-        placeholder="Gate code 1234, leave at door"
-        multiline
-      />
-      <DeclaredFields specs={fieldSpecs} values={customFields} onChange={setCustomFields} />
-
-      {products.length > 0 ? (
-        <View style={styles.orderSection}>
-          <Text style={styles.label}>What will they take? (optional)</Text>
-          <ProductQuantities
-            products={products}
-            quantities={quantities}
-            onChange={setQuantities}
-            unitLabel="Leave everything at zero to skip — you can set this up later from their card."
-          />
-
-          {chosen.length > 0 ? (
-            <View>
-              <Text style={styles.label}>Delivery days</Text>
-              <View style={styles.chipRow}>
-                {WEEKDAYS.map((day) => (
-                  <Pressable
-                    key={day.value}
-                    onPress={() => toggleDay(day.value)}
-                    style={[styles.chip, weekdays.includes(day.value) && styles.chipActive]}
-                  >
-                    <Text style={[styles.chipText, weekdays.includes(day.value) && styles.chipTextActive]}>
-                      {day.label}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-          ) : null}
-        </View>
-      ) : null}
-
-      <Button
-        title={chosen.length > 0 ? `Add ${lower(labels.customer)} and their order` : `Add ${lower(labels.customer)}`}
-        onPress={submit}
-        busy={busy}
-        disabled={!form.name.trim() || (chosen.length > 0 && weekdays.length === 0)}
-      />
-    </View>
-  );
 }
 
 const STATUS_TONE = { pending: 'neutral', delivered: 'success', failed: 'error', skipped: 'warning' };
@@ -1216,48 +1083,7 @@ function NewOrderForm({ token, customer, subscriptions = [], products, labels, t
   );
 }
 
-// Places one order per chosen product. Shared by the "add an order" form
-// on an existing customer and the optional first order on the new-customer
-// form, so the two can't drift into meaning different things.
-export async function placeOrders({ token, customerId, kind, chosen, weekdays, date, note, replacing = null }) {
-  // Stand down what is being replaced first, so a product whose quantity
-  // changed ends up with one standing order at the new number rather than
-  // two that both run. Deactivating rather than deleting keeps the old
-  // arrangement on the record — same convention as customers and drivers.
-  if (replacing) {
-    const keeping = new Set(chosen.map((item) => item.product_id));
-    for (const [productId, sub] of Object.entries(replacing)) {
-      const unchanged =
-        keeping.has(productId) && sub.quantity === chosen.find((i) => i.product_id === productId).quantity;
-      if (!unchanged) {
-        await api.setRecurringActive(token, sub.id, false);
-      }
-    }
-  }
 
-  for (const item of chosen) {
-    // Already on exactly this, at this quantity — nothing to do.
-    if (replacing && replacing[item.product_id] && replacing[item.product_id].quantity === item.quantity) {
-      continue;
-    }
-    if (kind === 'once') {
-      await api.createAdHocOrder(token, {
-        customer_id: customerId,
-        product_id: item.product_id,
-        quantity: item.quantity,
-        date,
-        note,
-      });
-    } else {
-      await api.createRecurringOrder(token, {
-        customer_id: customerId,
-        product_id: item.product_id,
-        quantity: item.quantity,
-        weekdays,
-      });
-    }
-  }
-}
 
 // Matches Field's input styling — a raw <input> can't take
 // StyleSheet.create output, same reasoning as groupBySelectStyle above.

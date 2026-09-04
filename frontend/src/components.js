@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { colors, radius, spacing } from './theme';
 
@@ -43,6 +43,51 @@ export function AddButton({ open, onPress, label, addLabel = 'Add' }) {
         {open ? '× Cancel' : `+ ${addLabel}`}
       </Text>
     </Pressable>
+  );
+}
+
+// A dialog, for a form that belongs to more than one screen.
+//
+// Everything else in this app reveals itself in place — a "+ Add" grows
+// the form under the heading it belongs to, which is right when the form
+// has exactly one home. Adding a customer stopped having one: it is the
+// obvious thing to do from the roster, and equally the obvious thing to
+// do while looking at a service route with nobody on it. Inlining it
+// twice would be two forms to keep in step, and the second one would sit
+// halfway down a page about something else.
+//
+// So it floats, and the same component answers both. The rules are the
+// ordinary ones a dialog has to earn: the backdrop closes it, Escape
+// closes it, the body scrolls rather than the page behind it, and it
+// never covers the whole screen on a desktop — a form that fills a
+// monitor reads as a page you navigated to, which is exactly the
+// impression a dialog must not give.
+export function Dialog({ open, title, onClose, children, footer }) {
+  if (!open) {
+    return null;
+  }
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      {/* The backdrop is the target, so a tap anywhere outside closes —
+          the card below stops the press from reaching it. */}
+      <Pressable style={styles.dialogBackdrop} onPress={onClose} accessibilityLabel="Close">
+        <Pressable style={styles.dialogCard} onPress={() => {}} accessibilityRole="none">
+          <View style={styles.dialogHeader}>
+            <Text style={styles.dialogTitle}>{title}</Text>
+            <Pressable
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+              style={styles.dialogClose}
+            >
+              <Text style={styles.dialogCloseGlyph}>×</Text>
+            </Pressable>
+          </View>
+          <ScrollView contentContainerStyle={styles.dialogBody}>{children}</ScrollView>
+          {footer ? <View style={styles.dialogFooter}>{footer}</View> : null}
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -345,6 +390,51 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm + 2,
   },
   sectionTitle: { fontSize: 17, fontWeight: '700', color: colors.text },
+  dialogBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.lg,
+  },
+  dialogCard: {
+    width: '100%',
+    maxWidth: 620,
+    // Never the full height: a dialog that reaches both edges of the
+    // screen has stopped looking like one.
+    maxHeight: '88%',
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  dialogHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  dialogTitle: { fontSize: 17, fontWeight: '700', color: colors.text, flexShrink: 1 },
+  dialogClose: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dialogCloseGlyph: { fontSize: 22, color: colors.subtitle, lineHeight: 24 },
+  dialogBody: { padding: spacing.lg },
+  dialogFooter: {
+    padding: spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.surfaceAlt,
+  },
   sectionTitleLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexShrink: 1 },
   addButton: {
     paddingHorizontal: spacing.sm + 2,

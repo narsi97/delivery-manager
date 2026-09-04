@@ -4,7 +4,8 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import * as api from '../api';
 import { AddButton, Banner, Button, Card, Disclosure, Empty, Field, FieldRow, Pill, SectionTitle } from '../components';
 import LocationPicker, { InlineLocationEditor } from '../LocationPicker';
-import { labelsFor, lower } from '../labels';
+import AddCustomerDialog from '../AddCustomerDialog';
+import { customFieldsFor, labelsFor, lower } from '../labels';
 import { serviceRouteFor } from '../serviceAreas';
 import { colors, radius, spacing } from '../theme';
 
@@ -33,6 +34,9 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
   const [addingArea, setAddingArea] = useState(false);
   // Customers a newly created route passed over, waiting on a yes/no.
   const [kept, setKept] = useState(null);
+  // The service route the add-a-customer dialog was opened from, or
+  // null when it isn't open. See AddCustomerDialog.
+  const [addingTo, setAddingTo] = useState(null);
   const [suggestions, setSuggestions] = useState([]);
   const [prefill, setPrefill] = useState(null);
 
@@ -91,6 +95,24 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
         onChanged={refresh}
         onCreated={async (name) => {
           setNotice(`Added ${name} to your products.`);
+          await refresh();
+        }}
+        onError={setError}
+      />
+
+      <AddCustomerDialog
+        open={!!addingTo}
+        onClose={() => setAddingTo(null)}
+        token={token}
+        labels={labels}
+        fieldSpecs={customFieldsFor(business, 'customer')}
+        home={home}
+        areas={areas}
+        products={products}
+        serviceArea={addingTo}
+        onCreated={async (name) => {
+          setNotice(`Added ${name} to ${addingTo.name}.`);
+          setAddingTo(null);
           await refresh();
         }}
         onError={setError}
@@ -172,7 +194,17 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
           </Empty>
         ) : (
           areas.map((area) => (
-            <ServiceAreaRow key={area.id} area={area} home={home} token={token} onChanged={refresh} onError={setError} />
+            <ServiceAreaRow
+              key={area.id}
+              area={area}
+              home={home}
+              token={token}
+              labels={labels}
+              customerCount={customers.filter((c) => serviceRouteFor(c, areas)?.id === area.id).length}
+              onAddCustomer={setAddingTo}
+              onChanged={refresh}
+              onError={setError}
+            />
           ))
         )}
       </Card>
@@ -645,7 +677,7 @@ function SuggestedAreas({ suggestions, onAccept }) {
   );
 }
 
-function ServiceAreaRow({ area, home, token, onChanged, onError }) {
+function ServiceAreaRow({ area, home, token, labels, customerCount, onAddCustomer, onChanged, onError }) {
   const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState(area.name);
   const [lat, setLat] = useState(area.lat);
@@ -687,13 +719,36 @@ function ServiceAreaRow({ area, home, token, onChanged, onError }) {
       <Disclosure
         open={expanded}
         onToggle={() => setExpanded((prev) => !prev)}
-        right={area.active ? <Pill label="active" tone="success" /> : <Pill label="paused" tone="neutral" />}
+        right={
+          <View style={styles.rowPills}>
+            <Pill label={`${customerCount}`} tone="neutral" />
+            {area.active ? <Pill label="active" tone="success" /> : <Pill label="paused" tone="neutral" />}
+          </View>
+        }
       >
         {area.name} · {(area.radius_meters / 1000).toFixed(1)} km
       </Disclosure>
 
       {expanded ? (
         <View style={styles.expanded}>
+          {/* The obvious thing to do while looking at a route with
+              nobody on it. Sending the owner to the Customers tab and
+              making them find the route again afterwards is the app
+              handing them its own bookkeeping. */}
+          <View style={styles.buttonRow}>
+            <Button
+              title={`+ Add a ${lower(labels.customer)} here`}
+              variant="secondary"
+              onPress={() => onAddCustomer(area)}
+              style={styles.flexButton}
+            />
+          </View>
+          <Text style={styles.note}>
+            {customerCount === 0
+              ? `Nobody on this ${lower(labels.route)} yet.`
+              : `${customerCount} ${customerCount === 1 ? lower(labels.customer) : lower(labels.customer_plural)} on this ${lower(labels.route)}.`}
+          </Text>
+
           <Field label="Name" size="md" value={name} onChangeText={setName} />
           <LocationPicker
             label="Centre of the area"
@@ -727,6 +782,7 @@ const styles = StyleSheet.create({
   page: { padding: spacing.lg, maxWidth: 720, width: '100%', alignSelf: 'center' },
   loader: { marginTop: spacing.xl * 2 },
   note: { fontSize: 12, color: colors.hint, marginBottom: spacing.sm, lineHeight: 17 },
+  rowPills: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   expanded: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md },
   buttonRow: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap', marginTop: spacing.sm },
   flexButton: { flex: 1, minWidth: 110 },
