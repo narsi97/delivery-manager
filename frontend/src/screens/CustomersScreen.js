@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import AddCustomerDialog from '../AddCustomerDialog';
+import ImportCustomersDialog from '../ImportCustomersDialog';
 import CustomerTimeline from '../CustomerTimeline';
 import * as api from '../api';
 import {
@@ -56,6 +57,7 @@ export default function CustomersScreen({ token, business }) {
   // the browser's own undo cannot help once you have. See undo.js.
   const undoStack = useUndoStack({ onError: setError });
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
   // The same customers, two ways of looking at them — see ViewToggle.
   const [view, setView] = useState('list');
 
@@ -136,11 +138,25 @@ export default function CustomersScreen({ token, business }) {
       <Card>
         <SectionTitle
           after={
-            <AddButton
-              open={adding}
-              onPress={() => setAdding((prev) => !prev)}
-              label={adding ? `Cancel adding a ${lower(labels.customer)}` : `Add a ${lower(labels.customer)}`}
-            />
+            <View style={styles.headingActions}>
+              <AddButton
+                open={adding}
+                onPress={() => setAdding((prev) => !prev)}
+                label={adding ? `Cancel adding a ${lower(labels.customer)}` : `Add a ${lower(labels.customer)}`}
+              />
+              {/* Next to Add rather than behind the ⋯, even though it is
+                  used once and never again. That once is the first hour
+                  with the product, when the list is empty and nobody has
+                  learned where anything is hidden yet. */}
+              <Pressable
+                onPress={() => setImporting(true)}
+                accessibilityRole="button"
+                accessibilityLabel={`Import a list of ${lower(labels.customer_plural)}`}
+                style={({ pressed }) => [styles.importButton, pressed && styles.importPressed]}
+              >
+                <Text style={styles.importText}>Import</Text>
+              </Pressable>
+            </View>
           }
           right={
             <ViewToggle
@@ -175,6 +191,17 @@ export default function CustomersScreen({ token, business }) {
           onError={setError}
         />
 
+        <ImportCustomersDialog
+          open={importing}
+          onClose={() => setImporting(false)}
+          token={token}
+          labels={labels}
+          home={home}
+          onImported={async () => {
+            await refresh();
+          }}
+        />
+
         {view === 'list' ? (
           <>
             <View style={styles.toolsRow}>
@@ -207,7 +234,10 @@ export default function CustomersScreen({ token, business }) {
             </View>
 
             {customers.length === 0 ? (
-              <Empty>No {lower(labels.customer_plural)} yet. Add the first one with the + above.</Empty>
+              <Empty>
+                No {lower(labels.customer_plural)} yet. Add the first one with the + above — or bring a list you
+                already have in with Import.
+              </Empty>
             ) : visibleCustomers.length === 0 ? (
               <Empty>
                 No {lower(labels.customer_plural)} match &quot;{search.trim()}&quot;.
@@ -1260,6 +1290,16 @@ const styles = StyleSheet.create({
   page: { padding: spacing.lg, maxWidth: 720, width: '100%', alignSelf: 'center' },
   loader: { marginTop: spacing.xl * 2 },
   group: { marginBottom: spacing.md },
+  headingActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  importButton: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  importPressed: { opacity: 0.6 },
+  importText: { fontSize: 13, fontWeight: '700', color: colors.link },
   headingDivider: {
     borderBottomWidth: 1,
     borderBottomColor: colors.border,

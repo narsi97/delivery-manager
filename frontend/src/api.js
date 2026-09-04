@@ -377,6 +377,17 @@ export function createAdHocOrder(token, order) {
   return request('/api/v1/orders', { method: 'POST', token, body: JSON.stringify(order) });
 }
 
+// Brings a whole customer list in at once. With dryRun the server
+// changes nothing and just says what would happen to each row, which is
+// what the preview shows.
+export function importCustomers(token, rows, dryRun) {
+  return request('/api/v1/customers/import', {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ rows, dry_run: !!dryRun }),
+  });
+}
+
 // One customer's deliveries either side of today: their history looking
 // back, and what is already booked looking forward. `back` and `ahead`
 // are day counts, both capped server-side.

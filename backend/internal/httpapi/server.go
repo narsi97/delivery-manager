@@ -131,6 +131,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/customers/order", s.withAdmin(s.handleSetCustomerOrder))
 	s.mux.HandleFunc("PATCH /api/v1/customers/{id}", s.withAdmin(s.handleUpdateCustomer))
 	s.mux.HandleFunc("GET /api/v1/customers/{id}/orders", s.withAdmin(s.handleCustomerOrders))
+	s.mux.HandleFunc("POST /api/v1/customers/import", s.withAdmin(s.handleImportCustomers))
 
 	s.mux.HandleFunc("GET /api/v1/products", s.withAdmin(s.handleListProducts))
 	s.mux.HandleFunc("POST /api/v1/products", s.withAdmin(s.handleCreateProduct))
