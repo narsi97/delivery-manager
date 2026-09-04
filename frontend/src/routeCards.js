@@ -199,6 +199,7 @@ export function StopCard({
           {adding ? (
             <AddItemForm
               stop={stop}
+              existing={stops}
               products={products}
               token={token}
               onError={report}
@@ -320,15 +321,26 @@ const ITEM_TONE = { delivered: 'success', failed: 'error', skipped: 'warning' };
 // customer's standing order is untouched — this creates its own delivery
 // alongside it, which is why it shows up as a separate stop rather than
 // changing the one above.
-function AddItemForm({ stop, products, token, onError, onAdded }) {
-  // Default to something the customer isn't already getting — the point
-  // of this form is the *other* products, so preselecting the one already
-  // on the order would be the one useless choice.
-  const others = products.filter((product) => product.name !== stop.product_name);
-  const choices = others.length > 0 ? others : products;
-  const [productId, setProductId] = useState(choices[0]?.id || '');
+function AddItemForm({ stop, existing = [], products, token, onError, onAdded }) {
+  // Every product stays pickable: a customer on daily milk who wants an
+  // extra bottle today for a guest is a real thing to ask for, and
+  // hiding it would answer that by making it impossible. What changes is
+  // the *default* — something they are not already down for, because
+  // preselecting one they have is the one useless choice.
+  const alreadyToday = new Set(existing.map((item) => item.product_id));
+  const choices = products;
+  const firstNew = products.find((product) => !alreadyToday.has(product.id));
+  const [productId, setProductId] = useState((firstNew || products[0])?.id || '');
   const [quantity, setQuantity] = useState(1);
   const [busy, setBusy] = useState(false);
+
+  // Adding something they are already down for makes a *second*,
+  // separate delivery of it rather than more of the first. That is
+  // occasionally what somebody means and usually a slip — two taps of a
+  // button with nothing in between to say so. Naming what they already
+  // have is the whole warning: it either reads as "yes, another one" or
+  // as "oh, I wanted to change that one".
+  const duplicate = existing.find((item) => item.product_id === productId);
 
   const submit = async () => {
     setBusy(true);
@@ -360,7 +372,19 @@ function AddItemForm({ stop, products, token, onError, onAdded }) {
         ))}
       </select>
       <Stepper label="How many" value={quantity} onChange={setQuantity} min={1} />
-      <Button title="Add to this delivery" onPress={submit} busy={busy} disabled={!productId} />
+      {duplicate ? (
+        <Text style={styles.duplicateWarning}>
+          They&apos;re already down for {duplicate.quantity} × {duplicate.product_name} today. Adding this makes a
+          second, separate delivery of it — to send more in one go, close this and change the line above instead.
+        </Text>
+      ) : null}
+      <Button
+        title={duplicate ? 'Add a second one anyway' : 'Add to this delivery'}
+        variant={duplicate ? 'secondary' : 'primary'}
+        onPress={submit}
+        busy={busy}
+        disabled={!productId}
+      />
       <Text style={styles.note}>
         A one-off for this date only — it doesn&apos;t change what they normally get.
       </Text>
@@ -397,6 +421,13 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
   },
   doorAction: { paddingVertical: spacing.xs },
+  duplicateWarning: {
+    fontSize: 13,
+    color: colors.warning,
+    lineHeight: 19,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+  },
   doorActionText: { fontSize: 14, fontWeight: '700', color: colors.link },
   note: { fontSize: 12, color: colors.hint, marginTop: spacing.sm, lineHeight: 17 },
   label: { fontSize: 13, fontWeight: '600', color: colors.label, marginTop: spacing.md, marginBottom: spacing.xs },
