@@ -4,7 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import * as api from './api';
 import { Banner, Button, Card, Disclosure, Field, Pill, SectionTitle } from './components';
 import LocationPicker from './LocationPicker';
-import { StopCard } from './routeCards';
+import { groupStopsByCustomer, StopCard } from './routeCards';
 import { lower } from './labels';
 import { nearestAreaFor } from './serviceAreas';
 import { colors, spacing } from './theme';
@@ -111,10 +111,10 @@ function CauseGroup({ title, count, explanation, stops, products, token, onChang
         <View>
           <Text style={styles.explanation}>{explanation}</Text>
           {children}
-          {stops.map((stop) => (
+          {groupStopsByCustomer(stops).map((door) => (
             <StopCard
-              key={stop.id}
-              stop={stop}
+              key={door[0].customer_id || door[0].id}
+              stops={door}
               products={products}
               token={token}
               onChanged={onChanged}

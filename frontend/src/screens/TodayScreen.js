@@ -248,6 +248,7 @@ export default function TodayScreen({ token, business }) {
               routes={routes}
               drivers={drivers}
               home={home}
+              labels={labels}
               onChanged={refresh}
             />
           ) : routes.length === 0 ? (

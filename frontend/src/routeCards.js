@@ -35,6 +35,27 @@ export const selectStyle = {
 // nothing and a long one doesn't blow the row out.
 const compactSelectStyle = { ...selectStyle, width: 'auto', minWidth: 110, maxWidth: 200, flexGrow: 0 };
 
+// Every delivery for one customer at one door, in one entry.
+//
+// A customer taking milk and curd is two daily orders, and the list used
+// to show two cards: same name, same address, its own number each. A
+// driver goes to a door once. Grouped by customer and ordered by the
+// earliest sequence at that door, so the numbering counts doors rather
+// than line items.
+export function groupStopsByCustomer(stops) {
+  const doors = new Map();
+  for (const stop of stops) {
+    const key = stop.customer_id || stop.id;
+    if (!doors.has(key)) {
+      doors.set(key, []);
+    }
+    doors.get(key).push(stop);
+  }
+  return [...doors.values()]
+    .map((items) => items.sort((a, b) => (a.sequence || 0) - (b.sequence || 0)))
+    .sort((a, b) => (a[0].sequence || 0) - (b[0].sequence || 0));
+}
+
 // One delivery on one date. Two different things happen here and they
 // are deliberately kept apart:
 //
@@ -51,11 +72,25 @@ const compactSelectStyle = { ...selectStyle, width: 'auto', minWidth: 110, maxWi
 // onReorder, when given, turns on the ↑↓ controls. Only the screens that
 // show a stop *in its route order* pass it — a stop listed under "not
 // going out yet" has no position to move within.
-export function StopCard({ stop, products = [], token, onChanged, onError, onReorder, canMoveUp, canMoveDown }) {
-  const [editing, setEditing] = useState(false);
+export function StopCard({
+  // Every delivery for one customer at one door, in sequence order. A
+  // customer taking milk and curd is two daily orders, and this used to
+  // be two cards — the same name, the same address, twice in the list,
+  // with its own number each. A driver goes to a door once; "add another
+  // item" made that worse by growing the list every time, which read as
+  // the item landing on somebody else.
+  stops,
+  position = 0,
+  products = [],
+  token,
+  onChanged,
+  onError,
+  onReorder,
+  canMoveUp,
+  canMoveDown,
+}) {
+  const stop = stops[0];
   const [adding, setAdding] = useState(false);
-  const [quantity, setQuantity] = useState(Number(stop.quantity) || 0);
-  const [reason, setReason] = useState(stop.override_reason || '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -64,12 +99,11 @@ export function StopCard({ stop, products = [], token, onChanged, onError, onReo
   // is deliberately local and does not call up to onError.
   const report = (err) => setError(err.message);
 
-  const save = async (changes) => {
+  const save = async (id, changes) => {
     setBusy(true);
     setError('');
     try {
-      await api.overrideOrder(token, stop.id, changes);
-      setEditing(false);
+      await api.overrideOrder(token, id, changes);
       await onChanged();
     } catch (err) {
       report(err);
@@ -78,32 +112,33 @@ export function StopCard({ stop, products = [], token, onChanged, onError, onReo
     }
   };
 
-  const statusTone = { delivered: 'success', failed: 'error', skipped: 'warning' }[stop.status] || 'neutral';
+  // One badge for the door. Everything at the same state says it once;
+  // a door part-delivered says so, which is the case worth a word.
+  const statuses = [...new Set(stops.map((s) => s.status))];
+  const doorStatus = statuses.length === 1 ? statuses[0] : 'part done';
+  const statusTone =
+    { delivered: 'success', failed: 'error', skipped: 'warning' }[doorStatus] ||
+    (statuses.length > 1 ? 'warning' : 'neutral');
 
   return (
     <Card>
       <View style={styles.stopHeader}>
         <View style={styles.stopHeaderText}>
           <Text style={styles.stopName}>
-            {stop.sequence > 0 ? `${stop.sequence}. ` : ''}
+            {position > 0 ? `${position}. ` : ''}
             {stop.customer_name}
           </Text>
-          <Text style={styles.stopMeta}>
-            {stop.quantity} × {stop.product_name}
-            {stop.base_quantity > 0 && stop.quantity !== stop.base_quantity ? `  (usually ${stop.base_quantity})` : ''}
-          </Text>
           {stop.customer_address ? <Text style={styles.stopAddress}>{stop.customer_address}</Text> : null}
-          {stop.override_reason ? <Text style={styles.stopReason}>{stop.override_reason}</Text> : null}
         </View>
         <View style={styles.stopHeaderRight}>
-          <Pill label={stop.status} tone={statusTone} />
+          <Pill label={doorStatus} tone={statusTone} />
           {/* Up and down rather than drag: a drag inside a scrolling list
               is unreliable on a phone, and this stack has no gesture
               precedent. See Docs/COMPROMISES.md. */}
           {onReorder ? (
             <View style={styles.moveButtons}>
               <Pressable
-                onPress={() => onReorder(stop.sequence - 1)}
+                onPress={() => onReorder(stops[0].sequence - 1)}
                 disabled={!canMoveUp || busy}
                 accessibilityRole="button"
                 accessibilityLabel={`Move ${stop.customer_name} earlier`}
@@ -112,7 +147,7 @@ export function StopCard({ stop, products = [], token, onChanged, onError, onReo
                 <Text style={[styles.moveGlyph, !canMoveUp && styles.moveGlyphOff]}>↑</Text>
               </Pressable>
               <Pressable
-                onPress={() => onReorder(stop.sequence + 1)}
+                onPress={() => onReorder(stops[stops.length - 1].sequence + 1)}
                 disabled={!canMoveDown || busy}
                 accessibilityRole="button"
                 accessibilityLabel={`Move ${stop.customer_name} later`}
@@ -127,62 +162,23 @@ export function StopCard({ stop, products = [], token, onChanged, onError, onReo
 
       <Banner message={error} />
 
-      {editing ? (
-        <View style={styles.editor}>
-          <Stepper
-            label={`${stop.product_name} for this date`}
-            value={quantity}
-            onChange={setQuantity}
-            min={0}
-            hint="Set it to zero to send nothing today."
+      {/* One row per thing being dropped off, each with its own
+          controls: quantities and skips are per item, because "no curd
+          today, milk as usual" is the ordinary case. */}
+      {stops.map((item) => (
+        <StopItem key={item.id} item={item} busy={busy} onSave={save} />
+      ))}
+
+      <View style={styles.buttonRow}>
+        {stop.lat || stop.lng ? (
+          <Button
+            title="Map"
+            variant="secondary"
+            onPress={() => openNavigation(stop.lat, stop.lng, stop.customer_name)}
+            style={styles.flexButton}
           />
-          <Field
-            label="Reason (optional)"
-            size="md"
-            value={reason}
-            onChangeText={setReason}
-            placeholder="Away this week / wants extra"
-          />
-          <View style={styles.buttonRow}>
-            <Button title="Save" onPress={() => save({ quantity, reason })} busy={busy} style={styles.flexButton} />
-            <Button
-              title="Cancel"
-              variant="secondary"
-              onPress={() => {
-                setQuantity(Number(stop.quantity) || 0);
-                setReason(stop.override_reason || '');
-                setEditing(false);
-              }}
-              style={styles.flexButton}
-            />
-          </View>
-          <Text style={styles.note}>This changes this date only. The customer&apos;s standing subscription stays exactly as it is.</Text>
-        </View>
-      ) : (
-        <View style={styles.buttonRow}>
-          <Button title="Change" variant="secondary" onPress={() => setEditing(true)} style={styles.flexButton} />
-          {stop.status === 'skipped' ? (
-            <Button
-              title="Un-skip"
-              variant="secondary"
-              onPress={() => save({ status: 'pending', quantity: stop.base_quantity || 1 })}
-              busy={busy}
-              style={styles.flexButton}
-            />
-          ) : (
-            <Button
-              title="Skip"
-              variant="danger"
-              onPress={() => save({ status: 'skipped', reason: 'skipped by admin' })}
-              busy={busy}
-              style={styles.flexButton}
-            />
-          )}
-          {stop.lat || stop.lng ? (
-            <Button title="Map" variant="secondary" onPress={() => openNavigation(stop.lat, stop.lng, stop.customer_name)} style={styles.flexButton} />
-          ) : null}
-        </View>
-      )}
+        ) : null}
+      </View>
 
       {products.length > 0 ? (
         <View style={styles.addItemSection}>
@@ -206,6 +202,106 @@ export function StopCard({ stop, products = [], token, onChanged, onError, onReo
     </Card>
   );
 }
+
+// One line of the order: what it is, how many, and what to do about it.
+//
+// Its own state, so opening "Change" on the curd does not also open it on
+// the milk — they are separate deliveries that happen to share a door.
+function StopItem({ item, busy, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [quantity, setQuantity] = useState(Number(item.quantity) || 0);
+  const [reason, setReason] = useState(item.override_reason || '');
+
+  const done = item.status !== 'pending';
+
+  return (
+    <View style={styles.item}>
+      <View style={styles.itemHead}>
+        <Text style={[styles.itemName, done && styles.itemNameDone]}>
+          {item.quantity} × {item.product_name}
+          {item.base_quantity > 0 && item.quantity !== item.base_quantity ? `  (usually ${item.base_quantity})` : ''}
+        </Text>
+        {/* Only when it isn't the ordinary state — a "pending" badge on
+            every line of every stop is a badge on nothing. */}
+        {done ? <Pill label={item.status} tone={ITEM_TONE[item.status] || 'neutral'} /> : null}
+      </View>
+      {/* A one-off is structurally base_quantity 0, and the backend also
+          writes it into override_reason. Saying it twice is the app
+          telling you the same fact in two voices, so the reason line
+          stays for reasons a human actually typed. */}
+      {item.base_quantity === 0 ? <Text style={styles.itemOneOff}>one-off order</Text> : null}
+      {item.override_reason && item.override_reason !== 'one-off order' ? (
+        <Text style={styles.stopReason}>{item.override_reason}</Text>
+      ) : null}
+
+      {editing ? (
+        <View style={styles.editor}>
+          <Stepper
+            label={`${item.product_name} for this date`}
+            value={quantity}
+            onChange={setQuantity}
+            min={0}
+            hint="Set it to zero to send nothing today."
+          />
+          <Field
+            label="Reason (optional)"
+            size="md"
+            value={reason}
+            onChangeText={setReason}
+            placeholder="Away this week / wants extra"
+          />
+          <View style={styles.buttonRow}>
+            <Button
+              title="Save"
+              onPress={async () => {
+                await onSave(item.id, { quantity, reason });
+                setEditing(false);
+              }}
+              busy={busy}
+              style={styles.flexButton}
+            />
+            <Button
+              title="Cancel"
+              variant="secondary"
+              onPress={() => {
+                setQuantity(Number(item.quantity) || 0);
+                setReason(item.override_reason || '');
+                setEditing(false);
+              }}
+              style={styles.flexButton}
+            />
+          </View>
+          <Text style={styles.note}>
+            This changes this date only. The customer&apos;s standing subscription stays exactly as it is.
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.itemButtons}>
+          <Button title="Change" variant="secondary" onPress={() => setEditing(true)} style={styles.itemButton} />
+          {item.status === 'skipped' ? (
+            <Button
+              title="Un-skip"
+              variant="secondary"
+              onPress={() => onSave(item.id, { status: 'pending', quantity: item.base_quantity || 1 })}
+              busy={busy}
+              style={styles.itemButton}
+            />
+          ) : (
+            <Button
+              title="Skip"
+              variant="danger"
+              onPress={() => onSave(item.id, { status: 'skipped', reason: 'skipped by admin' })}
+              busy={busy}
+              style={styles.itemButton}
+            />
+          )}
+        </View>
+      )}
+    </View>
+  );
+}
+
+const ITEM_TONE = { delivered: 'success', failed: 'error', skipped: 'warning' };
 
 // A one-off extra on this date: pick a product, pick how many, done. The
 // customer's standing order is untouched — this creates its own delivery
@@ -265,6 +361,13 @@ function AddItemForm({ stop, products, token, onError, onAdded }) {
 const productSelectStyle = { ...selectStyle, width: 'auto', minWidth: 160, maxWidth: 280, flexGrow: 0 };
 
 const styles = StyleSheet.create({
+  item: { marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
+  itemHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  itemName: { fontSize: 15, fontWeight: '600', color: colors.text, flexShrink: 1 },
+  itemNameDone: { color: colors.subtitle, textDecorationLine: 'line-through' },
+  itemOneOff: { fontSize: 12, fontStyle: 'italic', color: colors.warning, marginTop: 2 },
+  itemButtons: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, flexWrap: 'wrap' },
+  itemButton: { flex: 1, minWidth: 110 },
   note: { fontSize: 12, color: colors.hint, marginTop: spacing.sm, lineHeight: 17 },
   label: { fontSize: 13, fontWeight: '600', color: colors.label, marginTop: spacing.md, marginBottom: spacing.xs },
   addItemSection: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs },

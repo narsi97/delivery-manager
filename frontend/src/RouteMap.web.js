@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-import { driverIcon, homeIcon } from './mapIcons';
+import { driverIcon, driverIconIn, homeIcon } from './mapIcons';
 import { fitToPoints } from './mapFit';
 import { colors, radius, spacing } from './theme';
 
@@ -161,8 +161,19 @@ export default function RouteMap({
       if (!driver.home_lat && !driver.home_lng) {
         continue;
       }
-      L.marker([driver.home_lat, driver.home_lng], { icon: driverIcon, opacity: MUTED_OPACITY })
-        .bindTooltip(`${driver.name} finishes here`, { direction: 'top' })
+      // Drawn in the colour of the round this driver is on, so the cap
+      // and the numbered pins it belongs to read as one thing. A driver
+      // with nothing today keeps the neutral cap.
+      const theirRoute = routes.find((route) => route.driver_id === driver.id);
+      const driving = !!theirRoute;
+      L.marker([driver.home_lat, driver.home_lng], {
+        icon: driving ? driverIconIn(colorForRoute(theirRoute.id, routeIds)) : driverIcon,
+        opacity: driving ? 1 : MUTED_OPACITY,
+      })
+        .bindTooltip(
+          driving ? `${driver.name} finishes here — ${theirRoute.name}` : `${driver.name} finishes here`,
+          { direction: 'top' },
+        )
         .on('click', () => onSelectOtherRef.current?.({ kind: 'driver', data: driver }))
         .addTo(layer);
     }

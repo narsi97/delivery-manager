@@ -17,6 +17,7 @@ import {
 import { useLanguage } from '../i18n';
 import { labelsFor, lower } from '../labels';
 import { openCall, openNavigation } from '../navigation';
+import { groupStopsByCustomer } from '../routeCards';
 import { colors, spacing } from '../theme';
 
 // The driver's whole app. Everything is one column, one action per stop,
@@ -60,8 +61,12 @@ export default function DriverScreen({ token, business }) {
   // The next open stop is the one the driver is actually driving to; it's
   // called out separately, with the full action card, so they never have
   // to scan the list to find it or to close it out.
-  const nextStop = stops.find((stop) => stop.status === 'pending');
-  const otherStops = stops.filter((stop) => stop.id !== nextStop?.id);
+  // Grouped by door: a customer taking milk and curd is two deliveries
+  // and one house, and listing them twice sent the driver back to a gate
+  // they had just walked away from. See groupStopsByCustomer.
+  const doors = groupStopsByCustomer(stops);
+  const nextDoor = doors.find((door) => door.some((stop) => stop.status === 'pending'));
+  const otherDoors = doors.filter((door) => door !== nextDoor);
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
@@ -89,25 +94,35 @@ export default function DriverScreen({ token, business }) {
         )}
       </Card>
 
-      {nextStop ? (
+      {nextDoor ? (
         <Card style={styles.nextCard}>
           <Text style={styles.nextLabel}>{t('next_stop_heading')}</Text>
-          <Text style={styles.nextName}>{nextStop.customer_name}</Text>
-          <StopDetails stop={nextStop} />
-          <StopActions
-            stop={nextStop}
-            token={token}
-            captures={today?.captures}
-            onChanged={refresh}
-            onError={setError}
-          />
+          <Text style={styles.nextName}>{nextDoor[0].customer_name}</Text>
+          <StopDetails door={nextDoor} />
+          {/* One set of actions per item still, because a door where the
+              curd is missing and the milk is not is the ordinary case —
+              but they are listed together so the driver carries the
+              right things to the gate in one trip. */}
+          {nextDoor
+            .filter((stop) => stop.status === 'pending')
+            .map((stop) => (
+              <StopActions
+                key={stop.id}
+                stop={stop}
+                label={nextDoor.length > 1 ? `${stop.quantity} × ${stop.product_name}` : ''}
+                token={token}
+                captures={today?.captures}
+                onChanged={refresh}
+                onError={setError}
+              />
+            ))}
         </Card>
       ) : null}
 
-      {otherStops.map((stop) => (
+      {otherDoors.map((door) => (
         <CompactStopRow
-          key={stop.id}
-          stop={stop}
+          key={door[0].customer_id || door[0].id}
+          door={door}
           token={token}
           captures={today?.captures}
           onChanged={refresh}
@@ -122,16 +137,22 @@ export default function DriverScreen({ token, business }) {
 // shared by the always-open "next stop" card and whichever compact row
 // is currently expanded, so there's exactly one place that decides what
 // a driver sees about a stop.
-function StopDetails({ stop }) {
+function StopDetails({ door }) {
+  const stop = door[0];
   return (
     <>
-      <Text style={styles.meta}>
-        {stop.quantity} × {stop.product_name}
-      </Text>
+      {/* Everything going to this door, so what to carry is one glance
+          rather than a name that appears again further down the list. */}
+      {door.map((item) => (
+        <Text key={item.id} style={[styles.meta, item.status !== 'pending' && styles.metaDone]}>
+          {item.quantity} × {item.product_name}
+          {item.status !== 'pending' ? ` — ${item.status}` : ''}
+        </Text>
+      ))}
       {stop.customer_address ? <Text style={styles.address}>{stop.customer_address}</Text> : null}
       {stop.customer_notes ? <Text style={styles.customerNote}>{stop.customer_notes}</Text> : null}
       <CustomerDetails fields={stop.customer_fields} />
-      {stop.note ? <Text style={styles.stopNote}>{stop.note}</Text> : null}
+      {door.map((item) => (item.note ? <Text key={item.id} style={styles.stopNote}>{item.note}</Text> : null))}
     </>
   );
 }
@@ -140,11 +161,16 @@ function StopDetails({ stop }) {
 // status. Tapping it expands the same detail + actions the next-stop card
 // shows, so closing out a stop out of order never requires hunting
 // through a long list of full-size cards to find it.
-function CompactStopRow({ stop, token, captures, onChanged, onError }) {
+function CompactStopRow({ door, token, captures, onChanged, onError }) {
   const { t } = useLanguage();
   const [expanded, setExpanded] = useState(false);
-  const done = stop.status !== 'pending';
-  const tone = { delivered: 'success', failed: 'error', skipped: 'warning' }[stop.status] || 'neutral';
+  const stop = door[0];
+  const pending = door.filter((item) => item.status === 'pending');
+  const done = pending.length === 0;
+  const statuses = [...new Set(door.map((item) => item.status))];
+  const tone = done
+    ? { delivered: 'success', failed: 'error', skipped: 'warning' }[statuses[0]] || 'neutral'
+    : 'neutral';
 
   return (
     <Card style={done ? styles.doneCard : null}>
@@ -152,15 +178,26 @@ function CompactStopRow({ stop, token, captures, onChanged, onError }) {
         <View style={styles.compactRow}>
           <Text style={[styles.compactName, done && styles.nameDone]} numberOfLines={1}>
             {stop.sequence}. {stop.customer_name}
+            {door.length > 1 ? ` · ${door.length} items` : ''}
           </Text>
-          <Pill label={t(`status_${stop.status}`)} tone={tone} />
+          <Pill label={done && statuses.length === 1 ? t(`status_${statuses[0]}`) : t('status_pending')} tone={tone} />
         </View>
       </Pressable>
 
       {expanded ? (
         <View style={styles.expandedStop}>
-          <StopDetails stop={stop} />
-          <StopActions stop={stop} token={token} captures={captures} onChanged={onChanged} onError={onError} />
+          <StopDetails door={door} />
+          {pending.map((item) => (
+            <StopActions
+              key={item.id}
+              stop={item}
+              label={door.length > 1 ? `${item.quantity} × ${item.product_name}` : ''}
+              token={token}
+              captures={captures}
+              onChanged={onChanged}
+              onError={onError}
+            />
+          ))}
         </View>
       ) : null}
     </Card>
@@ -171,7 +208,7 @@ function CompactStopRow({ stop, token, captures, onChanged, onError }) {
 // → submit" is implemented — used by both the next-stop card and an
 // expanded compact row, so there is exactly one code path a stop can be
 // closed through.
-function StopActions({ stop, token, captures, onChanged, onError }) {
+function StopActions({ stop, label = '', token, captures, onChanged, onError }) {
   const { t } = useLanguage();
   const [note, setNote] = useState('');
   // pendingStatus is the outcome the driver has chosen but not yet
@@ -237,6 +274,10 @@ function StopActions({ stop, token, captures, onChanged, onError }) {
 
   return (
     <View>
+      {/* Which item these buttons close out, when there is more than one
+          at this door. Silent when there is only one, because "1 × Milk"
+          above a single set of buttons is a label on the obvious. */}
+      {label ? <Text style={styles.actionLabel}>{label}</Text> : null}
       <View style={styles.buttonRow}>
         <Button
           title={t('navigate')}
@@ -382,6 +423,8 @@ const styles = StyleSheet.create({
   compactName: { flex: 1, fontSize: 15, fontWeight: '700', color: colors.text, paddingRight: spacing.sm },
   expandedStop: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md },
   nameDone: { textDecorationLine: 'line-through' },
+  actionLabel: { fontSize: 13, fontWeight: '700', color: colors.label, marginTop: spacing.md },
+  metaDone: { color: colors.subtitle, textDecorationLine: 'line-through' },
   meta: { fontSize: 15, color: colors.label, marginTop: 2 },
   address: { fontSize: 13, color: colors.subtitle, marginTop: 2 },
   customerNote: { fontSize: 13, color: colors.warning, marginTop: spacing.xs },

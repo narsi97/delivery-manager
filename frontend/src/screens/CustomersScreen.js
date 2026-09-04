@@ -125,7 +125,7 @@ export default function CustomersScreen({ token, business }) {
           return words.every((word) => haystack.includes(word));
         });
 
-  const groups = groupCustomers(groupBy, visibleCustomers, areas);
+  const groups = groupCustomers(groupBy, visibleCustomers, areas, labels);
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
@@ -194,9 +194,15 @@ export default function CustomersScreen({ token, business }) {
                 placeholder="Name, phone, or address"
               />
               <View style={styles.groupByField}>
-                <Text style={styles.groupByLabel}>Group by</Text>
+                <Text style={styles.groupByLabel}>View</Text>
                 <select value={groupBy} style={groupBySelectStyle} onChange={(event) => setGroupBy(event.target.value)}>
-                  <option value="city">Cities</option>
+                  <option value="city">By {lower(labels.route)}</option>
+                  <option value="all">Everyone</option>
+                  <option value="business">Shops only</option>
+                  <option value="early">Needs it early</option>
+                  <option value="unrouted">Not on a {lower(labels.route)}</option>
+                  <option value="nopin">Missing a pin</option>
+                  <option value="paused">Paused</option>
                 </select>
               </View>
               <View style={styles.groupByField}>
@@ -219,7 +225,8 @@ export default function CustomersScreen({ token, business }) {
                 <CustomerGroup
                   key={group.key}
                   name={group.name}
-                  routed={group.key !== 'unassigned'}
+                  routed={groupBy === 'city' && group.key !== 'unassigned'}
+                  empty={group.empty}
                   customers={group.customers}
                   defaultExpanded={group.defaultExpanded}
                   forceExpanded={words.length > 0}
@@ -328,10 +335,40 @@ const groupBySelectStyle = {
 // the catch-all always sorts last. City groups default collapsed — the
 // catch-all defaults open, since it's the one that usually needs
 // attention (strays with no pin, or outside anywhere you've set up).
-function groupCustomers(groupBy, customers, areas) {
-  // The switch has exactly one case today on purpose — see groupBy's
-  // state comment above for what else is meant to land here.
+function groupCustomers(groupBy, customers, areas, labels) {
+  // The views that answer a question rather than sorting the whole
+  // roster. Each is a filter with a heading that says what it is, so an
+  // empty one reads as "none of these" rather than an empty screen.
+  const only = (predicate, name, empty) => {
+    const matched = customers.filter(predicate);
+    return [{ key: groupBy, name, defaultExpanded: true, customers: matched, empty }];
+  };
+
   switch (groupBy) {
+    case 'all':
+      return only(() => true, `Everyone (${customers.length})`, 'Nobody yet.');
+    case 'business':
+      return only(
+        (c) => c.priority === 'business',
+        'Shops and businesses',
+        'Nobody is marked as a shop. Open a customer and set when they need it.',
+      );
+    case 'early':
+      return only(
+        (c) => c.priority === 'early',
+        'Needs it early',
+        'Nobody is marked as needing it early.',
+      );
+    case 'unrouted':
+      return only(
+        (c) => !serviceRouteFor(c, areas),
+        `Not on a ${lower(labels.route)}`,
+        `Everyone is on a ${lower(labels.route)}.`,
+      );
+    case 'nopin':
+      return only((c) => !c.lat && !c.lng, 'Missing a pin', 'Everyone has a pin.');
+    case 'paused':
+      return only((c) => c.active === false, 'Paused', 'Nobody is paused.');
     case 'city':
     default: {
       const groups = new Map();
@@ -364,6 +401,7 @@ function groupCustomers(groupBy, customers, areas) {
 function CustomerGroup({
   name,
   routed,
+  empty,
   customers,
   defaultExpanded,
   forceExpanded,
@@ -429,7 +467,8 @@ function CustomerGroup({
       >
         {name}
       </Disclosure>
-      {isExpanded && !routed ? (
+      {isExpanded && customers.length === 0 ? <Empty>{empty || 'Nothing here.'}</Empty> : null}
+      {isExpanded && !routed && customers.length > 0 && empty === undefined ? (
         <Text style={styles.orderHint}>
           Not on any {lower(labels.route)} yet — give them a pin inside one, or put them on one from their card.
         </Text>

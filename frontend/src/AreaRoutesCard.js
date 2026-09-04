@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import * as api from './api';
 import { Banner, Button, Card, Disclosure, Pill } from './components';
-import { StopCard } from './routeCards';
+import { groupStopsByCustomer, StopCard } from './routeCards';
 import { lower } from './labels';
 import { colors, radius, spacing } from './theme';
 
@@ -281,17 +281,18 @@ export default function AreaRoutesCard({
                 {routeStops.length === 0 ? (
                   <Text style={styles.routeStopsEmpty}>Nothing on this {lower(labels.route)} yet.</Text>
                 ) : (
-                  routeStops.map((stop, index) => (
+                  groupStopsByCustomer(routeStops).map((door, index, doors) => (
                     <StopCard
-                      key={stop.id}
-                      stop={stop}
+                      key={door[0].customer_id || door[0].id}
+                      stops={door}
+                      position={index + 1}
                       products={products}
                       token={token}
                       onChanged={onChanged}
                       onError={onError}
-                      onReorder={(position) => moveStop(stop.id, position)}
+                      onReorder={(position) => moveStop(door[0].id, position)}
                       canMoveUp={index > 0}
-                      canMoveDown={index < routeStops.length - 1}
+                      canMoveDown={index < doors.length - 1}
                     />
                   ))
                 )}
@@ -363,10 +364,11 @@ export function LooseRouteCard({ route, stops, drivers, products, token, onChang
       </Disclosure>
       {expanded ? (
         <View style={styles.stopList}>
-          {routeStops.map((stop) => (
+          {groupStopsByCustomer(routeStops).map((door, index) => (
             <StopCard
-              key={stop.id}
-              stop={stop}
+              key={door[0].customer_id || door[0].id}
+              stops={door}
+              position={index + 1}
               products={products}
               token={token}
               onChanged={onChanged}

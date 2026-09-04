@@ -36,14 +36,27 @@ export const homeIcon = icon(
 
 // A driver's own home, where their route finishes — a peaked cap, the
 // thing a delivery rider is wearing.
-export const driverIcon = icon(
-  `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-    <circle cx="16" cy="16" r="14" fill="#fff" stroke="${colors.accent}" stroke-width="2.5"/>
-    <path d="M9 18 C9 12 12 9.5 16 9.5 C20 9.5 23 12 23 18 Z" fill="${colors.accent}"/>
-    <path d="M7.5 18 H24.5 C25.2 18 25.6 19 25 19.6 L24 20.5 H8 L7 19.6 C6.4 19 6.8 18 7.5 18 Z" fill="${colors.accent}"/>
-  </svg>`,
-  [32, 32]
-);
+//
+// Takes a colour so it can be drawn in the same one as the round that
+// driver is on. On a day split between three people, a cap in the
+// route's own colour answers "whose round ends over there?" without
+// anybody tapping anything; one accent colour for all of them made the
+// caps look like a fourth thing on the map rather than the end of a
+// round already drawn in front of you.
+export function driverIconIn(color) {
+  return icon(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+      <circle cx="16" cy="16" r="14" fill="#fff" stroke="${color}" stroke-width="2.5"/>
+      <path d="M9 18 C9 12 12 9.5 16 9.5 C20 9.5 23 12 23 18 Z" fill="${color}"/>
+      <path d="M7.5 18 H24.5 C25.2 18 25.6 19 25 19.6 L24 20.5 H8 L7 19.6 C6.4 19 6.8 18 7.5 18 Z" fill="${color}"/>
+    </svg>`,
+    [32, 32]
+  );
+}
+
+// The default, for the maps where a driver is context rather than the
+// end of a particular round.
+export const driverIcon = driverIconIn(colors.accent);
 
 // A customer's door. Small and plain on purpose — there are a hundred of
 // these and two of everything else, so they must read as background

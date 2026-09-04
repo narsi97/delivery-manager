@@ -5,6 +5,7 @@ import * as api from './api';
 import { Banner, Button } from './components';
 import { ReadOnlyEntityCard } from './EntityCard';
 import { InlineLocationEditor } from './LocationPicker';
+import { lower } from './labels';
 import { splitOutliers } from './mapFit';
 import { selectStyle } from './routeCards';
 import RouteMap from './RouteMap';
@@ -24,7 +25,7 @@ import { colors, radius, spacing } from './theme';
 // geography, and "which route should this go on" or "where is this
 // customer's door" is a picker/editor like every other control in this
 // app. Keeping them apart means the map never has to grow a popup form.
-export default function DayRouteMapPanel({ token, stops, routes, drivers, home, onChanged }) {
+export default function DayRouteMapPanel({ token, stops, routes, drivers, home, labels, onChanged }) {
   const [selected, setSelected] = useState(null); // { kind: 'stop'|'driver'|'business', id? }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -65,8 +66,8 @@ export default function DayRouteMapPanel({ token, stops, routes, drivers, home, 
     <View>
       <Banner message={error} />
       <Text style={styles.note}>
-        Every delivery for this day, coloured by the route it&apos;s on. Drivers and your business are shown muted for
-        reference. Tap one to move it or fix its pin; tap anything else to see what it is.
+        Every delivery for this day, coloured by the {lower(labels.route)} it&apos;s on — and each driver&apos;s cap in
+        the same colour, where they finish. Tap one to move it or fix its pin; tap anything else to see what it is.
       </Text>
 
       <RouteMap
