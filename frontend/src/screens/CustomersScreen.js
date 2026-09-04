@@ -324,6 +324,11 @@ const groupBySelectStyle = {
   fontFamily: 'inherit',
 };
 
+// The same picker inside the customer card, where the half-width cell
+// it sits in decides how wide it is rather than the text in it. Two
+// pickers side by side only look like a pair if they are the same width.
+const cardSelectStyle = { ...groupBySelectStyle, width: '100%', minWidth: 0 };
+
 // Buckets customers by which service route they are on — the route they
 // were put on by hand, or the one their pin falls in. The same
 // "group by nearest city" the Routes screen already does for building
@@ -880,52 +885,60 @@ function CustomerCard({
               </View>
             ) : null}
           </View>
-          {/* Not only on the add form: which customers open early is
-              something a business learns after they have been signed up,
-              and the ones who most need marking are the hundred already
-              on the list. Saved with the contact details, because it is
-              a fact about the customer rather than about today. */}
-          <PriorityPicker
-            value={customer.priority || 'normal'}
-            onChange={(value) =>
-              save({ priority: value }, { priority: customer.priority || 'normal' }, `${customer.name}: priority changed`)
-            }
-          />
-          {/* Which round they are on. "From their pin" is the default and
-              stays the answer for almost everybody — this exists for the
-              cases geography cannot express, like a house on the evening
-              round in the middle of the morning one. Saved on its own
-              rather than with the contact details, because moving
-              somebody to another round moves today's delivery with them
-              and that deserves to be its own deliberate act. */}
-          {areas.length > 0 ? (
-            <View style={styles.routePicker}>
-              <Text style={styles.label}>Which {lower(labels.route)}?</Text>
-              <select
-                value={customer.service_area_id || ''}
-                style={groupBySelectStyle}
-                onChange={(event) =>
-                  save(
-                    { service_area_id: event.target.value },
-                    { service_area_id: customer.service_area_id || '' },
-                    `${customer.name}: ${lower(labels.route)} changed`,
-                  )
-                }
-              >
-                <option value="">From their pin{pinnedRouteName ? ` (${pinnedRouteName})` : ''}</option>
-                {areas.map((area) => (
-                  <option key={area.id} value={area.id}>
-                    {area.name}
-                  </option>
-                ))}
-              </select>
-              <Text style={styles.note}>
-                {customer.service_area_id
-                  ? `On this ${lower(labels.route)} because you put them here, whatever their pin says.`
-                  : `Their pin decides, which is right unless two ${lower(labels.route)}s cover the same streets.`}
-              </Text>
-            </View>
-          ) : null}
+          {/* Two short answers about the same customer, so they share a
+              line rather than taking a card's width each. They wrap back
+              into a column when the card is too narrow to hold both. */}
+          <View style={styles.pickerRow}>
+            {/* Not only on the add form: which customers open early is
+                something a business learns after they have been signed
+                up, and the ones who most need marking are the hundred
+                already on the list. Saved with the contact details,
+                because it is a fact about the customer rather than about
+                today. */}
+            <PriorityPicker
+              style={styles.pickerCell}
+              value={customer.priority || 'normal'}
+              onChange={(value) =>
+                save({ priority: value }, { priority: customer.priority || 'normal' }, `${customer.name}: priority changed`)
+              }
+            />
+            {/* Which round they are on. "From their pin" is the default
+                and stays the answer for almost everybody — this exists
+                for the cases geography cannot express, like a house on
+                the evening round in the middle of the morning one. Saved
+                on its own rather than with the contact details, because
+                moving somebody to another round moves today's delivery
+                with them and that deserves to be its own deliberate
+                act. */}
+            {areas.length > 0 ? (
+              <View style={[styles.routePicker, styles.pickerCell]}>
+                <Text style={styles.pickerLabel}>Which {lower(labels.route)}?</Text>
+                <select
+                  value={customer.service_area_id || ''}
+                  style={cardSelectStyle}
+                  onChange={(event) =>
+                    save(
+                      { service_area_id: event.target.value },
+                      { service_area_id: customer.service_area_id || '' },
+                      `${customer.name}: ${lower(labels.route)} changed`,
+                    )
+                  }
+                >
+                  <option value="">From their pin{pinnedRouteName ? ` (${pinnedRouteName})` : ''}</option>
+                  {areas.map((area) => (
+                    <option key={area.id} value={area.id}>
+                      {area.name}
+                    </option>
+                  ))}
+                </select>
+                <Text style={styles.routeNote}>
+                  {customer.service_area_id
+                    ? `On this ${lower(labels.route)} because you put them here, whatever their pin says.`
+                    : `Their pin decides, which is right unless two ${lower(labels.route)}s cover the same streets.`}
+                </Text>
+              </View>
+            ) : null}
+          </View>
           {/* The map is the tallest thing in this card by a long way,
               and on most visits nobody is moving anybody's door. It
               opens on the pencil, like the business's own location on
@@ -1284,6 +1297,18 @@ const styles = StyleSheet.create({
   groupByField: { marginBottom: spacing.md },
   plainRow: { width: '100%' },
   routePicker: { marginBottom: spacing.sm },
+  // Priority and route share a line. Each takes half, and 210 is about
+  // where "Shop or business" stops fitting — below that they wrap into
+  // a column instead of squeezing into two unreadable columns.
+  pickerRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginBottom: spacing.sm },
+  pickerCell: { flex: 1, minWidth: 210 },
+  // The lighter of the two hint styles, so the sentence under the route
+  // sits on the same line as the one under priority.
+  routeNote: { fontSize: 12, color: colors.hint, marginTop: 3, lineHeight: 16 },
+  // The shared label style leads with a top margin, which is right when
+  // fields are stacked and wrong when two of them start on the same
+  // line: it drops this one below its neighbour by exactly that margin.
+  pickerLabel: { fontSize: 13, fontWeight: '600', color: colors.label, marginBottom: 3 },
   readBlock: { marginBottom: spacing.md },
   readRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   readRowText: { flex: 1 },

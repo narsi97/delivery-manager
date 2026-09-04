@@ -28,12 +28,12 @@ export function priorityRank(value) {
   return index === -1 ? PRIORITY_TIERS.length - 1 : index;
 }
 
-export default function PriorityPicker({ value, onChange, label = 'Priority' }) {
+export default function PriorityPicker({ value, onChange, label = 'Priority', style }) {
   const current = value || 'normal';
   const chosen = PRIORITY_TIERS.find((tier) => tier.value === current) || PRIORITY_TIERS[2];
 
   return (
-    <View style={styles.wrap}>
+    <View style={[styles.wrap, style]}>
       <Text style={styles.label}>{label}</Text>
       {/* A dropdown, not three chips. The chips were a row of buttons
           the width of the card for a field almost every customer leaves
@@ -54,11 +54,14 @@ export default function PriorityPicker({ value, onChange, label = 'Priority' }) 
   );
 }
 
-// Sized to its content like every other picker in this app — see
-// routeCards.js's compactSelectStyle for the same reasoning.
+// Fills whatever it is given rather than sizing to its content. A raw
+// <select> inside a React Native View is stretched by the column's
+// align-items anyway, so "width: auto" only ever looked like a choice;
+// the width now comes from the caller, which is the thing that knows
+// whether this picker is alone or sharing a line.
 const selectStyle = {
-  width: 'auto',
-  minWidth: 180,
+  width: '100%',
+  minWidth: 0,
   maxWidth: '100%',
   borderWidth: 1,
   borderColor: colors.border,

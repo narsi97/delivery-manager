@@ -160,33 +160,38 @@ function CustomerForm({ token, labels, fieldSpecs, home, areas, products, servic
         onChangeText={set('address')}
         placeholder="12, 3rd Cross, Jayanagar"
       />
-      <PriorityPicker value={form.priority} onChange={set('priority')} />
+      {/* Two short answers, side by side, like the same pair on the
+          customer's own card. They wrap into a column on a narrow
+          dialog. */}
+      <View style={styles.pickerRow}>
+        <PriorityPicker style={styles.pickerCell} value={form.priority} onChange={set('priority')} />
 
-      {/* Which round they go on. Two service routes can cover exactly
-          the same streets — a morning one and an evening one — so a pin
-          cannot answer this and the default has to be askable. */}
-      {areas.length > 0 ? (
-        <View style={styles.routePicker}>
-          <Text style={styles.label}>Which {lower(labels.route)}?</Text>
-          <select value={routeId} style={routeSelectStyle} onChange={(event) => setRouteId(event.target.value)}>
-            <option value="">From their pin{byPinName ? ` (${byPinName})` : ''}</option>
-            {areas
-              .filter((area) => area.active)
-              .map((area) => (
-                <option key={area.id} value={area.id}>
-                  {area.name}
-                </option>
-              ))}
-          </select>
-          <Text style={styles.hint}>
-            {routeId
-              ? `They'll go on this ${lower(labels.route)} whatever their pin says.`
-              : byPinName
-                ? `Their pin puts them on ${byPinName}.`
-                : `Their pin is not inside any ${lower(labels.route)} yet.`}
-          </Text>
-        </View>
-      ) : null}
+        {/* Which round they go on. Two service routes can cover exactly
+            the same streets — a morning one and an evening one — so a
+            pin cannot answer this and the default has to be askable. */}
+        {areas.length > 0 ? (
+          <View style={[styles.routePicker, styles.pickerCell]}>
+            <Text style={styles.pickerLabel}>Which {lower(labels.route)}?</Text>
+            <select value={routeId} style={routeSelectStyle} onChange={(event) => setRouteId(event.target.value)}>
+              <option value="">From their pin{byPinName ? ` (${byPinName})` : ''}</option>
+              {areas
+                .filter((area) => area.active)
+                .map((area) => (
+                  <option key={area.id} value={area.id}>
+                    {area.name}
+                  </option>
+                ))}
+            </select>
+            <Text style={styles.hint}>
+              {routeId
+                ? `They'll go on this ${lower(labels.route)} whatever their pin says.`
+                : byPinName
+                  ? `Their pin puts them on ${byPinName}.`
+                  : `Their pin is not inside any ${lower(labels.route)} yet.`}
+            </Text>
+          </View>
+        ) : null}
+      </View>
       <Field
         label={`Notes for the ${lower(labels.driver)}`}
         value={form.notes}
@@ -237,11 +242,12 @@ function CustomerForm({ token, labels, fieldSpecs, home, areas, products, servic
   );
 }
 
-// A raw select, like every other picker in this app — sized to its
-// content rather than stretched across the dialog.
+// A raw select, like every other picker in this app. It fills the cell
+// it shares with the priority picker, so the two read as one pair of
+// questions rather than two fields of different lengths.
 const routeSelectStyle = {
-  width: 'auto',
-  minWidth: 200,
+  width: '100%',
+  minWidth: 0,
   maxWidth: '100%',
   borderWidth: 1,
   borderColor: colors.border,
@@ -258,6 +264,11 @@ const routeSelectStyle = {
 
 const styles = StyleSheet.create({
   routePicker: { marginBottom: spacing.sm },
+  pickerRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
+  pickerCell: { flex: 1, minWidth: 210 },
+  // Same label without the stacked-field top margin, so both pickers in
+  // the row start on the same line.
+  pickerLabel: { fontSize: 13, fontWeight: '600', color: colors.label, marginBottom: 3 },
   hint: { fontSize: 12, color: colors.hint, marginTop: 3, lineHeight: 16 },
   label: { fontSize: 13, fontWeight: '600', color: colors.label, marginBottom: spacing.xs, marginTop: spacing.sm },
   orderSection: {
