@@ -1,7 +1,7 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
-import { colors, spacing } from './theme';
+import { colors, radius, spacing } from './theme';
 
 // Who gets visited first.
 //
@@ -28,30 +28,24 @@ export function priorityRank(value) {
   return index === -1 ? PRIORITY_TIERS.length - 1 : index;
 }
 
-export default function PriorityPicker({ value, onChange, label = 'When do they need it?' }) {
+export default function PriorityPicker({ value, onChange, label = 'Priority' }) {
   const current = value || 'normal';
   const chosen = PRIORITY_TIERS.find((tier) => tier.value === current) || PRIORITY_TIERS[2];
 
   return (
     <View style={styles.wrap}>
       <Text style={styles.label}>{label}</Text>
-      <View style={styles.row}>
-        {PRIORITY_TIERS.map((tier) => {
-          const on = tier.value === current;
-          return (
-            <Pressable
-              key={tier.value}
-              onPress={() => onChange(tier.value)}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: on }}
-              accessibilityLabel={tier.label}
-              style={[styles.chip, on && styles.chipOn]}
-            >
-              <Text style={[styles.chipText, on && styles.chipTextOn]}>{tier.label}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
+      {/* A dropdown, not three chips. The chips were a row of buttons
+          the width of the card for a field almost every customer leaves
+          alone, and they read as three things to decide rather than one
+          value with a sensible default. */}
+      <select value={current} style={selectStyle} onChange={(event) => onChange(event.target.value)}>
+        {PRIORITY_TIERS.map((tier) => (
+          <option key={tier.value} value={tier.value}>
+            {tier.label}
+          </option>
+        ))}
+      </select>
       {/* Only the chosen tier explains itself. Three hints at once is a
           paragraph nobody reads; one is a sentence that answers "did I
           pick the right thing?". */}
@@ -59,6 +53,25 @@ export default function PriorityPicker({ value, onChange, label = 'When do they 
     </View>
   );
 }
+
+// Sized to its content like every other picker in this app — see
+// routeCards.js's compactSelectStyle for the same reasoning.
+const selectStyle = {
+  width: 'auto',
+  minWidth: 180,
+  maxWidth: '100%',
+  borderWidth: 1,
+  borderColor: colors.border,
+  borderRadius: radius.md,
+  paddingTop: spacing.sm,
+  paddingBottom: spacing.sm,
+  paddingLeft: spacing.md,
+  paddingRight: spacing.md,
+  fontSize: 14,
+  color: colors.text,
+  backgroundColor: colors.surface,
+  fontFamily: 'inherit',
+};
 
 // A small badge for a customer who is not "any time", so the roster shows
 // at a glance who is being bumped up the round. Renders nothing for the
@@ -83,20 +96,6 @@ export function PriorityBadge({ value }) {
 const styles = StyleSheet.create({
   wrap: { marginBottom: spacing.sm + 2 },
   label: { fontSize: 13, fontWeight: '600', color: colors.label, marginBottom: 3 },
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  chip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    minHeight: 40,
-    justifyContent: 'center',
-  },
-  chipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
-  chipText: { fontSize: 13, fontWeight: '600', color: colors.label },
-  chipTextOn: { color: colors.accentText },
   hint: { fontSize: 12, color: colors.hint, marginTop: 3, lineHeight: 16 },
   badge: { paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: 999, alignSelf: 'flex-start' },
   badgeBusiness: { backgroundColor: colors.accentSoft || colors.surfaceAlt },

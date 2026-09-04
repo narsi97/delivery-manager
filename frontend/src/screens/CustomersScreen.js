@@ -689,6 +689,10 @@ function CustomerCard({
     priority: customer.priority || 'normal',
   });
   const [busy, setBusy] = useState(false);
+  const [editingContact, setEditingContact] = useState(false);
+  const [editingPin, setEditingPin] = useState(false);
+
+  const hasPin = !!(customer.lat || customer.lng);
 
   // The standing order in one line. Shown under the name while
   // collapsed, and as the order section's own heading once open —
@@ -799,34 +803,93 @@ function CustomerCard({
             </Text>
           ) : null}
 
-          <Text style={styles.label}>Contact details</Text>
-          <Field
-            label="Name"
-            size="md"
-            value={details.name}
-            onChangeText={(value) => setDetails((prev) => ({ ...prev, name: value }))}
-          />
-          <Field
-            label="Phone"
-            size="sm"
-            value={details.phone}
-            onChangeText={(value) => setDetails((prev) => ({ ...prev, phone: value }))}
-            keyboardType="phone-pad"
-          />
-          <Field
-            label="Address"
-            size="md"
-            value={details.address}
-            onChangeText={(value) => setDetails((prev) => ({ ...prev, address: value }))}
-          />
+          {/* Read, with a pencil — not three boxes and a Save.
+              A customer's name, number and address are set once and
+              almost never touched, so an always-open form asked every
+              visitor of every card to look at editing controls for
+              something they came to read. And a "Save contact details"
+              button under a form nobody had typed in is a button with
+              nothing to do.
+              No heading either: this is a card about a person, their
+              name is already its title, and "Contact details" over their
+              own phone number is a label on the obvious. */}
+          <View style={styles.readBlock}>
+            <View style={styles.readRow}>
+              <View style={styles.readRowText}>
+                <Text style={styles.readSub}>
+                  {[customer.phone, customer.address].filter(Boolean).join(' · ') || 'No phone or address yet'}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => setEditingContact((prev) => !prev)}
+                accessibilityRole="button"
+                accessibilityLabel={`Edit ${customer.name}'s name, phone and address`}
+                style={styles.pencilTarget}
+              >
+                <Text style={styles.pencil}>{editingContact ? '×' : '✎'}</Text>
+              </Pressable>
+            </View>
+
+            {editingContact ? (
+              <View style={styles.editBlock}>
+                <Field
+                  label="Name"
+                  size="md"
+                  value={details.name}
+                  onChangeText={(value) => setDetails((prev) => ({ ...prev, name: value }))}
+                />
+                <Field
+                  label="Phone"
+                  size="sm"
+                  value={details.phone}
+                  onChangeText={(value) => setDetails((prev) => ({ ...prev, phone: value }))}
+                  keyboardType="phone-pad"
+                />
+                <Field
+                  label="Address"
+                  size="md"
+                  value={details.address}
+                  onChangeText={(value) => setDetails((prev) => ({ ...prev, address: value }))}
+                />
+                <View style={styles.buttonRow}>
+                  <Button
+                    title="Save"
+                    busy={busy}
+                    disabled={!details.name.trim()}
+                    onPress={async () => {
+                      await saveDetails();
+                      setEditingContact(false);
+                    }}
+                    style={styles.flexButton}
+                  />
+                  <Button
+                    title="Cancel"
+                    variant="secondary"
+                    onPress={() => {
+                      setDetails({
+                        name: customer.name,
+                        phone: customer.phone,
+                        address: customer.address,
+                        priority: customer.priority || 'normal',
+                      });
+                      setEditingContact(false);
+                    }}
+                    style={styles.flexButton}
+                  />
+                </View>
+              </View>
+            ) : null}
+          </View>
           {/* Not only on the add form: which customers open early is
               something a business learns after they have been signed up,
               and the ones who most need marking are the hundred already
               on the list. Saved with the contact details, because it is
               a fact about the customer rather than about today. */}
           <PriorityPicker
-            value={details.priority}
-            onChange={(value) => setDetails((prev) => ({ ...prev, priority: value }))}
+            value={customer.priority || 'normal'}
+            onChange={(value) =>
+              save({ priority: value }, { priority: customer.priority || 'normal' }, `${customer.name}: priority changed`)
+            }
           />
           {/* Which round they are on. "From their pin" is the default and
               stays the answer for almost everybody — this exists for the
@@ -863,21 +926,41 @@ function CustomerCard({
               </Text>
             </View>
           ) : null}
-          <Button
-            title="Save contact details"
-            variant="secondary"
-            busy={busy}
-            onPress={saveDetails}
-            disabled={!details.name.trim()}
-          />
+          {/* The map is the tallest thing in this card by a long way,
+              and on most visits nobody is moving anybody's door. It
+              opens on the pencil, like the business's own location on
+              the account screen. */}
+          <View style={styles.readBlock}>
+            <View style={styles.readRow}>
+              <View style={styles.readRowText}>
+                <Text style={styles.readLabel}>Where we deliver</Text>
+                <Text style={[styles.readValue, !hasPin && styles.readValueMissing]}>
+                  {hasPin ? 'Pinned on the map' : 'No pin yet'}
+                </Text>
+                {!hasPin ? (
+                  <Text style={styles.readSub}>Without one they cannot be put in order on a {lower(labels.route)}.</Text>
+                ) : null}
+              </View>
+              <Pressable
+                onPress={() => setEditingPin((prev) => !prev)}
+                accessibilityRole="button"
+                accessibilityLabel={`${hasPin ? 'Move' : 'Set'} ${customer.name}'s pin`}
+                style={styles.pencilTarget}
+              >
+                <Text style={styles.pencil}>{editingPin ? '×' : '✎'}</Text>
+              </Pressable>
+            </View>
 
-          <LocationPicker
-            label="Where do we deliver?"
-            lat={customer.lat}
-            lng={customer.lng}
-            onChange={savePin}
-            home={home}
-          />
+            {editingPin ? (
+              <LocationPicker
+                label="Where do we deliver?"
+                lat={customer.lat}
+                lng={customer.lng}
+                onChange={savePin}
+                home={home}
+              />
+            ) : null}
+          </View>
           <View style={styles.buttonRow}>
             <Button
               title={customer.active ? `Pause ${lower(labels.customer)}` : `Resume ${lower(labels.customer)}`}
@@ -1041,15 +1124,28 @@ function NewOrderForm({ token, customer, subscriptions = [], products, labels, t
   }
 
   const ready = chosen.length > 0 && (kind === 'once' ? !!date : weekdays.length > 0);
+  const hasStandingOrder = Object.keys(existing).length > 0;
 
   return (
     <View style={styles.subForm}>
+      {/* Named for what it does. The form has been pre-filled from the
+          customer's live standing orders for a while — bumping a product
+          they already take replaces that arrangement rather than
+          stacking a second one beside it — but the label still said
+          "Add an order", so the only way to find out it was an editor
+          was to open it and recognise your own numbers. */}
       <Disclosure open={expanded} onToggle={() => setExpanded((prev) => !prev)}>
-        Add an order
+        {hasStandingOrder ? 'Change what they take' : 'Add an order'}
       </Disclosure>
 
       {expanded ? (
         <View>
+          {hasStandingOrder && kind === 'weekly' ? (
+            <Text style={styles.note}>
+              Their standing order, as it is now. Change a number and save, and it replaces what they had — set one to
+              zero to stop it.
+            </Text>
+          ) : null}
           <Text style={styles.label}>How often</Text>
           <View style={styles.chipRow}>
             <Pressable onPress={() => setKind('weekly')} style={[styles.chip, kind === 'weekly' && styles.chipActive]}>
@@ -1188,6 +1284,16 @@ const styles = StyleSheet.create({
   groupByField: { marginBottom: spacing.md },
   plainRow: { width: '100%' },
   routePicker: { marginBottom: spacing.sm },
+  readBlock: { marginBottom: spacing.md },
+  readRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  readRowText: { flex: 1 },
+  readLabel: { fontSize: 12, fontWeight: '600', color: colors.hint, textTransform: 'uppercase', letterSpacing: 0.04 },
+  readValue: { fontSize: 16, fontWeight: '700', color: colors.text, marginTop: 2 },
+  readValueMissing: { color: colors.warning },
+  readSub: { fontSize: 14, color: colors.subtitle, lineHeight: 20 },
+  pencilTarget: { minWidth: 44, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' },
+  pencil: { fontSize: 16, color: colors.link },
+  editBlock: { marginTop: spacing.sm },
   orderHintRow: {
     flexDirection: 'row',
     alignItems: 'center',
