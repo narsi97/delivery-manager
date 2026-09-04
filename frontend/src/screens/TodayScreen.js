@@ -180,7 +180,14 @@ export default function TodayScreen({ token, business }) {
     );
   }
   if (summary.unpinned > 0) {
-    exceptions.push(`${summary.unpinned} customer(s) have no map pin, so they can't be routed.`);
+    // Written out, like every other line in this list. "customer(s)" is
+    // the one place the app made the reader do the grammar, and it sat
+    // on the first screen a new business sees.
+    exceptions.push(
+      summary.unpinned === 1
+        ? `1 ${lower(labels.customer)} has no map pin, so they can't be routed.`
+        : `${summary.unpinned} ${lower(labels.customer_plural)} have no map pin, so they can't be routed.`,
+    );
   }
   // Every stop with a pin, routed or not — the map is for verifying the
   // whole day's assignment, so an unrouted stop has to be visible on it

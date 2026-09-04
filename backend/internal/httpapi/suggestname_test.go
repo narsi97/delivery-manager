@@ -32,7 +32,10 @@ func TestPlaceNameFromFreeTextAddresses(t *testing.T) {
 		"H No : 6-1-115 opp Sbr gardens function hall boyawada Busstand back side Nalgonda",
 		"Plot no 11 Nandishwar colony pangal road BSNL bhavan Nalgonda",
 	)
-	if got := placeNameFor(pts, addr); got != "nalgonda" {
+	// Two of each spelling, so the tie-break decides — and it has to be
+	// deterministic, or the same list would suggest a different name on
+	// each visit to the setup screen.
+	if got := placeNameFor(pts, addr); got != "Nalgonda" {
 		t.Errorf("placeNameFor = %q, want the town every address ends with", got)
 	}
 }
@@ -63,17 +66,32 @@ func TestPlaceNameIgnoresTrailingComma(t *testing.T) {
 }
 
 // The same town typed two ways is still one town. Counting the spellings
-// apart is what turns a clear majority into two losing halves.
-func TestPlaceNameIgnoresCase(t *testing.T) {
+// apart is what turns a clear majority into two losing halves — and the
+// spelling handed back is the one written most often, so the field
+// offers the business's own word rather than our idea of a tidy one.
+func TestPlaceNameIgnoresCaseAndOffersTheCommonestSpelling(t *testing.T) {
 	pts, addr := addresses(
 		"near clocktower nalgonda",
 		"near busstand Nalgonda",
 		"near the college NALGONDA",
 		"beside the school Nalgonda",
 	)
-	got := placeNameFor(pts, addr)
-	if got != "nalgonda" {
-		t.Errorf("placeNameFor = %q, want the first spelling seen", got)
+	if got := placeNameFor(pts, addr); got != "Nalgonda" {
+		t.Errorf("placeNameFor = %q, want Nalgonda — three spellings, that one written twice", got)
+	}
+}
+
+// The real list this came from: lowercase outnumbered capitalised, so
+// lowercase is what the box should offer. Their spelling, not ours.
+func TestPlaceNameKeepsTheBusinessOwnSpelling(t *testing.T) {
+	pts, addr := addresses(
+		"near clocktower nalgonda",
+		"near busstand nalgonda",
+		"near the college nalgonda",
+		"beside the school Nalgonda",
+	)
+	if got := placeNameFor(pts, addr); got != "nalgonda" {
+		t.Errorf("placeNameFor = %q, want the spelling three of the four used", got)
 	}
 }
 

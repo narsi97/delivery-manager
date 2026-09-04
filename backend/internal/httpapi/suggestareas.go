@@ -176,10 +176,11 @@ const maxLocalityLen = 40
 
 func agreedName(group []route.Point, addressOf map[string]string, localityOf func(string) string) string {
 	counts := map[string]int{}
-	// The spelling to hand back, per lowercased key: whichever form was
-	// seen first, so the field offers "Nalgonda" rather than a
-	// lowercased or title-cased invention of ours.
-	spelling := map[string]string{}
+	// The spelling to hand back, per lowercased key: the one written
+	// most often, so the field offers the business's own word rather
+	// than a title-cased invention of ours. It is a suggestion in an
+	// editable box, so their spelling beats our idea of a tidy one.
+	spellings := map[string][]string{}
 	for _, p := range group {
 		address := strings.TrimSpace(addressOf[p.ID])
 		if address == "" {
@@ -192,9 +193,7 @@ func agreedName(group []route.Point, addressOf map[string]string, localityOf fun
 		}
 		key := strings.ToLower(locality)
 		counts[key]++
-		if _, seen := spelling[key]; !seen {
-			spelling[key] = locality
-		}
+		spellings[key] = append(spellings[key], locality)
 	}
 	if len(counts) == 0 {
 		return ""
@@ -221,7 +220,23 @@ func agreedName(group []route.Point, addressOf map[string]string, localityOf fun
 	if tallies[0].n*2 < len(group) {
 		return ""
 	}
-	return spelling[tallies[0].name]
+	return mostWritten(spellings[tallies[0].name])
+}
+
+// The most common of several spellings of the same word, ties going to
+// whichever sorts first so the same list always suggests the same name.
+func mostWritten(forms []string) string {
+	counts := map[string]int{}
+	for _, f := range forms {
+		counts[f]++
+	}
+	best := ""
+	for form, n := range counts {
+		if best == "" || n > counts[best] || (n == counts[best] && form < best) {
+			best = form
+		}
+	}
+	return best
 }
 
 func isMostlyDigits(s string) bool {
