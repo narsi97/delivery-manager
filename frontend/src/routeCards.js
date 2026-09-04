@@ -96,6 +96,10 @@ export function StopCard({
   // map without them.
   home,
   drivers,
+  // The service routes worth opening the pin editor on when this door
+  // has none of its own — the round this stop is on, or the ones the
+  // business runs. See MapPicker's focusAreas.
+  focusAreas = [],
 }) {
   const stop = stops[0];
   const [adding, setAdding] = useState(false);
@@ -241,6 +245,7 @@ export function StopCard({
             onSave={saveDoor}
             home={home}
             drivers={drivers}
+            focusAreas={focusAreas}
             height={200}
           />
           {/* Nothing to navigate to until the pin exists. */}

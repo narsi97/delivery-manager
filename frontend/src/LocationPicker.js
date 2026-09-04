@@ -44,6 +44,8 @@ export default function LocationPicker({
   drivers = [],
   customers = [],
   previewRadiusMeters = null,
+  // Where to open when there is no pin yet — see MapPicker.
+  focusAreas = [],
   height = 300,
   label = 'Location',
   hint,
@@ -234,6 +236,7 @@ export default function LocationPicker({
         areas={areas}
         drivers={drivers}
         customers={customers}
+        focusAreas={focusAreas}
         previewRadiusMeters={previewRadiusMeters}
         height={height}
         onSelectReference={onSelectReference}
@@ -254,7 +257,7 @@ export default function LocationPicker({
 // already uses; LocationPicker itself fires onChange per click/drag,
 // which is right for a form field but wrong here, where committing a
 // customer's door to a new spot deserves a deliberate action.
-export function InlineLocationEditor({ lat, lng, onSave, home, areas, drivers, customers, height = 240 }) {
+export function InlineLocationEditor({ lat, lng, onSave, home, areas, drivers, customers, focusAreas, height = 240 }) {
   const [draft, setDraft] = useState({ lat, lng });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -284,6 +287,7 @@ export function InlineLocationEditor({ lat, lng, onSave, home, areas, drivers, c
         areas={areas}
         drivers={drivers}
         customers={customers}
+        focusAreas={focusAreas}
         height={height}
       />
       <Button title="Save location" onPress={save} busy={busy} disabled={!dirty} />

@@ -295,6 +295,7 @@ export default function TodayScreen({ token, business }) {
                   stops={allStops}
                   drivers={drivers}
                   home={home}
+                  areas={areas}
                   products={products}
                   token={token}
                   onChanged={refresh}

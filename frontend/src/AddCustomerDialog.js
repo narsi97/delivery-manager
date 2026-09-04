@@ -144,6 +144,11 @@ function CustomerForm({ token, labels, fieldSpecs, home, areas, products, servic
         onChange={(newLat, newLng) => setForm((prev) => ({ ...prev, lat: newLat.toFixed(6), lng: newLng.toFixed(6) }))}
         home={home}
         areas={areas}
+        // A customer being added has no pin yet, so the map opens on the
+        // round they are being put on — or on all of them, until one is
+        // chosen. Anything else opens on the farm, which for a dairy is
+        // often the one place none of the customers are.
+        focusAreas={routeId ? areas.filter((a) => a.id === routeId) : areas}
       />
       <Field
         label="Address"

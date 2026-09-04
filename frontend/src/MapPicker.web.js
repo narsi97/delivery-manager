@@ -40,6 +40,12 @@ export default function MapPicker({
   drivers = [],
   customers = [],
   previewRadiusMeters = null,
+  // Where to open when this record has no pin yet: the service routes
+  // this customer is on, or the ones the business runs. A door with no
+  // pin has nothing to centre on, and the fallbacks — a country, or a
+  // farm twenty kilometres out of town — both make the first job be
+  // "find the town again".
+  focusAreas = [],
   // Fires when a reference marker (a customer or driver drawn as
   // backdrop, not the pin this picker exists to place) is tapped. Optional
   // — most callers just want the backdrop for orientation, but the
@@ -67,6 +73,8 @@ export default function MapPicker({
   driversRef.current = drivers;
   const customersRef = useRef(customers);
   customersRef.current = customers;
+  const focusAreasRef = useRef(focusAreas);
+  focusAreasRef.current = focusAreas;
 
   const placeMarker = (map, latlng) => {
     if (markerRef.current) {
@@ -184,15 +192,33 @@ export default function MapPicker({
     // this picker so far out that placing a pin meant zooming in first.
     // See mapFit.js.
     if (!hasPin) {
-      const points = [
-        ...(customersRef.current || []).map((c) => ({ lat: c.lat, lng: c.lng })),
-        ...(driversRef.current || []).map((d) => ({ lat: d.home_lat, lng: d.home_lng })),
-        ...(homeRef.current ? [{ lat: homeRef.current.lat, lng: homeRef.current.lng }] : []),
-      ];
-      fitToPoints(map, points, {
-        padding: 20,
-        fallbackBounds: referenceShapes.length > 0 ? L.featureGroup(referenceShapes).getBounds() : null,
-      });
+      // A named place to open on beats any fit. A customer with no pin
+      // is usually one the admin has already put on a round, and that
+      // round's own circle is the answer to "roughly where?" — a few
+      // kilometres across, which is the right scale for finding a
+      // street. Bounds come from the centre and radius rather than from
+      // a real circle layer, so nothing has to be drawn to measure it.
+      const focus = (focusAreasRef.current || []).filter(
+        (area) => Number.isFinite(area.lat) && Number.isFinite(area.lng) && (area.lat !== 0 || area.lng !== 0),
+      );
+      let bounds = null;
+      for (const area of focus) {
+        const around = L.latLng(area.lat, area.lng).toBounds((area.radius_meters || 2000) * 2);
+        bounds = bounds ? bounds.extend(around) : around;
+      }
+      if (bounds) {
+        map.fitBounds(bounds, { padding: [20, 20] });
+      } else {
+        const points = [
+          ...(customersRef.current || []).map((c) => ({ lat: c.lat, lng: c.lng })),
+          ...(driversRef.current || []).map((d) => ({ lat: d.home_lat, lng: d.home_lng })),
+          ...(homeRef.current ? [{ lat: homeRef.current.lat, lng: homeRef.current.lng }] : []),
+        ];
+        fitToPoints(map, points, {
+          padding: 20,
+          fallbackBounds: referenceShapes.length > 0 ? L.featureGroup(referenceShapes).getBounds() : null,
+        });
+      }
     }
 
     map.on('click', (event) => {

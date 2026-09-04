@@ -1134,6 +1134,14 @@ function CustomerCard({
                 lng={customer.lng}
                 onChange={savePin}
                 home={home}
+                areas={areas}
+                // Their own round if they are on one, otherwise every
+                // round the business runs — so a customer with no pin
+                // opens on the town they are delivered in rather than on
+                // the depot or the country.
+                focusAreas={
+                  customer.service_area_id ? areas.filter((a) => a.id === customer.service_area_id) : areas
+                }
               />
             ) : null}
           </View>

@@ -61,6 +61,7 @@ export default function NotGoingOut({ token, stops, areas, home, date, products,
         onChanged={onChanged}
         onError={onError}
         home={home}
+        areas={areas}
       />
 
       <CauseGroup
@@ -73,6 +74,7 @@ export default function NotGoingOut({ token, stops, areas, home, date, products,
         onChanged={onChanged}
         onError={onError}
         home={home}
+        areas={areas}
       >
         <OneOffRoute token={token} stops={outside} areas={areas} home={home} date={date} labels={labels} onDone={onNotice} />
       </CauseGroup>
@@ -87,6 +89,7 @@ export default function NotGoingOut({ token, stops, areas, home, date, products,
         onChanged={onChanged}
         onError={onError}
         home={home}
+        areas={areas}
       />
     </Card>
   );
@@ -95,7 +98,7 @@ export default function NotGoingOut({ token, stops, areas, home, date, products,
 // One reason, its explanation, its deliveries, and whatever action is
 // specific to it. Hidden entirely when nothing has this problem, so a
 // business only ever reads the causes it actually has.
-function CauseGroup({ title, count, explanation, stops, products, token, home, onChanged, onError, children }) {
+function CauseGroup({ title, count, explanation, stops, products, token, home, areas, onChanged, onError, children }) {
   const [expanded, setExpanded] = useState(false);
   if (count === 0) {
     return null;
@@ -123,6 +126,11 @@ function CauseGroup({ title, count, explanation, stops, products, token, home, o
               onChanged={onChanged}
               onError={onError}
               home={home}
+              // These are on no round at all, most of them because they
+              // have no pin. The business's own service routes are the
+              // best guess at which town to open on — and where there is
+              // only one, it is not a guess.
+              focusAreas={areas || []}
             />
           ))}
         </View>

@@ -296,6 +296,9 @@ export default function AreaRoutesCard({
                       canMoveDown={index < doors.length - 1}
                       home={home}
                       drivers={drivers}
+                      // This card is one service route, so a stop on it
+                      // with no pin belongs somewhere inside that circle.
+                      focusAreas={area ? [area] : []}
                     />
                   ))
                 )}
@@ -312,7 +315,7 @@ export default function AreaRoutesCard({
 // built by hand, or one left over from a service area since removed.
 // Shown plainly rather than hidden, with the same driver picker it always
 // had, so nothing an admin made ever disappears from the screen.
-export function LooseRouteCard({ route, stops, drivers, home, products, token, onChanged, onError, onDelete, labels }) {
+export function LooseRouteCard({ route, stops, drivers, home, areas, products, token, onChanged, onError, onDelete, labels }) {
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const routeStops = stops.filter((stop) => stop.route_id === route.id);
@@ -378,6 +381,7 @@ export function LooseRouteCard({ route, stops, drivers, home, products, token, o
               onError={onError}
               home={home}
               drivers={drivers}
+              focusAreas={areas || []}
             />
           ))}
         </View>
