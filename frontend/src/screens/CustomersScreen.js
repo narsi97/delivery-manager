@@ -351,6 +351,24 @@ const groupBySelectStyle = {
 // pickers side by side only look like a pair if they are the same width.
 const cardSelectStyle = { ...groupBySelectStyle, width: '100%', minWidth: 0 };
 
+// Sized for three digits, because a round of a thousand doors is not a
+// round. Borderless so the pill still reads as one control rather than a
+// form field wedged between two buttons — it is a number you can type
+// on, and selecting itself on focus is what says so.
+const positionInputStyle = {
+  width: 26,
+  border: 'none',
+  background: 'transparent',
+  fontSize: 12,
+  fontWeight: '700',
+  color: colors.subtitle,
+  textAlign: 'center',
+  fontFamily: 'inherit',
+  padding: 0,
+  outline: 'none',
+  cursor: 'text',
+};
+
 // Buckets customers by which service route they are on — the route they
 // were put on by hand, or the one their pin falls in. The same
 // "group by nearest city" the Routes screen already does for building
@@ -567,8 +585,10 @@ function CustomerGroup({
                 canReorder
                   ? {
                       position: index + 1,
+                      total: ordered.length,
                       onUp: index > 0 ? () => moveTo(index, index - 1) : null,
                       onDown: index < ordered.length - 1 ? () => moveTo(index, index + 1) : null,
+                      onJump: (to) => moveTo(index, to - 1),
                     }
                   : null
               }
@@ -626,7 +646,41 @@ function SortableRow({ children, draggable, isDragging, isOver, onDragStart, onD
 // that customer was, and left an empty channel running down the whole
 // list. Across the top of the card it belongs to the card, lines up with
 // every other row, and gives the card its full width back.
-function ReorderControls({ position, onUp, onDown }) {
+function ReorderControls({ position, total, onUp, onDown, onJump }) {
+  // What is in the box while it is being typed. Null means "show the
+  // position" — which is every moment except the one where somebody is
+  // halfway through replacing 17 with 3 and would not thank us for
+  // moving them to position 1 on the way past.
+  const [typed, setTyped] = useState(null);
+  // The same trick LocationPicker uses on its coordinate boxes: the blur
+  // handler closes over state as it was when the input last rendered,
+  // which a paste followed straight away by a blur can outrun.
+  const typedRef = useRef(null);
+
+  const commit = () => {
+    const raw = typedRef.current;
+    typedRef.current = null;
+    setTyped(null);
+    // Nothing typed is not a move to position zero. Without this, both
+    // pressing Escape and simply touching the number and clicking away
+    // sent the customer to the top of the round — Number(null) is 0, and
+    // 0 clamps to 1.
+    if (raw === null || String(raw).trim() === '' || !onJump) {
+      return;
+    }
+    const wanted = Number(raw);
+    if (!Number.isFinite(wanted)) {
+      return;
+    }
+    // Clamped rather than refused: "put them at 40" in a round of 32
+    // means last, and an error message about the length of the list is
+    // an argument nobody wants to have with a text box.
+    const target = Math.min(Math.max(Math.round(wanted), 1), total || 1);
+    if (target !== position) {
+      onJump(target);
+    }
+  };
+
   return (
     <View style={styles.orderControls}>
       {/* The eight dots are the universal "you can pick this up", turned
@@ -636,7 +690,39 @@ function ReorderControls({ position, onUp, onDown }) {
       <Text style={styles.grip} accessibilityElementsHidden importantForAccessibility="no">
         ⠿
       </Text>
-      <Text style={styles.position}>{position}</Text>
+      {/* Typing the number beats pressing an arrow thirty times.
+          Somewhere past about the fifth press the arrows stop being a
+          way to move a customer and start being a way to lose count, and
+          a round of thirty-two doors is well past that. The arrows stay
+          for the one-place nudge, which is most of them. */}
+      {onJump ? (
+        <input
+          value={typed === null ? String(position) : typed}
+          inputMode="numeric"
+          aria-label={`Position ${position} of ${total}. Type a number to move.`}
+          onChange={(event) => {
+            const next = event.target.value.replace(/[^0-9]/g, '');
+            typedRef.current = next;
+            setTyped(next);
+          }}
+          onFocus={(event) => event.target.select()}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.target.blur();
+            } else if (event.key === 'Escape') {
+              // Cleared before the blur, so the commit that follows has
+              // nothing to act on and the row stays where it was.
+              typedRef.current = null;
+              setTyped(null);
+              event.target.blur();
+            }
+          }}
+          style={positionInputStyle}
+        />
+      ) : (
+        <Text style={styles.position}>{position}</Text>
+      )}
       <Pressable
         onPress={onUp || undefined}
         disabled={!onUp}

@@ -122,7 +122,6 @@ function CauseGroup({ title, count, explanation, stops, products, token, home, o
               token={token}
               onChanged={onChanged}
               onError={onError}
-        home={home}
               home={home}
             />
           ))}
