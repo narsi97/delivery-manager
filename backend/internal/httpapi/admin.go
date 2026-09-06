@@ -856,7 +856,16 @@ type daySummary struct {
 	// has no location yet. Surfaced on the dashboard rather than silently
 	// dropped, because "why is this customer missing from the route?" is
 	// otherwise an unanswerable question for an admin.
+	//
+	// Only the ones nothing can place. A customer put on a round by hand
+	// is on it without a pin, and saying they "can't be routed" while
+	// they sit on a driver's list would be the dashboard contradicting
+	// the round.
 	Unpinned int `json:"unpinned"`
+	// NeedsPin counts stops that are on a round but still have no pin —
+	// the driver will find the door today and can drop it there. A
+	// different problem from Unpinned, and a much smaller one.
+	NeedsPin int `json:"needs_pin"`
 	Unrouted int `json:"unrouted"`
 }
 
@@ -1334,14 +1343,27 @@ func (s *Server) ensureDayRounds(r *http.Request, business domain.Business, date
 			continue
 		}
 		customer, known := customersByID[o.CustomerID]
-		if !known || !customer.HasPin() {
-			continue // unpinned stays unrouted, and is counted in the day summary
+		if !known {
+			continue
 		}
-		if area, ok := areaForCustomer(customer, areas); ok {
-			areaOfOrder[o.ID] = area.ID
+		// A customer put on a round by hand belongs to it whether or not
+		// anybody has dropped their pin yet. That is the whole point of
+		// assigning one: the office knows which round they are on before
+		// it knows which house they are in, and the driver is the person
+		// best placed to find out. Without a pin they cannot be put in
+		// sequence, so they ride at the end of the round — see
+		// orderRound. Somebody with neither a pin nor an assignment
+		// still has nothing to place them by, and stays in "we don't
+		// know where they live".
+		area, ok := areaForCustomer(customer, areas)
+		if !ok {
+			continue
+		}
+		areaOfOrder[o.ID] = area.ID
+		if customer.HasPin() {
 			pinOfOrder[o.ID] = route.Point{Lat: customer.Lat, Lng: customer.Lng, Band: customer.RouteBand()}
-			needsRound[area.ID] = true
 		}
+		needsRound[area.ID] = true
 	}
 
 	routes, err := s.store.ListRoutes(r.Context(), business.ID, date)
@@ -1680,14 +1702,30 @@ func (s *Server) orderRound(
 	maxStops int,
 ) error {
 	points := make([]route.Point, 0)
+	// Stops on this round whose customer has no pin yet. There is no
+	// place to put them in a shortest path — that is what a pin is for —
+	// so they are kept aside and hung on the end, in the order the
+	// office arranged them. They are on the round because somebody said
+	// so, and the driver goes looking with a phone number and an
+	// address.
+	type unplaced struct {
+		id   string
+		band int
+	}
+	loose := make([]unplaced, 0)
 	for _, o := range orders {
 		onThisRoute := (o.RouteID != nil && *o.RouteID == rt.ID) || assignedTo[o.ID] == rt.ID
 		if !onThisRoute {
 			continue
 		}
 		c := customersByID[o.CustomerID]
+		if !c.HasPin() {
+			loose = append(loose, unplaced{id: o.ID, band: c.RouteBand()})
+			continue
+		}
 		points = append(points, route.Point{ID: o.ID, Lat: c.Lat, Lng: c.Lng, Band: c.RouteBand()})
 	}
+	sort.SliceStable(loose, func(i, j int) bool { return loose[i].band < loose[j].band })
 
 	// A route a human arranged by hand is left alone: new stops are
 	// appended in the order they arrived rather than the whole thing
@@ -1751,9 +1789,21 @@ func (s *Server) orderRound(
 	}
 
 	ordered, meters := route.OptimizePrioritised(start, points, finish)
-	orderedIDs := make([]string, 0, len(ordered))
+	orderedIDs := make([]string, 0, len(ordered)+len(loose))
 	for _, p := range ordered {
 		orderedIDs = append(orderedIDs, p.ID)
+	}
+	// After the ones that can be driven in order. The distance estimate
+	// is left as the optimiser found it: nobody knows how far these are,
+	// and a guess would make the number worse rather than more complete.
+	for _, l := range loose {
+		orderedIDs = append(orderedIDs, l.id)
+	}
+	// The van is still only so big, and the cap counts everything on the
+	// round. The tail goes first, which is where the stops nobody can
+	// place yet already are.
+	if maxStops > 0 && len(orderedIDs) > maxStops {
+		orderedIDs = orderedIDs[:maxStops]
 	}
 	if err := s.store.AssignStops(r.Context(), businessID, rt.ID, orderedIDs); err != nil {
 		return err
@@ -2199,7 +2249,11 @@ func (s *Server) respondWithDay(w http.ResponseWriter, r *http.Request, date str
 			summary.Skipped++
 		}
 		if stop.Lat == 0 && stop.Lng == 0 {
-			summary.Unpinned++
+			if stop.RouteID == nil {
+				summary.Unpinned++
+			} else {
+				summary.NeedsPin++
+			}
 		}
 		if stop.RouteID == nil && stop.Status == domain.StatusPending {
 			summary.Unrouted++

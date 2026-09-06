@@ -169,6 +169,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/checkins", s.withAdmin(s.handleListCheckins))
 	s.mux.HandleFunc("POST /api/v1/checkins/{driverId}/review", s.withAdmin(s.handleReviewCheckin))
 	s.mux.HandleFunc("POST /api/v1/driver/stops/{id}/status", s.withDriver(s.handleDriverStopStatus))
+	s.mux.HandleFunc("POST /api/v1/driver/stops/{id}/pin", s.withDriver(s.handleDriverStopPin))
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
