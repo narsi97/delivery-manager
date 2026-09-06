@@ -388,6 +388,16 @@ export function importCustomers(token, rows, dryRun) {
   });
 }
 
+// The driver dropping a pin from the doorstep. Scoped to their own
+// round server-side — see handleDriverStopPin.
+export function driverPinStop(token, stopId, lat, lng) {
+  return request(`/api/v1/driver/stops/${stopId}/pin`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ lat, lng }),
+  });
+}
+
 // One customer's deliveries either side of today: their history looking
 // back, and what is already booked looking forward. `back` and `ahead`
 // are day counts, both capped server-side.

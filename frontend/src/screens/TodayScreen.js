@@ -179,6 +179,16 @@ export default function TodayScreen({ token, business }) {
       `${strays.length} ${strays.length === 1 ? 'delivery is' : 'deliveries are'} not on any service ${lower(labels.route)}.`,
     );
   }
+  // On a round, but nobody has found the door yet. Not a problem to
+  // solve from a desk — the driver is the one who will be standing
+  // there — so it reads as a note about today rather than as a fault.
+  if (summary.needs_pin > 0) {
+    exceptions.push(
+      summary.needs_pin === 1
+        ? `1 ${lower(labels.customer)} on a ${lower(labels.route)} still has no pin — the ${lower(labels.driver)} can drop it at the door.`
+        : `${summary.needs_pin} ${lower(labels.customer_plural)} on a ${lower(labels.route)} still have no pin — the ${lower(labels.driver)} can drop them at the door.`,
+    );
+  }
   if (summary.unpinned > 0) {
     // Written out, like every other line in this list. "customer(s)" is
     // the one place the app made the reader do the grammar, and it sat

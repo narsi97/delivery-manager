@@ -16,9 +16,9 @@ import {
 } from '../components';
 import { useLanguage } from '../i18n';
 import { labelsFor, lower } from '../labels';
-import { openCall, openNavigation } from '../navigation';
+import { currentPosition, openCall, openNavigation } from '../navigation';
 import { groupStopsByCustomer } from '../routeCards';
-import { colors, spacing } from '../theme';
+import { colors, radius, spacing } from '../theme';
 
 // The driver's whole app. Everything is one column, one action per stop,
 // with large touch targets — it gets used one-handed, outdoors, early.
@@ -76,7 +76,13 @@ export default function DriverScreen({ token, business }) {
           to show — so the screen shows the one thing there is to do
           instead of an empty list that looks like a quiet morning. */}
       {today?.checkin_required ? (
-        <CheckinCard token={token} checkin={today.checkin} routeName={today?.route?.name} onDone={refresh} />
+        <CheckinCard
+          token={token}
+          checkin={today.checkin}
+          routeName={today?.route?.name}
+          load={today?.load || []}
+          onDone={refresh}
+        />
       ) : null}
 
       <Card>
@@ -98,7 +104,7 @@ export default function DriverScreen({ token, business }) {
         <Card style={styles.nextCard}>
           <Text style={styles.nextLabel}>{t('next_stop_heading')}</Text>
           <Text style={styles.nextName}>{nextDoor[0].customer_name}</Text>
-          <StopDetails door={nextDoor} />
+          <StopDetails door={nextDoor} token={token} onChanged={refresh} />
           {/* One set of actions per item still, because a door where the
               curd is missing and the milk is not is the ordinary case —
               but they are listed together so the driver carries the
@@ -137,7 +143,7 @@ export default function DriverScreen({ token, business }) {
 // shared by the always-open "next stop" card and whichever compact row
 // is currently expanded, so there's exactly one place that decides what
 // a driver sees about a stop.
-function StopDetails({ door }) {
+function StopDetails({ door, token, onChanged }) {
   const stop = door[0];
   return (
     <>
@@ -153,7 +159,74 @@ function StopDetails({ door }) {
       {stop.customer_notes ? <Text style={styles.customerNote}>{stop.customer_notes}</Text> : null}
       <CustomerDetails fields={stop.customer_fields} />
       {door.map((item) => (item.note ? <Text key={item.id} style={styles.stopNote}>{item.note}</Text> : null))}
+      <PinDoor stop={stop} token={token} onChanged={onChanged} />
     </>
+  );
+}
+
+// Fixing where a door is, from outside it.
+//
+// A round can carry customers the office has never located — put on it by
+// name because somebody knew which round they belonged to, with an
+// address like "ask at the temple". The driver is the one person who will
+// definitely be standing in the right place today, holding a phone that
+// knows where it is, and the whole job is one button.
+//
+// Offered on a stop that already has a pin as well. A pin on the wrong
+// side of the street is worse than none: it looks answered, so nobody
+// checks it, and every driver after this one goes to the wrong gate.
+function PinDoor({ stop, token, onChanged }) {
+  const { t } = useLanguage();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [saved, setSaved] = useState(false);
+  const [open, setOpen] = useState(false);
+  const hasPin = Number.isFinite(stop.lat) && Number.isFinite(stop.lng) && (stop.lat !== 0 || stop.lng !== 0);
+
+  const pinHere = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const here = await currentPosition();
+      if (!here) {
+        setError(t('pin_no_location'));
+        return;
+      }
+      await api.driverPinStop(token, stop.id, here.lat, here.lng);
+      setSaved(true);
+      setOpen(false);
+      await onChanged();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={styles.pinBlock}>
+      <Banner message={error} />
+      {saved ? <Text style={styles.pinSaved}>{t('pin_saved')}</Text> : null}
+      {!hasPin ? (
+        // Loud, because this stop cannot be put in order until somebody
+        // does it and the driver is standing there right now.
+        <View style={styles.pinWanted}>
+          <Text style={styles.pinWantedText}>{t('pin_missing')}</Text>
+          <Button title={t('pin_here')} onPress={pinHere} busy={busy} />
+        </View>
+      ) : open ? (
+        <View style={styles.pinFixRow}>
+          <Button title={t('pin_here')} onPress={pinHere} busy={busy} style={styles.flexButton} />
+          <Button title={t('back')} variant="secondary" onPress={() => setOpen(false)} style={styles.flexButton} />
+        </View>
+      ) : (
+        // Quiet when the pin looks right — this is a correction, not a
+        // step, and it must not compete with the delivery buttons.
+        <Pressable onPress={() => setOpen(true)} accessibilityRole="button">
+          <Text style={styles.pinFix}>{t('pin_wrong')}</Text>
+        </Pressable>
+      )}
+    </View>
   );
 }
 
@@ -186,7 +259,7 @@ function CompactStopRow({ door, token, captures, onChanged, onError }) {
 
       {expanded ? (
         <View style={styles.expandedStop}>
-          <StopDetails door={door} />
+          <StopDetails door={door} token={token} onChanged={onChanged} />
           {pending.map((item) => (
             <StopActions
               key={item.id}
@@ -334,7 +407,7 @@ function CustomerDetails({ fields }) {
 // going on the van and say so. Nothing about the round is visible until
 // somebody agrees with that number — see backend checkin.go for why the
 // agreement rather than the number is the point.
-function CheckinCard({ token, checkin, routeName, onDone }) {
+function CheckinCard({ token, checkin, routeName, load = [], onDone }) {
   const { t } = useLanguage();
   const [units, setUnits] = useState(checkin?.units ? String(checkin.units) : '');
   const [note, setNote] = useState('');
@@ -375,6 +448,31 @@ function CheckinCard({ token, checkin, routeName, onDone }) {
 
       <Banner message={error} />
 
+      {/* What the round actually adds up to. The stop list is behind
+          this gate, so without it the driver is being asked to count out
+          bottles for a round they cannot see — which is asking them to
+          guess, and the guess is what the farm then has to argue with.
+          Shown while waiting too: an approval that comes back rejected
+          is usually a recount, and the numbers to recount against are
+          right here. */}
+      {load.length > 0 ? (
+        <View style={styles.loadBlock}>
+          <Text style={styles.loadHeading}>{t('checkin_load_heading')}</Text>
+          {load.map((line) => (
+            <View key={line.product_id} style={styles.loadRow}>
+              <Text style={styles.loadQty}>{line.quantity}</Text>
+              <Text style={styles.loadName}>
+                {line.name}
+                {line.unit ? ` · ${line.unit}` : ''}
+              </Text>
+              <Text style={styles.loadDoors}>
+                {line.doors === 1 ? t('checkin_load_door') : t('checkin_load_doors', { doors: line.doors })}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
       {waiting ? null : (
         <View>
           {/* The count, then anything worth saying about it. "xs" keeps
@@ -410,6 +508,33 @@ function CheckinCard({ token, checkin, routeName, onDone }) {
 
 const styles = StyleSheet.create({
   page: { padding: spacing.lg, maxWidth: 560, width: '100%', alignSelf: 'center' },
+  pinBlock: { marginTop: spacing.sm },
+  pinWanted: {
+    borderWidth: 1,
+    borderColor: colors.warning,
+    backgroundColor: colors.warningBg,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    gap: spacing.sm,
+  },
+  pinWantedText: { fontSize: 13, fontWeight: '700', color: colors.warning, lineHeight: 18 },
+  pinFix: { fontSize: 13, color: colors.link, fontWeight: '600', paddingVertical: spacing.xs },
+  pinFixRow: { flexDirection: 'row', gap: spacing.sm },
+  pinSaved: { fontSize: 13, color: colors.accent, fontWeight: '700', marginBottom: spacing.xs },
+  loadBlock: { marginBottom: spacing.md },
+  loadHeading: { fontSize: 13, fontWeight: '700', color: colors.label, marginBottom: spacing.xs },
+  loadRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  // Big enough to read at arm's length over a crate.
+  loadQty: { fontSize: 20, fontWeight: '800', color: colors.text, minWidth: 42, textAlign: 'right' },
+  loadName: { fontSize: 15, color: colors.text, flex: 1 },
+  loadDoors: { fontSize: 12, color: colors.hint },
   loader: { marginTop: spacing.xl * 2 },
   checkinCard: { borderColor: colors.accent },
   checkinHeading: { fontSize: 18, fontWeight: '800', color: colors.text },
