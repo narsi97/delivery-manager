@@ -147,6 +147,13 @@ func (s *Server) handleImportCustomers(w http.ResponseWriter, r *http.Request) {
 		default:
 			result.Verdict = "new"
 			created++
+			// Marked here rather than after the write, so a file that
+			// lists the same household twice says so in the preview.
+			// It was only tracked while actually importing, which meant
+			// the preview promised thirty-eight and the import made
+			// thirty-seven — the one number the preview exists to get
+			// right.
+			seen[customerKey(row.Name, row.Phone)] = true
 		}
 
 		if !req.DryRun && result.Verdict == "new" {
@@ -157,11 +164,11 @@ func (s *Server) handleImportCustomers(w http.ResponseWriter, r *http.Request) {
 				result.Problem = err.Error()
 				created--
 				failed++
+				// They are not on the list after all, so a later row for
+				// the same household should still be tried.
+				delete(seen, customerKey(row.Name, row.Phone))
 			} else {
 				result.CustomerID = id
-				// Within one file, a name and number repeated twice is
-				// the same household typed twice.
-				seen[customerKey(row.Name, row.Phone)] = true
 			}
 		}
 		results = append(results, result)

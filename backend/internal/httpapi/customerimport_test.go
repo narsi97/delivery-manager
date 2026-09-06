@@ -312,3 +312,33 @@ func TestImportRanksATopUpAfterTheExistingRound(t *testing.T) {
 		}
 	}
 }
+
+// A file that lists the same household twice says so in the preview.
+// This was only tracked while actually importing, so the preview
+// promised one more customer than the import made — the one number a
+// preview exists to get right.
+func TestImportPreviewCountsARepeatWithinTheFile(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+	rows := importRows(
+		map[string]any{"name": "M Kiran kumar", "phone": "9908646281", "lat": 17.05, "lng": 79.26},
+		map[string]any{"name": "Someone else", "phone": "9160738912", "lat": 17.06, "lng": 79.26},
+		// The same person, typed the way a hurried list types them.
+		map[string]any{"name": "M kiran kumar", "phone": "9908646281", "lat": 17.05, "lng": 79.26},
+	)
+
+	preview := admin.mustDo(http.MethodPost, "/api/v1/customers/import",
+		map[string]any{"dry_run": true, "rows": rows}, http.StatusOK)
+	if got := verdicts(t, preview); len(got) != 3 || got[2] != "duplicate" {
+		t.Errorf("preview verdicts = %v, want the third row to be a duplicate", got)
+	}
+	if num(preview, "new") != 2 {
+		t.Errorf("preview said %v would be added, want 2", num(preview, "new"))
+	}
+
+	real := admin.mustDo(http.MethodPost, "/api/v1/customers/import",
+		map[string]any{"rows": rows}, http.StatusOK)
+	if num(real, "new") != num(preview, "new") {
+		t.Errorf("import added %v but the preview promised %v", num(real, "new"), num(preview, "new"))
+	}
+}
