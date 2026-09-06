@@ -75,13 +75,80 @@ const HEADERS = {
   name: ['name', 'customer', 'customername', 'household'],
   phone: ['phone', 'phonenumber', 'phoneno', 'mobile', 'contact', 'number'],
   address: ['address', 'addr', 'street', 'location', 'place'],
-  pin: ['coordinates', 'coordinateslink', 'coordinate', 'pin', 'maplink', 'link', 'latlng', 'geo', 'gps', 'pluscode'],
+  pin: [
+    'coordinates',
+    'coordinateslink',
+    'coordinate',
+    'coords',
+    'pin',
+    'maplink',
+    'maplocation',
+    'link',
+    'latlng',
+    'latitudelongitude',
+    'geo',
+    'gps',
+    'gpslocation',
+    'gpscoordinates',
+    'gpslink',
+    'pluscode',
+  ],
   items: ['quantity', 'qty', 'order', 'orders', 'items', 'item', 'product', 'products', 'size'],
   days: ['days', 'deliverydays', 'weekdays', 'frequency', 'when'],
   notes: ['notes', 'note', 'remarks', 'comment', 'instructions'],
 };
 
 const squash = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+// What a location looks like, roughly, without parsing it properly.
+//
+// Used to find the column when its heading is something nobody thought
+// of. The real reading is mapLinks.js's job; this only has to be sure
+// enough to tell a coordinate from a house number.
+const LOOKS_LIKE_LOCATION = new RegExp(
+  [
+    String.raw`^-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+$`, // 17.0575, 79.2671
+    String.raw`^\d{1,3}\s*[°º]`, // 17°03'24.3"N …
+    String.raw`^https?://`, // a shared link
+    String.raw`^[23456789CFGHJMPQRVWX]{2,8}\+[23456789CFGHJMPQRVWX]{0,7}$`, // X429+VC
+  ].join('|'),
+  'i',
+);
+
+// The column whose *contents* are locations, for a file whose heading
+// for them is something this has never seen.
+//
+// Worth having because the heading is the least reliable part of a real
+// file: one list called it "Coordinates / Link" and the next called it
+// "GPS Location", and a list of thirty-eight households arrived with
+// every pin dropped on the floor because of it. The values underneath
+// are unmistakable in a way the words above them are not.
+function sniffLocationColumn(rows, taken) {
+  const width = Math.max(...rows.map((cells) => cells.length), 0);
+  for (let index = 0; index < width; index += 1) {
+    if (taken.includes(index)) {
+      continue;
+    }
+    let filled = 0;
+    let looks = 0;
+    for (const cells of rows) {
+      const value = String(cells[index] || '').trim();
+      if (!value) {
+        continue;
+      }
+      filled += 1;
+      if (LOOKS_LIKE_LOCATION.test(value)) {
+        looks += 1;
+      }
+    }
+    // Most of what is there, rather than all of it: a real list has
+    // households whose pin was never recorded.
+    if (filled > 0 && looks * 2 > filled) {
+      return index;
+    }
+  }
+  return undefined;
+}
 
 function mapHeaders(cells) {
   const found = {};
@@ -196,6 +263,13 @@ export function parseCsv(text) {
     const index = headers[field];
     return index === undefined ? '' : String(cells[index] || '').trim();
   };
+
+  if (headers.pin === undefined) {
+    const found = sniffLocationColumn(body, Object.values(headers));
+    if (found !== undefined) {
+      headers.pin = found;
+    }
+  }
 
   const rows = body.map((cells, index) => ({
     line: index + (headerRow ? 2 : 1),
