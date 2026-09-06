@@ -342,3 +342,53 @@ func TestImportPreviewCountsARepeatWithinTheFile(t *testing.T) {
 		t.Errorf("import added %v but the preview promised %v", num(real, "new"), num(preview, "new"))
 	}
 }
+
+// A file is usually one round — somebody's morning list — so importing
+// it into that round is what the file means. It is also the only way a
+// customer whose pin is missing can be on a round at all.
+func TestImportPutsEveryRowOnTheChosenRoute(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+	area := admin.mustDo(http.MethodPost, "/api/v1/service-areas", map[string]any{
+		"name": "Nalgonda Morning", "lat": 17.0500, "lng": 79.2670, "radius_meters": 8000,
+	}, http.StatusCreated)
+
+	admin.mustDo(http.MethodPost, "/api/v1/customers/import", map[string]any{
+		"service_area_id": str(area, "id"),
+		"rows": importRows(
+			map[string]any{"name": "Has A Pin", "phone": "7000000001", "lat": 17.05, "lng": 79.26},
+			// Miles outside the circle: the assignment wins over geography.
+			map[string]any{"name": "Far Away", "phone": "7000000002", "lat": 12.97, "lng": 77.59},
+			map[string]any{"name": "No Pin At All", "phone": "7000000003"},
+		),
+	}, http.StatusOK)
+
+	body := admin.mustDo(http.MethodGet, "/api/v1/customers", nil, http.StatusOK)
+	list, _ := body["customers"].([]any)
+	if len(list) != 3 {
+		t.Fatalf("got %d customers, want 3", len(list))
+	}
+	for _, item := range list {
+		c, _ := item.(map[string]any)
+		if str(c, "service_area_id") != str(area, "id") {
+			t.Errorf("%s was not put on the chosen route", str(c, "name"))
+		}
+	}
+}
+
+// A route id that is not this business's fails the whole import rather
+// than half of it.
+func TestImportRefusesAnUnknownRoute(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+
+	admin.mustDo(http.MethodPost, "/api/v1/customers/import", map[string]any{
+		"service_area_id": "not-a-real-route",
+		"rows":            importRows(map[string]any{"name": "Someone", "phone": "7000000009"}),
+	}, http.StatusNotFound)
+
+	body := admin.mustDo(http.MethodGet, "/api/v1/customers", nil, http.StatusOK)
+	if list, _ := body["customers"].([]any); len(list) != 0 {
+		t.Errorf("a bad route id created %d customers, want none", len(list))
+	}
+}

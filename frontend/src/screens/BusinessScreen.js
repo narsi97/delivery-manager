@@ -5,6 +5,7 @@ import * as api from '../api';
 import { AddButton, Banner, Button, Card, Disclosure, Empty, Field, FieldRow, Pill, SectionTitle } from '../components';
 import LocationPicker, { InlineLocationEditor } from '../LocationPicker';
 import AddCustomerDialog from '../AddCustomerDialog';
+import ImportCustomersDialog from '../ImportCustomersDialog';
 import { customFieldsFor, labelsFor, lower } from '../labels';
 import { serviceRouteFor } from '../serviceAreas';
 import { colors, radius, spacing } from '../theme';
@@ -37,6 +38,9 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
   // The service route the add-a-customer dialog was opened from, or
   // null when it isn't open. See AddCustomerDialog.
   const [addingTo, setAddingTo] = useState(null);
+  // The service route the import dialog was opened from, so the file
+  // lands on that round rather than being sorted by pin.
+  const [importingTo, setImportingTo] = useState(null);
   const [suggestions, setSuggestions] = useState([]);
   const [prefill, setPrefill] = useState(null);
 
@@ -116,6 +120,19 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
           await refresh();
         }}
         onError={setError}
+      />
+
+      <ImportCustomersDialog
+        open={!!importingTo}
+        onClose={() => setImportingTo(null)}
+        token={token}
+        labels={labels}
+        home={home}
+        areas={areas}
+        serviceAreaId={importingTo?.id || ''}
+        onImported={async () => {
+          await refresh();
+        }}
       />
 
       <Card>
@@ -202,6 +219,7 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
               labels={labels}
               customerCount={customers.filter((c) => serviceRouteFor(c, areas)?.id === area.id).length}
               onAddCustomer={setAddingTo}
+              onImportInto={setImportingTo}
               onChanged={refresh}
               onError={setError}
             />
@@ -677,7 +695,7 @@ function SuggestedAreas({ suggestions, onAccept }) {
   );
 }
 
-function ServiceAreaRow({ area, home, token, labels, customerCount, onAddCustomer, onChanged, onError }) {
+function ServiceAreaRow({ area, home, token, labels, customerCount, onAddCustomer, onImportInto, onChanged, onError }) {
   const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState(area.name);
   const [lat, setLat] = useState(area.lat);
@@ -735,11 +753,22 @@ function ServiceAreaRow({ area, home, token, labels, customerCount, onAddCustome
               nobody on it. Sending the owner to the Customers tab and
               making them find the route again afterwards is the app
               handing them its own bookkeeping. */}
+          {/* One at a time, or the whole list at once. A file is
+              almost always exactly this: somebody's round, written
+              down — so importing it from the round's own card is both
+              where you would look for it and what says which round the
+              file is. */}
           <View style={styles.buttonRow}>
             <Button
               title={`+ Add a ${lower(labels.customer)} here`}
               variant="secondary"
               onPress={() => onAddCustomer(area)}
+              style={styles.flexButton}
+            />
+            <Button
+              title="Import a list"
+              variant="secondary"
+              onPress={() => onImportInto(area)}
               style={styles.flexButton}
             />
           </View>

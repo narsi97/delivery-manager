@@ -51,12 +51,17 @@ type importRow struct {
 	Items   []importItem `json:"items"`
 	// Which days this row's standing orders run. Empty means every day,
 	// which is what a list with no such column means.
-	Weekdays []int `json:"weekdays"`
+	Weekdays []int  `json:"weekdays"`
 	Notes    string `json:"notes"`
 }
 
 type importRequest struct {
 	Rows []importRow `json:"rows"`
+	// Which service route every row joins. A file is usually one round —
+	// somebody's morning list — so importing it *into* that round is
+	// what the file means, and it is the only way a customer whose pin
+	// is missing can be on a round at all.
+	ServiceAreaID string `json:"service_area_id"`
 	// A dry run says what would happen and changes nothing. The screen
 	// asks for one first and shows the answer, so nobody commits a file
 	// whose product names turned out to match nothing.
@@ -95,6 +100,17 @@ func (s *Server) handleImportCustomers(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("that file has %d rows; %d is the most that can be imported at once", len(req.Rows), maxImportRows),
 			"too_many_rows")
 		return
+	}
+
+	// Checked once, before anything is written, so a bad id fails the
+	// whole import rather than half of it.
+	var route *string
+	if strings.TrimSpace(req.ServiceAreaID) != "" {
+		resolved, ok := s.resolveServiceRoute(w, r, sess, req.ServiceAreaID)
+		if !ok {
+			return
+		}
+		route = resolved
 	}
 
 	products, err := s.store.ListProducts(r.Context(), sess.Business.ID)
@@ -158,7 +174,7 @@ func (s *Server) handleImportCustomers(w http.ResponseWriter, r *http.Request) {
 
 		if !req.DryRun && result.Verdict == "new" {
 			rank++
-			id, err := s.createImportedCustomer(r, sess, row, products, rank)
+			id, err := s.createImportedCustomer(r, sess, row, products, rank, route)
 			if err != nil {
 				result.Verdict = "error"
 				result.Problem = err.Error()
@@ -211,7 +227,7 @@ func (s *Server) checkImportRow(row importRow, products []domain.Product) (strin
 	return "", matched
 }
 
-func (s *Server) createImportedCustomer(r *http.Request, sess session, row importRow, products []domain.Product, rank int) (string, error) {
+func (s *Server) createImportedCustomer(r *http.Request, sess session, row importRow, products []domain.Product, rank int, route *string) (string, error) {
 	// A rank beyond the band width would collide with the next priority
 	// tier — see domain.Customer.RouteBand. A file that long is not a
 	// round, but the guard costs nothing.
@@ -219,17 +235,18 @@ func (s *Server) createImportedCustomer(r *http.Request, sess session, row impor
 		rank = 0
 	}
 	customer := domain.Customer{
-		ID:         domain.NewID(),
-		BusinessID: sess.Business.ID,
-		Name:       strings.TrimSpace(row.Name),
-		Phone:      strings.TrimSpace(row.Phone),
-		Address:    strings.TrimSpace(row.Address),
-		Lat:        row.Lat,
-		Lng:        row.Lng,
-		Notes:      strings.TrimSpace(row.Notes),
-		Priority:   domain.NormalizePriority(""),
-		Rank:       rank,
-		Active:     true,
+		ID:            domain.NewID(),
+		BusinessID:    sess.Business.ID,
+		Name:          strings.TrimSpace(row.Name),
+		Phone:         strings.TrimSpace(row.Phone),
+		Address:       strings.TrimSpace(row.Address),
+		Lat:           row.Lat,
+		Lng:           row.Lng,
+		Notes:         strings.TrimSpace(row.Notes),
+		Priority:      domain.NormalizePriority(""),
+		Rank:          rank,
+		ServiceAreaID: route,
+		Active:        true,
 	}
 	saved, err := s.store.CreateCustomer(r.Context(), customer)
 	if err != nil {

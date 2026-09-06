@@ -204,6 +204,7 @@ export default function CustomersScreen({ token, business }) {
           token={token}
           labels={labels}
           home={home}
+          areas={areas}
           onImported={async () => {
             await refresh();
           }}

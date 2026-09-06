@@ -380,11 +380,11 @@ export function createAdHocOrder(token, order) {
 // Brings a whole customer list in at once. With dryRun the server
 // changes nothing and just says what would happen to each row, which is
 // what the preview shows.
-export function importCustomers(token, rows, dryRun) {
+export function importCustomers(token, rows, dryRun, serviceAreaId) {
   return request('/api/v1/customers/import', {
     method: 'POST',
     token,
-    body: JSON.stringify({ rows, dry_run: !!dryRun }),
+    body: JSON.stringify({ rows, dry_run: !!dryRun, service_area_id: serviceAreaId || '' }),
   });
 }
 

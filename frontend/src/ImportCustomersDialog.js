@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import * as api from './api';
@@ -6,6 +6,7 @@ import { Banner, Button, Dialog } from './components';
 import { parseCsv, parseDays, parseItems } from './csv';
 import { lower } from './labels';
 import { parseMapLink } from './mapLinks';
+import { looksLikePdf, parsePdfList } from './pdfList';
 import { colors, radius, spacing } from './theme';
 
 // Bringing an existing customer list in.
@@ -26,13 +27,35 @@ import { colors, radius, spacing } from './theme';
 // commit. The server does the deciding — it knows which products exist
 // and who is already on the list — and answers the same way for the
 // preview as for the real thing, because it is the same call with a flag.
-export default function ImportCustomersDialog({ open, onClose, token, labels, home, onImported }) {
+export default function ImportCustomersDialog({
+  open,
+  onClose,
+  token,
+  labels,
+  home,
+  areas = [],
+  // Opened from a service route's own card, which is the common case:
+  // a file is somebody's morning list, so it belongs to that round.
+  serviceAreaId = '',
+  onImported,
+}) {
   const [text, setText] = useState('');
   const [preview, setPreview] = useState(null);
   const [rows, setRows] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(null);
+  const [routeId, setRouteId] = useState(serviceAreaId);
+
+  // The dialog outlives any one opening of it, so the round it was
+  // opened from has to be re-read each time rather than captured once.
+  // Only on the way open: changing it mid-import would move the file
+  // out from under the preview.
+  useEffect(() => {
+    if (open) {
+      setRouteId(serviceAreaId);
+    }
+  }, [open, serviceAreaId]);
 
   const reset = () => {
     setText('');
@@ -51,9 +74,8 @@ export default function ImportCustomersDialog({ open, onClose, token, labels, ho
   // resolved here rather than server-side because this is where the one
   // parser lives that understands a Google link, a plus code and
   // 17°03'24.3"N — see mapLinks.js.
-  const build = (raw) => {
-    const { rows: parsed } = parseCsv(raw);
-    return parsed.map((row) => {
+  const build = (parsed) =>
+    parsed.map((row) => {
       const pin = row.pinText ? parseMapLink(row.pinText, home) : null;
       return {
         line: row.line,
@@ -71,21 +93,20 @@ export default function ImportCustomersDialog({ open, onClose, token, labels, ho
         pinned: !!pin,
       };
     });
-  };
 
-  const look = async (raw) => {
+  const look = async (parsed) => {
     setError('');
     setDone(null);
-    const built = build(raw);
+    const built = build(parsed);
     if (built.length === 0) {
-      setError('There are no rows in that. Paste the list, or pick a .csv file.');
+      setError('There are no rows in that. Paste the list, or pick a .csv or .pdf file.');
       setPreview(null);
       return;
     }
     setRows(built);
     setBusy(true);
     try {
-      setPreview(await api.importCustomers(token, built.map(forServer), true));
+      setPreview(await api.importCustomers(token, built.map(forServer), true, routeId));
     } catch (err) {
       setError(err.message);
       setPreview(null);
@@ -98,7 +119,7 @@ export default function ImportCustomersDialog({ open, onClose, token, labels, ho
     setBusy(true);
     setError('');
     try {
-      const result = await api.importCustomers(token, rows.map(forServer), false);
+      const result = await api.importCustomers(token, rows.map(forServer), false, routeId);
       setDone(result);
       setPreview(result);
       await onImported();
@@ -109,16 +130,47 @@ export default function ImportCustomersDialog({ open, onClose, token, labels, ho
     }
   };
 
+  // A PDF is read as bytes and a spreadsheet as text, and both come out
+  // as the same rows — see pdfList.js. The office keeps its list as a
+  // printed sheet far more often than as a .csv, and asking somebody to
+  // retype thirty-nine households into a spreadsheet before they can
+  // start is most of the reason they would not start.
   const pickFile = (event) => {
     const file = event.target.files && event.target.files[0];
     if (!file) {
       return;
     }
     const reader = new FileReader();
+    if (looksLikePdf(file)) {
+      reader.onload = async () => {
+        setBusy(true);
+        setError('');
+        try {
+          const { rows: found, reason } = await parsePdfList(reader.result);
+          if (reason) {
+            setError(
+              reason === 'nothing-readable'
+                ? 'Nothing could be read out of that PDF. If it is a scan rather than a document, the text is a picture — save the list as a CSV instead.'
+                : 'That PDF has no delivery rows this can find. It should be a table with a number, a name, a phone and a quantity on each row.',
+            );
+            setPreview(null);
+            return;
+          }
+          setText('');
+          await look(found);
+        } catch (err) {
+          setError(err.message);
+        } finally {
+          setBusy(false);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      return;
+    }
     reader.onload = () => {
       const raw = String(reader.result || '');
       setText(raw);
-      look(raw);
+      look(parseCsv(raw).rows);
     };
     reader.readAsText(file);
   };
@@ -136,8 +188,8 @@ export default function ImportCustomersDialog({ open, onClose, token, labels, ho
       {!preview ? (
         <View>
           <Text style={styles.note}>
-            A spreadsheet saved as CSV, or the columns pasted straight in. Commas or tabs, with or without a header
-            row.
+            The delivery list you already have — the PDF straight off the printer, a spreadsheet saved as CSV, or the
+            columns pasted in. Commas or tabs, with or without a header row.
           </Text>
           <Text style={styles.columns}>
             name · phone · address · what they take · where they live{'\n'}
@@ -147,7 +199,37 @@ export default function ImportCustomersDialog({ open, onClose, token, labels, ho
             </Text>
           </Text>
 
-          <input type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" onChange={pickFile} style={fileInputStyle} />
+          {/* Which round the file is. Almost every list is one — the
+              morning round, written down — and saying so here is what
+              puts a customer whose pin is missing on a round at all,
+              rather than in "we don't know where they live". */}
+          {areas.length > 0 ? (
+            <View style={styles.routeBlock}>
+              <Text style={styles.routeLabel}>Put them all on</Text>
+              <select value={routeId} style={routeSelectStyle} onChange={(event) => setRouteId(event.target.value)}>
+                <option value="">Let each pin decide</option>
+                {areas
+                  .filter((area) => area.active !== false)
+                  .map((area) => (
+                    <option key={area.id} value={area.id}>
+                      {area.name}
+                    </option>
+                  ))}
+              </select>
+              <Text style={styles.routeHint}>
+                {routeId
+                  ? `Everyone in the file joins this ${lower(labels.route)}, pin or no pin — the ${lower(labels.driver)} can drop the missing ones at the door.`
+                  : `Only the ones with a location will land on a ${lower(labels.route)}. Pick one above to put the whole file on it.`}
+              </Text>
+            </View>
+          ) : null}
+
+          <input
+            type="file"
+            accept=".csv,.tsv,.txt,.pdf,text/csv,text/plain,application/pdf"
+            onChange={pickFile}
+            style={fileInputStyle}
+          />
 
           <Text style={styles.or}>or paste it here</Text>
           <textarea
@@ -157,7 +239,12 @@ export default function ImportCustomersDialog({ open, onClose, token, labels, ho
             rows={7}
             style={textAreaStyle}
           />
-          <Button title="Show me what this will do" onPress={() => look(text)} busy={busy} disabled={!text.trim()} />
+          <Button
+            title="Show me what this will do"
+            onPress={() => look(parseCsv(text).rows)}
+            busy={busy}
+            disabled={!text.trim()}
+          />
         </View>
       ) : (
         <View>
@@ -169,10 +256,16 @@ export default function ImportCustomersDialog({ open, onClose, token, labels, ho
             {preview.failed > 0 ? <Tally n={preview.failed} label={done ? 'failed' : "can't be added"} tone="bad" /> : null}
           </View>
 
+          {/* What happens to the ones with no location depends entirely
+              on whether a round was chosen, so the warning has to say
+              which. Told they "cannot go on a route" while they are in
+              fact going on one is worse than saying nothing. */}
           {!done && unpinned.length > 0 ? (
             <Text style={styles.warn}>
-              {unpinned.length === 1 ? '1 row has' : `${unpinned.length} rows have`} no location this can read. They
-              will be added without a pin, and cannot go on a {lower(labels.route)} until someone drops one.
+              {unpinned.length === 1 ? '1 row has' : `${unpinned.length} rows have`} no location this can read.{' '}
+              {routeId
+                ? `They still join the ${lower(labels.route)} — at the end of it, until somebody drops a pin at the door.`
+                : `They will be added without a pin, and cannot go on a ${lower(labels.route)} until someone drops one.`}
             </Text>
           ) : null}
 
@@ -276,6 +369,23 @@ function forServer(row) {
   };
 }
 
+const routeSelectStyle = {
+  width: '100%',
+  boxSizing: 'border-box',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: colors.border,
+  borderRadius: radius.md,
+  paddingTop: spacing.sm,
+  paddingBottom: spacing.sm,
+  paddingLeft: spacing.md,
+  paddingRight: spacing.md,
+  fontSize: 14,
+  color: colors.text,
+  backgroundColor: colors.surface,
+  fontFamily: 'inherit',
+};
+
 const fileInputStyle = {
   display: 'block',
   width: '100%',
@@ -303,6 +413,9 @@ const textAreaStyle = {
 
 const styles = StyleSheet.create({
   note: { fontSize: 13, color: colors.subtitle, lineHeight: 18, marginBottom: spacing.sm },
+  routeBlock: { marginBottom: spacing.md },
+  routeLabel: { fontSize: 13, fontWeight: '600', color: colors.label, marginBottom: 3 },
+  routeHint: { fontSize: 12, color: colors.hint, marginTop: 3, lineHeight: 16 },
   columns: { fontSize: 13, fontWeight: '700', color: colors.text, marginBottom: spacing.md, lineHeight: 19 },
   columnsHint: { fontSize: 12, fontWeight: '400', color: colors.hint, lineHeight: 17 },
   or: { fontSize: 12, color: colors.hint, marginBottom: spacing.xs },
