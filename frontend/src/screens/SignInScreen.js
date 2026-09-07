@@ -6,6 +6,7 @@ import { Banner, Button, Field } from '../components';
 import { getFrontendConfig } from '../config/environments';
 import { useLanguage } from '../i18n';
 import LanguageSwitcher from '../LanguageSwitcher';
+import { usePageStyle } from '../layout';
 import { colors, radius, spacing } from '../theme';
 
 // One door, for everyone.
@@ -27,6 +28,7 @@ import { colors, radius, spacing } from '../theme';
 // No sign-up either, while the product is being shaped around one
 // business: accounts are created for people rather than by them.
 export default function SignInScreen({ onSession }) {
+  const pageStyle = usePageStyle(460);
   const { t } = useLanguage();
   const { environment } = getFrontendConfig();
 
@@ -49,7 +51,7 @@ export default function SignInScreen({ onSession }) {
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.page}>
+    <ScrollView contentContainerStyle={pageStyle}>
       <View style={styles.header}>
         <View style={styles.headerRow}>
           <Text style={styles.title}>{t('app_title')}</Text>
@@ -114,7 +116,6 @@ function DevLogin({ onSession, onError }) {
 }
 
 const styles = StyleSheet.create({
-  page: { padding: spacing.lg, maxWidth: 460, width: '100%', alignSelf: 'center' },
   header: { marginTop: spacing.xl, marginBottom: spacing.lg },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
   title: { fontSize: 26, fontWeight: '800', color: colors.text },

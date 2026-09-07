@@ -9,8 +9,9 @@ import DateNav from '../DateNav';
 import DayRouteMapPanel from '../DayRouteMapPanel';
 import DonutChart from '../DonutChart';
 import { labelsFor, lower } from '../labels';
-import { nearestAreaFor, serviceRouteOfRoute } from '../serviceAreas';
-import NotGoingOut from '../NotGoingOut';
+import { serviceRouteOfRoute } from '../serviceAreas';
+import { CauseStops, notGoingOutCauses, OneOffRoute } from '../NotGoingOut';
+import { usePageStyle } from '../layout';
 import { colors, spacing } from '../theme';
 
 // The admin's whole day, on one screen.
@@ -23,6 +24,7 @@ import { colors, spacing } from '../theme';
 // (NotGoingOut, below) and a handful of rare destructive actions, which
 // now live behind each route's options button.
 export default function TodayScreen({ token, business }) {
+  const pageStyle = usePageStyle(720);
   const labels = labelsFor(business);
   const [day, setDay] = useState(null);
   const [drivers, setDrivers] = useState([]);
@@ -148,64 +150,93 @@ export default function TodayScreen({ token, business }) {
   }
   const workingAreas = areas.filter((area) => (routesByArea.get(area.id) || []).length > 0);
 
-  // Deliveries with a pin that no service area covers — the one case the
-  // automatic preparation deliberately refuses to guess at. Same test
-  // NotGoingOut groups by, so the count in the banner and the count in
-  // the card can never disagree.
-  const strays = allStops.filter(
-    (stop) =>
-      stop.status === 'pending' &&
-      !stop.route_id &&
-      (stop.lat || stop.lng) &&
-      !nearestAreaFor(stop.lat, stop.lng, areas),
-  );
-
   // What actually needs the admin this morning, in the order it matters.
   // Everything else on this screen is reassurance; this is the only part
   // that is a task.
   const needsDriver = workingAreas.filter((area) =>
     (routesByArea.get(area.id) || []).some((route) => !route.driver_id),
   );
+  // Each warning is one reason, said once, and opens onto the very
+  // deliveries it is about — rather than naming a problem and leaving
+  // the reader to scroll past the whole round to find it again under a
+  // second heading. See Docs/DESIGN.md and notGoingOutCauses.
+  const causes = notGoingOutCauses(allStops, areas);
   const exceptions = [];
   if (needsDriver.length > 0) {
-    exceptions.push(
-      needsDriver.length === 1
-        ? `${needsDriver[0].name} has nobody driving it yet.`
-        : `${needsDriver.length} ${lower(labels.route)}s have nobody driving them yet.`,
-    );
+    exceptions.push({
+      key: 'no-driver',
+      message:
+        needsDriver.length === 1
+          ? `${needsDriver[0].name} has nobody driving it yet.`
+          : `${needsDriver.length} ${lower(labels.route)}s have nobody driving them yet.`,
+    });
   }
-  if (strays.length > 0) {
-    exceptions.push(
-      `${strays.length} ${strays.length === 1 ? 'delivery is' : 'deliveries are'} not on any service ${lower(labels.route)}.`,
-    );
+  if (causes.unpinned.length > 0) {
+    exceptions.push({
+      key: 'no-pin',
+      count: causes.unpinned.length,
+      message: `We don't know where ${
+        causes.unpinned.length === 1 ? 'somebody' : 'some of them'
+      } lives, so they can't be put in order.`,
+      stops: causes.unpinned,
+    });
+  }
+  if (causes.outside.length > 0) {
+    exceptions.push({
+      key: 'outside',
+      count: causes.outside.length,
+      message: `${causes.outside.length} ${
+        causes.outside.length === 1 ? 'delivery sits' : 'deliveries sit'
+      } outside every service ${lower(labels.route)} you deliver to.`,
+      stops: causes.outside,
+      // The one cause with a fix that is not per-customer: a round built
+      // for today only, so they go out while the area gets sorted.
+      extra: (
+        <OneOffRoute
+          token={token}
+          stops={causes.outside}
+          areas={areas}
+          home={home}
+          date={selectedDate}
+          labels={labels}
+          onDone={async (message) => {
+            setNotice(message);
+            await refresh();
+          }}
+        />
+      ),
+    });
+  }
+  if (causes.waiting.length > 0) {
+    exceptions.push({
+      key: 'waiting',
+      count: causes.waiting.length,
+      message: `${causes.waiting.length} ${
+        causes.waiting.length === 1 ? 'delivery is' : 'deliveries are'
+      } waiting for a ${lower(labels.route)} to pick them up.`,
+      stops: causes.waiting,
+    });
   }
   // On a round, but nobody has found the door yet. Not a problem to
   // solve from a desk — the driver is the one who will be standing
   // there — so it reads as a note about today rather than as a fault.
   if (summary.needs_pin > 0) {
-    exceptions.push(
-      summary.needs_pin === 1
-        ? `1 ${lower(labels.customer)} on a ${lower(labels.route)} still has no pin — the ${lower(labels.driver)} can drop it at the door.`
-        : `${summary.needs_pin} ${lower(labels.customer_plural)} on a ${lower(labels.route)} still have no pin — the ${lower(labels.driver)} can drop them at the door.`,
-    );
+    exceptions.push({
+      key: 'needs-pin',
+      message:
+        summary.needs_pin === 1
+          ? `1 ${lower(labels.customer)} on a ${lower(labels.route)} still has no pin — the ${lower(labels.driver)} can drop it at the door.`
+          : `${summary.needs_pin} ${lower(labels.customer_plural)} on a ${lower(labels.route)} still have no pin — the ${lower(labels.driver)} can drop them at the door.`,
+    });
   }
-  if (summary.unpinned > 0) {
-    // Written out, like every other line in this list. "customer(s)" is
-    // the one place the app made the reader do the grammar, and it sat
-    // on the first screen a new business sees.
-    exceptions.push(
-      summary.unpinned === 1
-        ? `1 ${lower(labels.customer)} has no map pin, so they can't be routed.`
-        : `${summary.unpinned} ${lower(labels.customer_plural)} have no map pin, so they can't be routed.`,
-    );
-  }
+
   // Every stop with a pin, routed or not — the map is for verifying the
   // whole day's assignment, so an unrouted stop has to be visible on it
   // too. See DayRouteMapPanel.
   const mappableStops = allStops.filter((stop) => stop.lat || stop.lng);
 
   return (
-    <ScrollView contentContainerStyle={styles.page}>
+    <ScrollView contentContainerStyle={pageStyle}>
       <Banner message={error} />
       <Banner message={notice} tone="success" />
 
@@ -244,7 +275,23 @@ export default function TodayScreen({ token, business }) {
         {exceptions.length === 0 ? (
           <Banner tone="success" message="Everything's covered." />
         ) : (
-          exceptions.map((line) => <Banner key={line} tone="info" message={line} />)
+          exceptions.map((exception) => (
+            <Banner key={exception.key} tone="info" message={exception.message} count={exception.count}>
+              {exception.stops ? (
+                <CauseStops
+                  stops={exception.stops}
+                  products={products}
+                  token={token}
+                  home={home}
+                  areas={areas}
+                  onChanged={refresh}
+                  onError={setError}
+                >
+                  {exception.extra}
+                </CauseStops>
+              ) : null}
+            </Banner>
+          ))
         )}
 
         <View style={styles.routesSection}>
@@ -335,27 +382,11 @@ export default function TodayScreen({ token, business }) {
         </View>
       </Card>
 
-      <NotGoingOut
-        token={token}
-        stops={allStops}
-        areas={areas}
-        home={home}
-        date={selectedDate}
-        products={products}
-        labels={labels}
-        onChanged={refresh}
-        onError={setError}
-        onNotice={async (message) => {
-          setNotice(message);
-          await refresh();
-        }}
-      />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  page: { padding: spacing.lg, maxWidth: 720, width: '100%', alignSelf: 'center' },
   loader: { marginTop: spacing.xl * 2 },
   chartRow: { marginBottom: spacing.md },
   note: { fontSize: 12, color: colors.hint, marginTop: spacing.sm, lineHeight: 17 },

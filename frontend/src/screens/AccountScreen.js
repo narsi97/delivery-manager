@@ -5,6 +5,7 @@ import * as api from '../api';
 import { Banner, Button, Card, Field, SectionTitle } from '../components';
 import { useLanguage } from '../i18n';
 import LocationPicker from '../LocationPicker';
+import { usePageStyle } from '../layout';
 import { colors, spacing } from '../theme';
 
 // Everything about the account rather than about the deliveries.
@@ -20,6 +21,7 @@ import { colors, spacing } from '../theme';
 // Business tab is products and routes: the things a dairy actually
 // works on.
 export default function AccountScreen({ token, business, user, onBusinessUpdated }) {
+  const pageStyle = usePageStyle(720);
   const { t } = useLanguage();
   const [drivers, setDrivers] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -58,7 +60,7 @@ export default function AccountScreen({ token, business, user, onBusinessUpdated
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.page}>
+    <ScrollView contentContainerStyle={pageStyle}>
       <Banner message={error} />
       <Banner message={notice} tone="success" />
 
@@ -293,7 +295,6 @@ function BusinessDetailsCard({ token, business, drivers, customers, areas, onSav
 }
 
 const styles = StyleSheet.create({
-  page: { padding: spacing.lg, maxWidth: 720, width: '100%', alignSelf: 'center' },
   loader: { marginTop: spacing.xl * 2 },
   headingDivider: {
     borderBottomWidth: 1,

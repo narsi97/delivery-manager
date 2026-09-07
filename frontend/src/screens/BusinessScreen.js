@@ -8,6 +8,7 @@ import AddCustomerDialog from '../AddCustomerDialog';
 import ImportCustomersDialog from '../ImportCustomersDialog';
 import { customFieldsFor, labelsFor, lower } from '../labels';
 import { serviceRouteFor } from '../serviceAreas';
+import { usePageStyle } from '../layout';
 import { colors, radius, spacing } from '../theme';
 
 // The business's own settings: its name, where it's based, and the
@@ -16,6 +17,7 @@ import { colors, radius, spacing } from '../theme';
 // here, instead of opening on an India-wide view — see MapPicker.web.js's
 // home/areas props.
 export default function BusinessScreen({ token, business, onBusinessUpdated }) {
+  const pageStyle = usePageStyle(720);
   // "Service route" borrows the business's own word for a round, so a
   // school reads "Service runs" — see labels.js. The daily thing a
   // driver drives is a route; a service route is the standing list that
@@ -88,7 +90,7 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.page}>
+    <ScrollView contentContainerStyle={pageStyle}>
       <Banner message={error} />
       <Banner message={notice} tone="success" />
 
@@ -597,14 +599,13 @@ function ProductRow({ product, neededToday, token, onChanged, onError }) {
       <Pressable onPress={() => setExpanded((prev) => !prev)} accessibilityRole="button" style={styles.productRow}>
         <View style={styles.productRowText}>
           <Text style={styles.productName}>{product.name}</Text>
-          {/* An absence is not worth stating on every row. "No price
-              set" on all three products is three identical lines saying
-              nothing you could act on differently — the price appears
-              when there is one. See Docs/DESIGN.md. */}
-          <Text style={styles.productMeta}>
-            {product.unit || 'no unit'}
-            {product.price_cents > 0 ? ` · ₹${(product.price_cents / 100).toFixed(2)}` : ''}
-          </Text>
+          {/* The unit is the same word on every product a dairy sells,
+              and it is editable one tap away with the price and the
+              stock. What the row is for is which product this is and
+              whether there is a problem with it. See Docs/DESIGN.md. */}
+          {product.price_cents > 0 ? (
+            <Text style={styles.productMeta}>₹{(product.price_cents / 100).toFixed(2)}</Text>
+          ) : null}
         </View>
         <View style={styles.productRight}>
           {/* Stock is worth a badge once somebody is counting it. A
@@ -824,7 +825,6 @@ function ServiceAreaRow({ area, home, token, labels, customerCount, onAddCustome
 }
 
 const styles = StyleSheet.create({
-  page: { padding: spacing.lg, maxWidth: 720, width: '100%', alignSelf: 'center' },
   loader: { marginTop: spacing.xl * 2 },
   note: { fontSize: 12, color: colors.hint, marginBottom: spacing.sm, lineHeight: 17 },
   rowPills: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },

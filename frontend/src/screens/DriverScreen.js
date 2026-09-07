@@ -18,6 +18,7 @@ import { useLanguage } from '../i18n';
 import { labelsFor, lower } from '../labels';
 import { currentPosition, openCall, openNavigation } from '../navigation';
 import { groupStopsByCustomer } from '../routeCards';
+import { usePageStyle } from '../layout';
 import { colors, radius, spacing } from '../theme';
 
 // The driver's whole app. Everything is one column, one action per stop,
@@ -31,6 +32,7 @@ import { colors, radius, spacing } from '../theme';
 // is still one tap away, it just isn't taking up a screen's worth of
 // space for the other 22 stops that aren't it.
 export default function DriverScreen({ token, business }) {
+  const pageStyle = usePageStyle(560);
   const labels = labelsFor(business);
   const { t } = useLanguage();
   const [today, setToday] = useState(null);
@@ -69,7 +71,7 @@ export default function DriverScreen({ token, business }) {
   const otherDoors = doors.filter((door) => door !== nextDoor);
 
   return (
-    <ScrollView contentContainerStyle={styles.page}>
+    <ScrollView contentContainerStyle={pageStyle}>
       <Banner message={error} />
 
       {/* The gate. Until the load is counted and agreed, there is nothing
@@ -513,7 +515,6 @@ function CheckinCard({ token, checkin, routeName, load = [], onDone }) {
 }
 
 const styles = StyleSheet.create({
-  page: { padding: spacing.lg, maxWidth: 560, width: '100%', alignSelf: 'center' },
   pinBlock: { marginTop: spacing.sm },
   pinWanted: {
     borderWidth: 1,

@@ -5,9 +5,11 @@ import * as api from '../api';
 import { AddButton, Banner, Button, Card, Disclosure, Empty, Field, Pill, SectionTitle, ViewToggle } from '../components';
 import EntityMapPanel from '../EntityMapPanel';
 import LocationPicker, { InlineLocationEditor } from '../LocationPicker';
+import { usePageStyle } from '../layout';
 import { colors, radius, spacing } from '../theme';
 
 export default function DriversScreen({ token, currentUserId, business }) {
+  const pageStyle = usePageStyle(720);
   const [drivers, setDrivers] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [areas, setAreas] = useState([]);
@@ -73,7 +75,7 @@ export default function DriversScreen({ token, currentUserId, business }) {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.page}>
+    <ScrollView contentContainerStyle={pageStyle}>
       <Banner message={error} />
       <Banner message={notice} tone="success" />
 
@@ -514,7 +516,6 @@ const maxInputStyle = {
 };
 
 const styles = StyleSheet.create({
-  page: { padding: spacing.lg, maxWidth: 720, width: '100%', alignSelf: 'center' },
   maxRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: 2 },
   loader: { marginTop: spacing.xl * 2 },
   note: { fontSize: 12, color: colors.hint, marginTop: spacing.sm, lineHeight: 17 },

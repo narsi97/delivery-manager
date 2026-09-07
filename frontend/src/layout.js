@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useWindowDimensions } from 'react-native';
 
+import { spacing } from './theme';
+
 // What the screen can actually hold.
 //
 // This app is used on a laptop in an office and on a phone in a van, and
@@ -45,4 +47,26 @@ export function useTouchOnly() {
     return () => query.removeListener(listen);
   }, []);
   return touch;
+}
+
+// The page's own gutter.
+//
+// Every screen sits a card inside a padded page, so content is inset
+// twice: sixteen pixels of page and sixteen of card, on each side. On a
+// laptop that is a margin; on a 393-pixel phone it is 64 pixels — a
+// sixth of the screen — spent on nothing, and it is the sixth the
+// customer's name was being squeezed out of.
+//
+// The card keeps its own padding, because that is what makes it read as
+// a card. The page gives up most of its gutter on a narrow screen and
+// keeps it where there is width to spare.
+export function usePageStyle(maxWidth = 720) {
+  const narrow = useNarrow();
+  return {
+    paddingVertical: spacing.lg,
+    paddingHorizontal: narrow ? spacing.sm : spacing.lg,
+    maxWidth,
+    width: '100%',
+    alignSelf: 'center',
+  };
 }

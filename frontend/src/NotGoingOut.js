@@ -23,14 +23,17 @@ import { colors, spacing } from './theme';
 // A delivery is only ever in one group, the counts add up to the total,
 // and the heading says the thing the admin actually cares about — these
 // are not going out — rather than naming an internal state.
-export default function NotGoingOut({ token, stops, areas, home, date, products, labels, onChanged, onError, onNotice }) {
+// Why a delivery is not going out, in the order the reasons have to be
+// fixed. No pin comes first because nothing else can be decided without
+// one.
+//
+// Split out so the day board can state each reason once, in its own
+// warning, and open it there. It used to be a card at the foot of the
+// page: the banner named the problem, and then you scrolled past the
+// whole round to find it again under a different heading. Saying it in
+// two places is saying it twice. See Docs/DESIGN.md.
+export function notGoingOutCauses(stops, areas) {
   const pending = stops.filter((stop) => !stop.route_id && stop.status === 'pending');
-  if (pending.length === 0) {
-    return null;
-  }
-
-  // Three reasons, checked in the order they have to be fixed. No pin
-  // comes first because nothing else can be decided without one.
   const unpinned = [];
   const outside = [];
   const waiting = [];
@@ -42,6 +45,14 @@ export default function NotGoingOut({ token, stops, areas, home, date, products,
     } else {
       waiting.push(stop);
     }
+  }
+  return { pending, unpinned, outside, waiting };
+}
+
+export default function NotGoingOut({ token, stops, areas, home, date, products, labels, onChanged, onError, onNotice }) {
+  const { pending, unpinned, outside, waiting } = notGoingOutCauses(stops, areas);
+  if (pending.length === 0) {
+    return null;
   }
 
   return (
@@ -98,6 +109,31 @@ export default function NotGoingOut({ token, stops, areas, home, date, products,
 // One reason, its explanation, its deliveries, and whatever action is
 // specific to it. Hidden entirely when nothing has this problem, so a
 // business only ever reads the causes it actually has.
+// The deliveries behind one reason, with no heading of their own — the
+// warning that opened them is the heading.
+export function CauseStops({ stops, products, token, home, areas, onChanged, onError, children }) {
+  if (stops.length === 0) {
+    return null;
+  }
+  return (
+    <View>
+      {children}
+      {groupStopsByCustomer(stops).map((door) => (
+        <StopCard
+          key={door[0].customer_id || door[0].id}
+          stops={door}
+          products={products}
+          token={token}
+          onChanged={onChanged}
+          onError={onError}
+          home={home}
+          focusAreas={areas || []}
+        />
+      ))}
+    </View>
+  );
+}
+
 function CauseGroup({ title, count, explanation, stops, products, token, home, areas, onChanged, onError, children }) {
   const [expanded, setExpanded] = useState(false);
   if (count === 0) {
@@ -147,7 +183,7 @@ function CauseGroup({ title, count, explanation, stops, products, token, home, a
 // Owns its own error state rather than pushing it to a banner at the top
 // of the page: an error about this action belongs next to this action,
 // where the person who pressed the button is already looking.
-function OneOffRoute({ token, stops, areas, home, date, labels, onDone }) {
+export function OneOffRoute({ token, stops, areas, home, date, labels, onDone }) {
   const [expanded, setExpanded] = useState(false);
   const [depot, setDepot] = useState(() =>
     home ? { lat: String(home.lat), lng: String(home.lng) } : { lat: '', lng: '' }

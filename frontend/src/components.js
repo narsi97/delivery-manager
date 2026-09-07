@@ -1,10 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
+import { useNarrow } from './layout';
 import { colors, radius, spacing } from './theme';
 
+// A card gives up some of its own inset on a phone, for the same reason
+// the page does: sixteen pixels each side is a margin on a laptop and a
+// slice out of a customer's name on a 375-pixel screen. It keeps enough
+// to still read as a card. See Docs/DESIGN.md and usePageStyle.
 export function Card({ children, style }) {
-  return <View style={[styles.card, style]}>{children}</View>;
+  const narrow = useNarrow();
+  return <View style={[styles.card, narrow && styles.cardNarrow, style]}>{children}</View>;
 }
 
 export function SectionTitle({ children, right, after }) {
@@ -295,7 +301,16 @@ export function Pill({ label, tone = 'neutral' }) {
   );
 }
 
-export function Banner({ message, tone = 'error' }) {
+// A line about something that needs attention — and, when there is
+// something to be done about it, the way in.
+//
+// A warning that names a problem and then makes you go and find it
+// somewhere else on the page has said the same thing twice: once as a
+// banner and once as whatever you eventually found. The banner is the
+// better place, because it is where the reader already is. Pass
+// `children` and it opens.
+export function Banner({ message, tone = 'error', children, count }) {
+  const [open, setOpen] = useState(false);
   if (!message) {
     return null;
   }
@@ -305,9 +320,28 @@ export function Banner({ message, tone = 'error' }) {
     info: { bg: colors.warningBg, fg: colors.warning },
   };
   const { bg, fg } = tones[tone] || tones.error;
+
+  if (!children) {
+    return (
+      <View style={[styles.banner, { backgroundColor: bg }]}>
+        <Text style={[styles.bannerText, { color: fg }]}>{message}</Text>
+      </View>
+    );
+  }
+
   return (
-    <View style={[styles.banner, { backgroundColor: bg }]}>
-      <Text style={[styles.bannerText, { color: fg }]}>{message}</Text>
+    <View style={[styles.banner, styles.bannerOpenable, { backgroundColor: bg }]}>
+      <Pressable
+        onPress={() => setOpen((prev) => !prev)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        style={({ pressed }) => [styles.bannerHead, pressed && styles.bannerPressed]}
+      >
+        <Text style={[styles.bannerText, styles.bannerHeadText, { color: fg }]}>{message}</Text>
+        {count > 0 ? <Text style={[styles.bannerCount, { color: fg }]}>{count}</Text> : null}
+        <Text style={[styles.bannerChevron, { color: fg }]}>{open ? '▾' : '▸'}</Text>
+      </Pressable>
+      {open ? <View style={styles.bannerBody}>{children}</View> : null}
     </View>
   );
 }
@@ -391,6 +425,7 @@ export function capturesForStatus(captures, status) {
 }
 
 const styles = StyleSheet.create({
+  cardNarrow: { paddingHorizontal: spacing.md },
   card: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
@@ -582,6 +617,28 @@ const styles = StyleSheet.create({
   buttonTextDanger: { color: colors.error },
   pill: { paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: 999, alignSelf: 'flex-start' },
   pillText: { fontSize: 12, fontWeight: '700' },
+  bannerOpenable: { paddingVertical: 0, paddingHorizontal: 0 },
+  bannerHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  bannerHeadText: { flex: 1 },
+  bannerPressed: { opacity: 0.7 },
+  bannerCount: { fontSize: 13, fontWeight: '800' },
+  bannerChevron: { fontSize: 12, fontWeight: '700' },
+  // Sits on the page's own ground rather than the warning colour, so
+  // what opens reads as content rather than as more warning.
+  bannerBody: {
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
+    borderBottomLeftRadius: radius.md,
+    borderBottomRightRadius: radius.md,
+  },
   banner: { borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md },
   bannerText: { fontSize: 14, fontWeight: '600' },
   stat: { flex: 1, minWidth: 76, alignItems: 'center', paddingVertical: spacing.sm },

@@ -28,10 +28,11 @@ import { placeOrders } from '../orders';
 import { nearestAreaFor, serviceRouteFor } from '../serviceAreas';
 import { colors, radius, spacing } from '../theme';
 import { EVERY_DAY, daysFromMask, describeDays } from '../frequency';
-import { useNarrow, useTouchOnly } from '../layout';
+import { useNarrow, usePageStyle, useTouchOnly } from '../layout';
 import { UndoBar, useUndoStack } from '../undo';
 
 export default function CustomersScreen({ token, business }) {
+  const pageStyle = usePageStyle(720);
   const labels = labelsFor(business);
   const fieldSpecs = customFieldsFor(business, 'customer');
   const [customers, setCustomers] = useState([]);
@@ -129,7 +130,7 @@ export default function CustomersScreen({ token, business }) {
   const matching = words.length === 0 ? null : new Set(visibleCustomers.map((customer) => customer.id));
 
   return (
-    <ScrollView contentContainerStyle={styles.page}>
+    <ScrollView contentContainerStyle={pageStyle}>
       <Banner message={error} />
       <Banner message={notice} tone="success" />
       <UndoBar
@@ -1480,7 +1481,6 @@ function productName(products, id) {
 }
 
 const styles = StyleSheet.create({
-  page: { padding: spacing.lg, maxWidth: 720, width: '100%', alignSelf: 'center' },
   loader: { marginTop: spacing.xl * 2 },
   group: { marginBottom: spacing.md },
   headingActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
