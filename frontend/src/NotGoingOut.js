@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import * as api from './api';
-import { Banner, Button, Card, Disclosure, Field, Pill, SectionTitle } from './components';
+import { Banner, Button, Card, Disclosure, Field } from './components';
 import LocationPicker from './LocationPicker';
 import { groupStopsByCustomer, StopCard } from './routeCards';
 import { lower } from './labels';
@@ -11,18 +11,21 @@ import { colors, spacing } from './theme';
 
 // Everything that isn't going out today, and why.
 //
-// This used to be two cards. "Not yet on a route" listed every unrouted
-// delivery; "Outside your service routes" listed the ones with a pin that
-// no area covered. On a business that hasn't drawn its areas yet those
-// are the *same deliveries*, so the screen showed the identical count
-// twice under two different headings and left the reader to work out
-// whether they were one problem or two. They were one problem described
-// at two levels: the symptom, and its cause.
+// The grouping outlived the card it was built for. It was two cards
+// once — "Not yet on a route" and "Outside your service routes" — which
+// on a business that had drawn no areas were the same deliveries listed
+// twice under two headings, one the symptom and one the cause. That
+// became a single card grouped by cause, at the foot of the day.
 //
-// So: one card, grouped by cause, with the fix attached to each group.
-// A delivery is only ever in one group, the counts add up to the total,
-// and the heading says the thing the admin actually cares about — these
-// are not going out — rather than naming an internal state.
+// The card is gone now too. The day board already carried a warning per
+// problem at the top, so the card was the third telling: a banner named
+// it, then you scrolled past the whole round to find it again. What is
+// left here is the part that was always the useful bit — which cause a
+// delivery belongs to, and what fixes it — for the banners to open onto.
+// See TodayScreen and Docs/DESIGN.md.
+//
+// A delivery is only ever in one group, and the counts add up to the
+// deliveries that are not going out.
 // Why a delivery is not going out, in the order the reasons have to be
 // fixed. No pin comes first because nothing else can be decided without
 // one.
@@ -49,66 +52,6 @@ export function notGoingOutCauses(stops, areas) {
   return { pending, unpinned, outside, waiting };
 }
 
-export default function NotGoingOut({ token, stops, areas, home, date, products, labels, onChanged, onError, onNotice }) {
-  const { pending, unpinned, outside, waiting } = notGoingOutCauses(stops, areas);
-  if (pending.length === 0) {
-    return null;
-  }
-
-  return (
-    <Card>
-      <SectionTitle right={<Pill label={String(pending.length)} tone="warning" />}>Not going out yet</SectionTitle>
-      <View style={styles.headingDivider} />
-
-      <CauseGroup
-        title="We don't know where they live"
-        count={unpinned.length}
-        explanation={`Without a pin on the map there is no way to put ${
-          unpinned.length === 1 ? 'this delivery' : 'these deliveries'
-        } in order, so they are left out. Open the customer and drop a pin where you deliver — the written address isn't enough on its own.`}
-        stops={unpinned}
-        products={products}
-        token={token}
-        onChanged={onChanged}
-        onError={onError}
-        home={home}
-        areas={areas}
-      />
-
-      <CauseGroup
-        title="Outside where you deliver"
-        count={outside.length}
-        explanation={`These sit outside every service ${lower(labels.route)} you've set up, so no ${lower(labels.route)} covers them. Setting one up on the Business tab fixes it for good — every day from then on. To get just today out, build a one-off ${lower(labels.route)} for them below.`}
-        stops={outside}
-        products={products}
-        token={token}
-        onChanged={onChanged}
-        onError={onError}
-        home={home}
-        areas={areas}
-      >
-        <OneOffRoute token={token} stops={outside} areas={areas} home={home} date={date} labels={labels} onDone={onNotice} />
-      </CauseGroup>
-
-      <CauseGroup
-        title={`Waiting for a ${lower(labels.route)}`}
-        count={waiting.length}
-        explanation={`These are inside an area you deliver to, so a ${lower(labels.route)} will pick them up. If they're still here after a reload, the area's ${lower(labels.route)} was cleared — it comes back on its own tomorrow, or you can rebuild it from its options.`}
-        stops={waiting}
-        products={products}
-        token={token}
-        onChanged={onChanged}
-        onError={onError}
-        home={home}
-        areas={areas}
-      />
-    </Card>
-  );
-}
-
-// One reason, its explanation, its deliveries, and whatever action is
-// specific to it. Hidden entirely when nothing has this problem, so a
-// business only ever reads the causes it actually has.
 // The deliveries behind one reason, with no heading of their own — the
 // warning that opened them is the heading.
 export function CauseStops({ stops, products, token, home, areas, onChanged, onError, children }) {
@@ -134,55 +77,6 @@ export function CauseStops({ stops, products, token, home, areas, onChanged, onE
   );
 }
 
-function CauseGroup({ title, count, explanation, stops, products, token, home, areas, onChanged, onError, children }) {
-  const [expanded, setExpanded] = useState(false);
-  if (count === 0) {
-    return null;
-  }
-
-  return (
-    <View style={styles.group}>
-      <Disclosure
-        open={expanded}
-        onToggle={() => setExpanded((prev) => !prev)}
-        right={<Pill label={String(count)} tone="neutral" />}
-      >
-        {title}
-      </Disclosure>
-      {expanded ? (
-        <View>
-          <Text style={styles.explanation}>{explanation}</Text>
-          {children}
-          {groupStopsByCustomer(stops).map((door) => (
-            <StopCard
-              key={door[0].customer_id || door[0].id}
-              stops={door}
-              products={products}
-              token={token}
-              onChanged={onChanged}
-              onError={onError}
-              home={home}
-              // These are on no round at all, most of them because they
-              // have no pin. The business's own service routes are the
-              // best guess at which town to open on — and where there is
-              // only one, it is not a guess.
-              focusAreas={areas || []}
-            />
-          ))}
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
-// Today's way out for deliveries no area covers: put them on a route of
-// their own. Deliberately not automatic — dropping a customer 60km away
-// onto whichever route happened to exist is exactly the behaviour that
-// made service areas necessary in the first place.
-//
-// Owns its own error state rather than pushing it to a banner at the top
-// of the page: an error about this action belongs next to this action,
-// where the person who pressed the button is already looking.
 export function OneOffRoute({ token, stops, areas, home, date, labels, onDone }) {
   const [expanded, setExpanded] = useState(false);
   const [depot, setDepot] = useState(() =>
