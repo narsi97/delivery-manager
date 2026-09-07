@@ -568,7 +568,7 @@ const styles = StyleSheet.create({
   itemName: { fontSize: 15, fontWeight: '600', color: colors.text },
   itemNameDone: { color: colors.subtitle, textDecorationLine: 'line-through' },
   itemNote: { fontSize: 12, color: colors.hint, marginTop: 1 },
-  itemChevron: { fontSize: 14, fontWeight: '700', color: colors.link, width: 14, textAlign: 'center' },
+  itemChevron: { fontSize: 18, lineHeight: 20, fontWeight: '700', color: colors.link, width: 20, textAlign: 'center' },
   doorActionsHidden: { display: 'none' },
   doorMore: { alignSelf: 'flex-start', paddingHorizontal: spacing.xs, paddingVertical: 2 },
   doorMoreGlyph: { fontSize: 16, fontWeight: '700', color: colors.link, lineHeight: 18 },

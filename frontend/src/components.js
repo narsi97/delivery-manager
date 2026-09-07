@@ -599,7 +599,7 @@ const styles = StyleSheet.create({
   disclosureTitleCompact: { fontSize: 15, color: colors.link },
   disclosureRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   disclosureChevron: { fontSize: 20, fontWeight: '700', color: colors.link, width: 20, textAlign: 'center' },
-  disclosureChevronCompact: { fontSize: 16, width: 16 },
+  disclosureChevronCompact: { fontSize: 18, width: 20 },
   // Form rhythm. A label, its input and the gap to the next label repeat
   // for every field on the screen, so a few pixels each compounds fast: a
   // six-field form was running most of a phone screen tall for six short
@@ -653,7 +653,10 @@ const styles = StyleSheet.create({
   bannerHeadText: { flex: 1 },
   bannerPressed: { opacity: 0.7 },
   bannerCount: { fontSize: 13, fontWeight: '800' },
-  bannerChevron: { fontSize: 12, fontWeight: '700' },
+  // Big enough to aim at. The row is what you press, so this is only
+  // ever a mark — but a 12px glyph reads as decoration, and somebody has
+  // to see that a warning has more inside it before they will open one.
+  bannerChevron: { fontSize: 18, lineHeight: 20, fontWeight: '700', width: 20, textAlign: 'center' },
   // Sits on the page's own ground rather than the warning colour, so
   // what opens reads as content rather than as more warning.
   bannerBody: {

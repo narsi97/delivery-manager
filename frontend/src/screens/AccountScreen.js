@@ -438,7 +438,7 @@ const styles = StyleSheet.create({
   tileHeadText: { flex: 1, minWidth: 0 },
   tileName: { fontSize: 15, fontWeight: '700', color: colors.text },
   tileMeta: { fontSize: 12, color: colors.subtitle, marginTop: 1 },
-  tilePencil: { fontSize: 15, color: colors.link, width: 20, textAlign: 'center' },
+  tilePencil: { fontSize: 18, lineHeight: 20, color: colors.link, width: 22, textAlign: 'center' },
   tileBody: { marginTop: spacing.sm },
   dangerText: { color: colors.error },
   // Says what kind of tile this is without taking the heading's job.

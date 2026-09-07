@@ -13,6 +13,7 @@ import { serviceRouteOfRoute } from '../serviceAreas';
 import { CauseStops, notGoingOutCauses, OneOffRoute } from '../NotGoingOut';
 import { usePageStyle } from '../layout';
 import { formatQuantity } from '../productGroups';
+import ProductTable from '../ProductTable';
 import { colors, spacing } from '../theme';
 
 // The admin's whole day, on one screen.
@@ -237,8 +238,6 @@ export default function TodayScreen({ token, business }) {
     .map((product) => ({
       name: product.name,
       short: Math.max(0, (demand[product.id] || 0) - (Number(product.stock_quantity) || 0)),
-      needed: demand[product.id] || 0,
-      have: Number(product.stock_quantity) || 0,
     }))
     .filter((line) => line.short > 0)
     .sort((a, b) => b.short - a.short);
@@ -250,7 +249,9 @@ export default function TodayScreen({ token, business }) {
         shortSizes.length === 1
           ? `${shortSizes[0].name}: ${formatQuantity(shortSizes[0].short)} short of what this day needs.`
           : `${shortSizes.length} things are short of what this day needs.`,
-      lines: shortSizes,
+      // The table itself, not a summary of it: the answer to being short
+      // is to change the number, and it is right there to change.
+      products: true,
     });
   }
 
@@ -314,19 +315,17 @@ export default function TodayScreen({ token, business }) {
         ) : (
           exceptions.map((exception) => (
             <Banner key={exception.key} tone="info" message={exception.message} count={exception.count}>
-              {exception.lines ? (
-                <View style={styles.shortList}>
-                  {exception.lines.map((line) => (
-                    <View key={line.name} style={styles.shortRow}>
-                      <Text style={styles.shortName}>{line.name}</Text>
-                      <Text style={styles.shortNumbers}>
-                        {formatQuantity(line.needed)} needed · {formatQuantity(line.have)} in stock
-                      </Text>
-                      <Text style={styles.shortBy}>{formatQuantity(line.short)} short</Text>
-                    </View>
-                  ))}
-                  <Text style={styles.shortNote}>Stock is set under Manage business.</Text>
-                </View>
+              {/* The banner body is already a white ground (see
+                  Banner), so the table lands on the same surface it has
+                  under Manage business. */}
+              {exception.products ? (
+                <ProductTable
+                  products={products}
+                  demand={demand}
+                  token={token}
+                  onChanged={refresh}
+                  onError={setError}
+                />
               ) : null}
               {exception.stops ? (
                 <CauseStops
@@ -433,17 +432,35 @@ export default function TodayScreen({ token, business }) {
         </View>
       </Card>
 
+      {/* Under the rounds, and only on a day that has enough of
+          everything. Short, and it is up in the warnings instead, where
+          something needing a decision belongs — the same table either
+          way, so the numbers never move around under somebody's hands.
+          See Docs/DESIGN.md, rule 4: show what is true. */}
+      {products.length > 0 && shortSizes.length === 0 ? (
+        <Card>
+          <SectionTitle>Stock</SectionTitle>
+          <View style={styles.headingDivider} />
+          <ProductTable
+            products={products}
+            demand={demand}
+            token={token}
+            onChanged={refresh}
+            onError={setError}
+          />
+        </Card>
+      ) : null}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  shortList: { gap: 2 },
-  shortRow: { flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap', gap: spacing.sm, paddingVertical: 3 },
-  shortName: { fontSize: 14, fontWeight: '600', color: colors.text },
-  shortNumbers: { fontSize: 12, color: colors.subtitle, fontVariant: ['tabular-nums'] },
-  shortBy: { fontSize: 13, fontWeight: '700', color: colors.warning, marginLeft: 'auto' },
-  shortNote: { fontSize: 12, color: colors.subtitle, marginTop: spacing.xs },
+  headingDivider: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    marginTop: -spacing.sm,
+    marginBottom: spacing.md,
+  },
   loader: { marginTop: spacing.xl * 2 },
   chartRow: { marginBottom: spacing.md },
   note: { fontSize: 12, color: colors.hint, marginTop: spacing.sm, lineHeight: 17 },
