@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import * as api from '../api';
@@ -625,10 +625,12 @@ function ProductGroup({ group, demand, token, onChanged, onError }) {
               what a list of cards was doing. */}
           <View style={styles.productRow}>
             <Text style={[styles.productSize, styles.productHeadCell]}>Size</Text>
-            <Text style={[styles.productCell, styles.productHeadCell]}>Price</Text>
+            {/* The rupee sign moved up here when the cell became
+                something you type in — a currency symbol inside an
+                input is one more character to select around. */}
+            <Text style={[styles.productCell, styles.productHeadCell]}>Price ₹</Text>
             <Text style={[styles.productCell, styles.productHeadCell]}>Stock</Text>
             <Text style={[styles.productCell, styles.productHeadCell]}>Today</Text>
-            <Text style={styles.productChevron} />
           </View>
         </View>
       )}
@@ -647,40 +649,31 @@ function ProductGroup({ group, demand, token, onChanged, onError }) {
   );
 }
 
-// One size, with the two things a business actually keeps changing:
-// what it charges, and how much of it there is this morning.
+// One size, and the two numbers a business actually keeps changing.
 //
-// Price was previously write-once — set at creation or never, which is
-// backwards, since a dairy usually names its products before it has
-// settled on prices. Stock is a number the admin sets rather than one
-// the app decrements per delivery: a tally that drifts the first time
-// something is spilled or given away is worse than no tally at all.
+// Edited in the table, not by opening a form. The row already showed
+// price and stock as columns, so expanding it into fields called Price
+// and In stock was the same table twice — and it shoved every size below
+// it down the page, so a morning spent entering five stock counts was
+// five open-type-save-close cycles for five numbers.
 //
-// "Needed today" is what makes the stock number mean anything. It is the
-// day's still-pending quantity for this product, so an admin loading the
-// van can see 118 needed against 120 in stock and know they are fine.
+// Saving on blur with no Save button is what this app already does with
+// a number: the coordinate boxes, the priority picker, the position in
+// the round. See Docs/DESIGN.md.
+//
+// "Needed today" stays read-only. It is worked out from the round rather
+// than typed, and it is what makes the stock number mean anything — 118
+// needed against 120 in stock is a morning nobody has to think about.
 function ProductRow({ product, label, neededToday, token, onChanged, onError }) {
-  const [expanded, setExpanded] = useState(false);
-  const [price, setPrice] = useState(product.price_cents > 0 ? String(product.price_cents / 100) : '');
-  const [stock, setStock] = useState(String(product.stock_quantity || 0));
-  const [unit, setUnit] = useState(product.unit || '');
   const [busy, setBusy] = useState(false);
 
-  const short = () => {
-    const have = Number(product.stock_quantity) || 0;
-    return neededToday > 0 && have < neededToday;
-  };
+  const have = Number(product.stock_quantity) || 0;
+  const short = neededToday > 0 && have < neededToday;
 
-  const save = async () => {
+  const commit = async (changes) => {
     setBusy(true);
     try {
-      const rupees = Number(price);
-      await api.updateProduct(token, product.id, {
-        unit: unit.trim() || undefined,
-        price_cents: Number.isFinite(rupees) && rupees > 0 ? Math.round(rupees * 100) : 0,
-        stock_quantity: Number(stock) || 0,
-      });
-      setExpanded(false);
+      await api.updateProduct(token, product.id, changes);
       await onChanged();
     } catch (err) {
       onError(err.message);
@@ -691,50 +684,132 @@ function ProductRow({ product, label, neededToday, token, onChanged, onError }) 
 
   return (
     <View style={styles.productBlock}>
-      {/* Four columns, so a price list reads like a price list: which
-          size, what it costs, what there is, what today wants. The
-          numbers are tabular, which is what lets the eye run down them.
-          See Docs/DESIGN.md. */}
-      <Pressable onPress={() => setExpanded((prev) => !prev)} accessibilityRole="button" style={styles.productRow}>
-        <Text style={styles.productSize}>{label}</Text>
-        <Text style={[styles.productCell, !product.price_cents && styles.productCellUnset]}>
-          {product.price_cents > 0 ? `₹${(product.price_cents / 100).toFixed(0)}` : '—'}
+      <View style={styles.productRow}>
+        <Text style={styles.productSize} numberOfLines={1}>
+          {label}
         </Text>
-        <Text style={[styles.productCell, short() && styles.productCellShort]}>
-          {formatQuantity(product.stock_quantity)}
-        </Text>
-        <Text style={[styles.productCell, short() && styles.productCellShort]}>
+        <NumberCell
+          value={product.price_cents > 0 ? String(product.price_cents / 100) : ''}
+          empty="—"
+          busy={busy}
+          ariaLabel={`Price of ${product.name} in rupees`}
+          onCommit={(raw) => {
+            const rupees = Number(raw);
+            const cents = Number.isFinite(rupees) && rupees > 0 ? Math.round(rupees * 100) : 0;
+            if (cents !== product.price_cents) {
+              commit({ price_cents: cents });
+            }
+          }}
+        />
+        <NumberCell
+          value={String(have)}
+          busy={busy}
+          warn={short}
+          ariaLabel={`Stock of ${product.name}`}
+          onCommit={(raw) => {
+            const next = Number(raw) || 0;
+            if (next !== have) {
+              commit({ stock_quantity: next });
+            }
+          }}
+        />
+        <Text style={[styles.productCell, styles.productCellRead, short && styles.productCellShort]}>
           {neededToday > 0 ? formatQuantity(neededToday) : '—'}
         </Text>
-        <Text style={styles.productChevron}>{expanded ? '▾' : '▸'}</Text>
-      </Pressable>
-
-      {expanded ? (
-        <View style={styles.productEditor}>
-          <FieldRow>
-            <Field label="Unit" size="sm" value={unit} onChangeText={setUnit} placeholder="packet / can / trip" />
-            <Field label="Price ₹" size="xs" value={price} onChangeText={setPrice} keyboardType="numeric" placeholder="60" />
-            <Field label="In stock" size="xs" value={stock} onChangeText={setStock} keyboardType="numeric" />
-          </FieldRow>
-          <View style={styles.buttonRow}>
-            <Button title="Save" onPress={save} busy={busy} style={styles.flexButton} />
-            <Button
-              title="Cancel"
-              variant="secondary"
-              onPress={() => {
-                setPrice(product.price_cents > 0 ? String(product.price_cents / 100) : '');
-                setStock(String(product.stock_quantity || 0));
-                setUnit(product.unit || '');
-                setExpanded(false);
-              }}
-              style={styles.flexButton}
-            />
-          </View>
-        </View>
-      ) : null}
+      </View>
     </View>
   );
 }
+
+// A number you can type over, in a table.
+//
+// Bare until touched, then a box — so a column of them reads as figures
+// rather than as a form. Commits on blur or Enter, abandons on Escape,
+// and says nothing when the value has not actually changed.
+function NumberCell({ value, empty, warn, busy, ariaLabel, onCommit }) {
+  const [typed, setTyped] = useState(null);
+  const [focused, setFocused] = useState(false);
+  // The blur handler closes over state as it was when the input last
+  // rendered, which a paste followed straight away by a blur outruns —
+  // the same ref LocationPicker keeps for its coordinate boxes.
+  const typedRef = useRef(null);
+
+  const done = () => {
+    const raw = typedRef.current;
+    typedRef.current = null;
+    setTyped(null);
+    setFocused(false);
+    if (raw !== null && raw !== value) {
+      onCommit(raw);
+    }
+  };
+
+  return (
+    <input
+      value={typed === null ? value || (empty ?? '') : typed}
+      inputMode="decimal"
+      disabled={busy}
+      aria-label={ariaLabel}
+      onFocus={(event) => {
+        setFocused(true);
+        setTyped(value);
+        typedRef.current = value;
+        event.target.select();
+      }}
+      onChange={(event) => {
+        const next = event.target.value.replace(/[^0-9.]/g, '');
+        typedRef.current = next;
+        setTyped(next);
+      }}
+      onBlur={done}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.target.blur();
+        } else if (event.key === 'Escape') {
+          typedRef.current = null;
+          setTyped(null);
+          event.target.blur();
+        }
+      }}
+      style={{
+        ...numberCellStyle,
+        ...(focused ? numberCellFocusStyle : null),
+        ...(warn && !focused ? numberCellWarnStyle : null),
+      }}
+    />
+  );
+}
+
+// Bare until touched: a column of boxes would read as a form, and this
+// is a table.
+const numberCellStyle = {
+  width: 66,
+  textAlign: 'right',
+  fontSize: 14,
+  color: colors.label,
+  fontFamily: 'inherit',
+  fontVariantNumeric: 'tabular-nums',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: 'transparent',
+  borderRadius: radius.sm,
+  backgroundColor: 'transparent',
+  paddingTop: 3,
+  paddingBottom: 3,
+  paddingLeft: 6,
+  paddingRight: 6,
+  outline: 'none',
+  cursor: 'text',
+};
+
+const numberCellFocusStyle = {
+  borderColor: colors.accent,
+  backgroundColor: colors.surface,
+  color: colors.text,
+};
+
+const numberCellWarnStyle = { color: colors.warning, fontWeight: '700' };
+
 
 // Quantities are whole numbers almost always (12 packets, not 12.0), but
 // half a can is a real thing — so show a decimal only when there is one.
@@ -982,7 +1057,7 @@ const styles = StyleSheet.create({
   // group. Tabular figures, or a 1 and a 4 shift the column.
   productSize: { flex: 1, fontSize: 14, fontWeight: '700', color: colors.text, minWidth: 0 },
   productCell: {
-    width: 58,
+    width: 66,
     textAlign: 'right',
     fontSize: 14,
     color: colors.label,
@@ -996,6 +1071,9 @@ const styles = StyleSheet.create({
     color: colors.hint,
   },
   productCellUnset: { color: colors.hint },
+  // The read-only column keeps the inputs' padding so its digits sit in
+  // the same place theirs do.
+  productCellRead: { paddingHorizontal: 6 },
   productCellShort: { color: colors.warning, fontWeight: '700' },
   productChevron: { fontSize: 14, color: colors.link, fontWeight: '700', width: 16, textAlign: 'center' },
   productEditor: { marginBottom: spacing.sm },
