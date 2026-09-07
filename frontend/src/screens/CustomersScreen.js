@@ -219,40 +219,60 @@ export default function CustomersScreen({ token, business, user }) {
 
         {view === 'list' ? (
           <>
+            {/* One row, no field labels. A box you type in with a
+                magnifier in it is a search box everywhere else somebody
+                uses a phone, and a dropdown reading "By route" says what
+                it is by saying what it is set to. The words "Search",
+                "View" and "Sort by" above them were the screen naming
+                its own controls. */}
             <View style={styles.toolsRow}>
-              <Field
-                label="Search"
-                size="md"
-                value={search}
-                onChangeText={setSearch}
-                placeholder="Name, phone, or address"
-              />
-              <View style={styles.groupByField}>
-                <Text style={styles.groupByLabel}>View</Text>
-                <select value={groupBy} style={groupBySelectStyle} onChange={(event) => setGroupBy(event.target.value)}>
-                  <option value="city">By {lower(labels.route)}</option>
-                  <option value="all">Everyone</option>
-                  <option value="business">Shops only</option>
-                  <option value="early">Needs it early</option>
-                  <option value="unrouted">Not on a {lower(labels.route)}</option>
-                  <option value="nopin">Missing a pin</option>
-                  <option value="paused">Paused</option>
-                </select>
+              <View style={styles.searchBox}>
+                <Text style={styles.searchGlyph}>⌕</Text>
+                <input
+                  value={search}
+                  aria-label={`Search ${lower(labels.customer_plural)}`}
+                  placeholder="Name, phone, or address"
+                  onChange={(event) => setSearch(event.target.value)}
+                  style={searchInputStyle}
+                />
+                {search ? (
+                  <Pressable
+                    onPress={() => setSearch('')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Clear the search"
+                    style={({ pressed }) => [styles.searchClear, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.searchClearGlyph}>✕</Text>
+                  </Pressable>
+                ) : null}
               </View>
-              <View style={styles.groupByField}>
-                <Text style={styles.groupByLabel}>Sort by</Text>
-                <select value={sortBy} style={groupBySelectStyle} onChange={(event) => setSortBy(event.target.value)}>
-                  <option value="priority">Delivery order</option>
-                  <option value="name">Name</option>
-                </select>
-              </View>
+              <select
+                value={groupBy}
+                aria-label="Which ones to show"
+                style={groupBySelectStyle}
+                onChange={(event) => setGroupBy(event.target.value)}
+              >
+                <option value="city">By {lower(labels.route)}</option>
+                <option value="all">Everyone</option>
+                <option value="business">Shops only</option>
+                <option value="early">Needs it early</option>
+                <option value="unrouted">Not on a {lower(labels.route)}</option>
+                <option value="nopin">Missing a pin</option>
+                <option value="paused">Paused</option>
+              </select>
+              <select
+                value={sortBy}
+                aria-label="What order to show them in"
+                style={groupBySelectStyle}
+                onChange={(event) => setSortBy(event.target.value)}
+              >
+                <option value="priority">Delivery order</option>
+                <option value="name">Name</option>
+              </select>
             </View>
 
             {customers.length === 0 ? (
-              <Empty>
-                No {lower(labels.customer_plural)} yet. Add the first one with the + above — or bring a list you
-                already have in with Import.
-              </Empty>
+              <Empty>No {lower(labels.customer_plural)} yet.</Empty>
             ) : visibleCustomers.length === 0 ? (
               <Empty>
                 No {lower(labels.customer_plural)} match &quot;{search.trim()}&quot;.
@@ -347,6 +367,21 @@ export default function CustomersScreen({ token, business, user }) {
 // later without reshaping this screen again. Sized to content rather
 // than stretched — same "a picker isn't a paragraph" reasoning as the
 // route screens' driver <select> (see routeCards.js's compactSelectStyle).
+// Borderless: the box around it is the search field's, and a second
+// border inside the first reads as two controls.
+const searchInputStyle = {
+  flex: 1,
+  minWidth: 0,
+  border: 'none',
+  outline: 'none',
+  background: 'transparent',
+  paddingTop: spacing.sm,
+  paddingBottom: spacing.sm,
+  fontSize: 15,
+  color: colors.text,
+  fontFamily: 'inherit',
+};
+
 const groupBySelectStyle = {
   width: 'auto',
   minWidth: 100,
@@ -555,11 +590,6 @@ function CustomerGroup({
         {name}
       </Disclosure>
       {isExpanded && shown.length === 0 ? <Empty>{empty || 'Nothing here.'}</Empty> : null}
-      {isExpanded && !routed && customers.length > 0 && empty === undefined ? (
-        <Text style={styles.orderHint}>
-          Not on any {lower(labels.route)} yet — give them a pin inside one, or put them on one from their card.
-        </Text>
-      ) : null}
       {/* Reordering is something a business does when the round
           changes, not while reading it. One switch, rather than a
           hundred and fifty-six glyphs down the side of the list — see
@@ -1440,10 +1470,7 @@ function NewOrderForm({ token, customer, subscriptions = [], products, labels, t
       {expanded ? (
         <View>
           {hasStandingOrder && kind === 'weekly' ? (
-            <Text style={styles.note}>
-              Their standing order, as it is now. Change a number and save, and it replaces what they had — set one to
-              zero to stop it.
-            </Text>
+            <Text style={styles.note}>Set one to zero to stop it.</Text>
           ) : null}
           <Text style={styles.label}>How often</Text>
           <View style={styles.chipRow}>
@@ -1485,10 +1512,7 @@ function NewOrderForm({ token, customer, subscriptions = [], products, labels, t
                 onChangeText={setNote}
                 placeholder="For the festival"
               />
-              <Text style={styles.note}>
-                Goes straight onto that day&apos;s deliveries — no need to press Generate. Their standing order is
-                untouched.
-              </Text>
+              <Text style={styles.note}>That day only — their standing order is untouched.</Text>
             </View>
           ) : null}
 
@@ -1573,8 +1597,31 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
   },
   headingActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  toolsRow: { flexDirection: 'row', alignItems: 'flex-end', flexWrap: 'wrap', gap: spacing.md },
-  groupByField: { marginBottom: spacing.md },
+  toolsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  // The search box takes the slack and the two pickers keep their own
+  // width, so on a phone the box is a line of its own and the pickers
+  // sit under it as a pair.
+  searchBox: {
+    flexGrow: 1,
+    flexBasis: 220,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.sm,
+  },
+  searchGlyph: { fontSize: 18, color: colors.hint, marginRight: 2 },
+  searchClear: { paddingHorizontal: spacing.xs, paddingVertical: 2 },
+  searchClearGlyph: { fontSize: 13, fontWeight: '700', color: colors.subtitle },
   plainRow: { width: '100%' },
   routePicker: { marginBottom: spacing.sm },
   // Priority and route share a line. Each takes half, and 210 is about
@@ -1666,7 +1713,6 @@ const styles = StyleSheet.create({
   moveButtonOff: { opacity: 0.35 },
   moveGlyph: { fontSize: 13, fontWeight: '700', color: colors.link, lineHeight: 15 },
   moveGlyphOff: { color: colors.hint },
-  groupByLabel: { fontSize: 13, fontWeight: '600', color: colors.label, marginBottom: spacing.xs },
   todayLine: { fontSize: 13, color: colors.label, marginBottom: spacing.md, fontWeight: '600' },
   note: { fontSize: 12, color: colors.hint, marginTop: spacing.sm, marginBottom: spacing.md, lineHeight: 17 },
   customerMeta: { fontSize: 13, color: colors.subtitle, marginTop: 2 },

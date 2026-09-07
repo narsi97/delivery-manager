@@ -245,10 +245,7 @@ export default function BusinessScreen({ token, business, user, currentUserId, o
         ) : null}
 
         {areas.length === 0 ? (
-          <Empty>
-            Nothing set up yet. A route is prepared for each place you deliver to, so this is the one thing worth
-            setting up first.
-          </Empty>
+          <Empty>Nothing set up yet.</Empty>
         ) : (
           <View style={styles.tiles}>
           {areas.map((area) => (

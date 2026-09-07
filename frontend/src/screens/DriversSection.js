@@ -132,7 +132,7 @@ export default function DriversSection({ token, currentUserId, business, user })
             onError={setError}
           />
         ) : drivers.length === 0 ? (
-          <Empty>No drivers yet. Add the first one with the + above.</Empty>
+          <Empty>No drivers yet.</Empty>
         ) : (
           <View style={styles.driverTiles}>
           {drivers.map((driver, index) => (
@@ -194,10 +194,7 @@ function NewDriverForm({ token, onCreated, onError }) {
         placeholder="98765 43210"
       />
       <Button title="Add driver" onPress={submit} busy={busy} disabled={!name.trim() || !phone.trim()} />
-      <Text style={styles.note}>
-        They sign in with this number and a password. Set it from their card once they&apos;re added, and tell them
-        what it is.
-      </Text>
+      <Text style={styles.note}>They sign in with this number. Set a password from their card.</Text>
     </View>
   );
 }
@@ -353,9 +350,7 @@ function DriverRow({ driver, today, token, business, labels, isSelf, isFirst, ca
                 })}
               </View>
               {finishAt === 'home' && !hasHome ? (
-                <Text style={styles.note}>
-                  No home pinned yet, so this route will end wherever the last stop is. Set it below.
-                </Text>
+                <Text style={styles.note}>No home pinned — the route ends at the last stop.</Text>
               ) : null}
 
               {finishAt === 'custom' ? (

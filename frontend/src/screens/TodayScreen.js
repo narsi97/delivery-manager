@@ -377,10 +377,10 @@ export default function TodayScreen({ token, business }) {
           ) : routes.length === 0 ? (
             <Empty>
               {areas.length === 0
-                ? `A ${lower(labels.route)} is prepared for each service ${lower(labels.route)} you set up, and you have none yet — start under Manage business.`
+                ? `No service ${lower(labels.route)}s yet — set one up under Manage business.`
                 : summary.total === 0
                   ? 'Nothing to deliver on this day.'
-                  : `Nothing routed yet. ${labels.route}s are prepared for each service ${lower(labels.route)} that has deliveries in it.`}
+                  : `Nothing routed yet.`}
             </Empty>
           ) : (
             <View>
@@ -421,17 +421,6 @@ export default function TodayScreen({ token, business }) {
               ))}
             </View>
           )}
-          {/* How the rounds get made is worth saying to somebody who
-              has never seen it, and worth saying once — so it sits under
-              an empty list, not under a working one. A sentence read
-              every morning for a year is furniture. See
-              Docs/DESIGN.md. */}
-          {view === 'list' && workingAreas.length === 0 && looseRoutes.length === 0 ? (
-            <Text style={styles.note}>
-              One {lower(labels.route)} per service {lower(labels.route)}, prepared for every day automatically. Tell it
-              who is driving and it splits itself between them.
-            </Text>
-          ) : null}
         </View>
       </Card>
 

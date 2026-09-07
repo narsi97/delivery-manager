@@ -267,10 +267,9 @@ function ChangePasswordForm({ token, user, onNotice, onError }) {
 
   return (
     <View>
-      <Text style={styles.note}>
-        You sign in with {user?.phone || 'your phone number'} and this password. There is no way to email you a
-        reset, so keep it somewhere safe.
-      </Text>
+      {/* The one thing on this page somebody has to be told: there is
+          no email on file, so nothing can send them a reset link. */}
+      <Text style={styles.note}>No password reset — keep it somewhere safe.</Text>
       <Field
         label={t('current_password')}
         size="md"

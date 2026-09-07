@@ -259,10 +259,7 @@ export default function AreaRoutesCard({
             busy={busy}
             style={styles.capApply}
           />
-          <Text style={styles.note}>
-            Leave blank to share the area evenly. Anything past everyone&apos;s limit stays unassigned, and shows
-            below as not going out. This is saved on the driver, so it holds tomorrow too.
-          </Text>
+          <Text style={styles.note}>Blank shares it evenly. Anything past a limit stays unassigned.</Text>
         </View>
       ) : null}
 
