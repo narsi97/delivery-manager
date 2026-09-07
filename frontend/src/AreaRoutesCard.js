@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import * as api from './api';
 import { Banner, Button, Card, Disclosure, Pill } from './components';
-import { groupStopsByCustomer, StopCard } from './routeCards';
+import DayOrderTable from './DayOrderTable';
 import { lower } from './labels';
 import { colors, radius, spacing } from './theme';
 
@@ -307,25 +307,20 @@ export default function AreaRoutesCard({
                 {routeStops.length === 0 ? (
                   <Text style={styles.routeStopsEmpty}>Nothing on this {lower(labels.route)} yet.</Text>
                 ) : (
-                  groupStopsByCustomer(routeStops).map((door, index, doors) => (
-                    <StopCard
-                      key={door[0].customer_id || door[0].id}
-                      stops={door}
-                      position={index + 1}
-                      products={products}
-                      token={token}
-                      onChanged={onChanged}
-                      onError={onError}
-                      onReorder={arranging ? (position) => moveStop(door[0].id, position) : null}
-                      canMoveUp={index > 0}
-                      canMoveDown={index < doors.length - 1}
-                      home={home}
-                      drivers={drivers}
-                      // This card is one service route, so a stop on it
-                      // with no pin belongs somewhere inside that circle.
-                      focusAreas={area ? [area] : []}
-                    />
-                  ))
+                  <DayOrderTable
+                    stops={routeStops}
+                    products={products}
+                    token={token}
+                    onChanged={onChanged}
+                    onError={onError}
+                    onReorder={moveStop}
+                    arranging={arranging}
+                    home={home}
+                    drivers={drivers}
+                    // This card is one service route, so a stop on it
+                    // with no pin belongs somewhere inside that circle.
+                    focusAreas={area ? [area] : []}
+                  />
                 )}
               </View>
             );
@@ -395,20 +390,16 @@ export function LooseRouteCard({ route, stops, drivers, home, areas, products, t
       </Disclosure>
       {expanded ? (
         <View style={styles.stopList}>
-          {groupStopsByCustomer(routeStops).map((door, index) => (
-            <StopCard
-              key={door[0].customer_id || door[0].id}
-              stops={door}
-              position={index + 1}
-              products={products}
-              token={token}
-              onChanged={onChanged}
-              onError={onError}
-              home={home}
-              drivers={drivers}
-              focusAreas={areas || []}
-            />
-          ))}
+          <DayOrderTable
+            stops={routeStops}
+            products={products}
+            token={token}
+            onChanged={onChanged}
+            onError={onError}
+            home={home}
+            drivers={drivers}
+            focusAreas={areas || []}
+          />
         </View>
       ) : null}
     </View>

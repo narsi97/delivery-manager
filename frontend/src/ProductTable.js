@@ -5,6 +5,7 @@ import * as api from './api';
 import { AddButton } from './components';
 import DeleteButton from './DeleteButton';
 import { formatQuantity, groupProducts } from './productGroups';
+import { NumberCell, numberCellFocusStyle, numberCellStyle } from './tableCells';
 import { colors, radius, spacing } from './theme';
 
 // The product table, in the two places it belongs.
@@ -306,94 +307,6 @@ function ProductRow({ product, label, neededToday, token, canDelete, onChanged, 
   );
 }
 
-// A number you can type over, in a table.
-//
-// Bare until touched, then a box — so a column of them reads as figures
-// rather than as a form. Commits on blur or Enter, abandons on Escape,
-// and says nothing when the value has not actually changed.
-function NumberCell({ value, empty, warn, busy, ariaLabel, onCommit }) {
-  const [typed, setTyped] = useState(null);
-  const [focused, setFocused] = useState(false);
-  // The blur handler closes over state as it was when the input last
-  // rendered, which a paste followed straight away by a blur outruns —
-  // the same ref LocationPicker keeps for its coordinate boxes.
-  const typedRef = useRef(null);
-
-  const done = () => {
-    const raw = typedRef.current;
-    typedRef.current = null;
-    setTyped(null);
-    setFocused(false);
-    if (raw !== null && raw !== value) {
-      onCommit(raw);
-    }
-  };
-
-  return (
-    <input
-      value={typed === null ? value || (empty ?? '') : typed}
-      inputMode="decimal"
-      disabled={busy}
-      aria-label={ariaLabel}
-      onFocus={(event) => {
-        setFocused(true);
-        setTyped(value);
-        typedRef.current = value;
-        event.target.select();
-      }}
-      onChange={(event) => {
-        const next = event.target.value.replace(/[^0-9.]/g, '');
-        typedRef.current = next;
-        setTyped(next);
-      }}
-      onBlur={done}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') {
-          event.target.blur();
-        } else if (event.key === 'Escape') {
-          typedRef.current = null;
-          setTyped(null);
-          event.target.blur();
-        }
-      }}
-      style={{
-        ...numberCellStyle,
-        ...(focused ? numberCellFocusStyle : null),
-        ...(warn && !focused ? numberCellWarnStyle : null),
-      }}
-    />
-  );
-}
-
-// Bare until touched: a column of boxes would read as a form, and this
-// is a table.
-const numberCellStyle = {
-  width: 66,
-  textAlign: 'right',
-  fontSize: 14,
-  color: colors.label,
-  fontFamily: 'inherit',
-  fontVariantNumeric: 'tabular-nums',
-  borderWidth: 1,
-  borderStyle: 'solid',
-  borderColor: 'transparent',
-  borderRadius: radius.sm,
-  backgroundColor: 'transparent',
-  paddingTop: 3,
-  paddingBottom: 3,
-  paddingLeft: 6,
-  paddingRight: 6,
-  outline: 'none',
-  cursor: 'text',
-};
-
-const numberCellFocusStyle = {
-  borderColor: colors.accent,
-  backgroundColor: colors.surface,
-  color: colors.text,
-};
-
-const numberCellWarnStyle = { color: colors.warning, fontWeight: '700' };
 
 // The size box in the add row: text, not a figure, so it gets the width
 // of the column it will end up in rather than a number cell's.

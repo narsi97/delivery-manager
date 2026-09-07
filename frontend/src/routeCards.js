@@ -100,6 +100,11 @@ export function StopCard({
   // has none of its own — the round this stop is on, or the ones the
   // business runs. See MapPicker's focusAreas.
   focusAreas = [],
+  // Whether the card has to say whose door it is. It does when it is
+  // standing on its own; it does not when it has been opened from a row
+  // of a table that already has the name and the address on it. Saying
+  // it twice, one line apart, reads as two different doors.
+  titled = true,
 }) {
   const stop = stops[0];
   const [adding, setAdding] = useState(false);
@@ -147,13 +152,19 @@ export function StopCard({
   return (
     <Card>
       <View style={styles.stopHeader}>
-        <View style={styles.stopHeaderText}>
-          <Text style={styles.stopName}>
-            {position > 0 ? `${position}. ` : ''}
-            {stop.customer_name}
-          </Text>
-          {stop.customer_address ? <Text style={styles.stopAddress}>{stop.customer_address}</Text> : null}
-        </View>
+        {titled ? (
+          <View style={styles.stopHeaderText}>
+            <Text style={styles.stopName}>
+              {position > 0 ? `${position}. ` : ''}
+              {stop.customer_name}
+            </Text>
+            {stop.customer_address ? <Text style={styles.stopAddress}>{stop.customer_address}</Text> : null}
+          </View>
+        ) : (
+          // Still takes the slack, so the badge and the move buttons stay
+          // where they are on a card that does have a name.
+          <View style={styles.stopHeaderText} />
+        )}
         <View style={styles.stopHeaderRight}>
           {/* Pending is what every stop is before the van leaves, so
               twenty-one identical badges are twenty-one eye stops
