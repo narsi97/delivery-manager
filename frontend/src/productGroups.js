@@ -80,3 +80,10 @@ function millilitresOf(size) {
   }
   return amount;
 }
+
+// Quantities are whole numbers almost always (12 packets, not 12.0), but
+// half a can is a real thing — so show a decimal only when there is one.
+export function formatQuantity(value) {
+  const n = Number(value) || 0;
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}

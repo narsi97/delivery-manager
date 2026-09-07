@@ -37,6 +37,7 @@ const STRINGS = {
     passwords_do_not_match: "Those two don't match."
     ,
     manage_account: 'Manage account',
+    manage_business: 'Manage business',
     nav_account: 'Account',
     password_changed: 'Password changed.',
     send_me_a_code: 'Send me a code',
@@ -123,6 +124,7 @@ const STRINGS = {
     passwords_do_not_match: 'ఆ రెండూ సరిపోలడం లేదు.'
     ,
     manage_account: 'ఖాతా నిర్వహణ',
+    manage_business: 'వ్యాపార నిర్వహణ',
     nav_account: 'ఖాతా',
     password_changed: 'పాస్‌వర్డ్ మార్చబడింది.',
     send_me_a_code: 'కోడ్ పంపండి',

@@ -9,7 +9,7 @@ import DeleteButton from '../DeleteButton';
 import DriversSection from './DriversSection';
 import ImportCustomersDialog from '../ImportCustomersDialog';
 import { customFieldsFor, labelsFor, lower } from '../labels';
-import { groupProducts } from '../productGroups';
+import { formatQuantity, groupProducts } from '../productGroups';
 import { serviceRouteFor } from '../serviceAreas';
 import { useDeleteMode } from '../deleteMode';
 import { usePageStyle } from '../layout';
@@ -29,8 +29,13 @@ export default function BusinessScreen({ token, business, user, currentUserId, o
   // produces one every day.
   const labels = labelsFor(business);
   const [areas, setAreas] = useState([]);
-  const [products, setProducts] = useState([]);
+  // Today's demand, per product. This page is about the business rather
+  // than about a day, and the day board is where a shortfall is chased
+  // down for any date (see TodayScreen) — but an owner standing in the
+  // cold room with this page open wants the answer here, not one tab
+  // away, so the number is in both places and says which day it means.
   const [demand, setDemand] = useState({});
+  const [products, setProducts] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -94,10 +99,6 @@ export default function BusinessScreen({ token, business, user, currentUserId, o
     return <ActivityIndicator style={styles.loader} color={colors.accent} />;
   }
 
-  // The three things an owner comes here to check. Not a dashboard —
-  // Today owns the day — but "is anything short" is the one setup
-  // question with a deadline on it, and it was previously only findable
-  // by opening each product in turn.
   const groups = groupProducts(products);
   const shortToday = products.reduce((total, product) => {
     const needed = demand[product.id] || 0;
@@ -127,6 +128,7 @@ export default function BusinessScreen({ token, business, user, currentUserId, o
         token={token}
         products={products}
         demand={demand}
+        canDelete={canDelete}
         onChanged={refresh}
         onCreated={async (name) => {
           setNotice(`Added ${name} to your products.`);
@@ -523,7 +525,7 @@ const radiusSliderStyle = {
 // storage/store.go), no update or deactivate path yet — that's a
 // backend addition to make when editing an existing product is actually
 // needed, not something to fake client-side.
-function ProductCatalogCard({ token, products, demand, onChanged, onCreated, onError }) {
+function ProductCatalogCard({ token, products, demand, canDelete, onChanged, onCreated, onError }) {
   const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState('');
   const [unit, setUnit] = useState('');
@@ -587,7 +589,9 @@ function ProductCatalogCard({ token, products, demand, onChanged, onCreated, onE
             group={group}
             demand={demand}
             token={token}
+            canDelete={canDelete}
             onChanged={onChanged}
+            onCreated={onCreated}
             onError={onError}
           />
         ))
@@ -605,7 +609,8 @@ function ProductCatalogCard({ token, products, demand, onChanged, onCreated, onE
 //
 // A product with one size gets no heading. A heading above a single row
 // is a heading about nothing.
-function ProductGroup({ group, demand, token, onChanged, onError }) {
+function ProductGroup({ group, demand, token, canDelete, onChanged, onCreated, onError }) {
+  const [adding, setAdding] = useState(false);
   // One size is not a group. A heading, a count of "1 size" and four
   // column labels over a single row is more chrome than content — it
   // reads as its own name, the way it always did.
@@ -619,6 +624,15 @@ function ProductGroup({ group, demand, token, onChanged, onError }) {
             <Text style={styles.productGroupCount}>
               {group.items.length} {group.items.length === 1 ? 'size' : 'sizes'}
             </Text>
+            {/* A new size of something already sold is not the same
+                decision as a new product, and it should not cost a trip
+                to the form at the top of the card: the name is already
+                known, so the only questions are how big and how much. */}
+            <AddButton
+              open={adding}
+              onPress={() => setAdding((prev) => !prev)}
+              label={adding ? `Close add a size of ${group.name}` : `Add a size of ${group.name}`}
+            />
           </View>
           {/* Three bare numbers in a row need saying once what they are.
               Once, at the top of the group — not on every line, which is
@@ -641,10 +655,115 @@ function ProductGroup({ group, demand, token, onChanged, onError }) {
           label={lone ? product.name : product.size || product.name}
           neededToday={demand[product.id] || 0}
           token={token}
+          canDelete={canDelete}
           onChanged={onChanged}
           onError={onError}
         />
       ))}
+      {adding ? (
+        <AddSizeRow
+          group={group}
+          token={token}
+          onDone={async (created) => {
+            setAdding(false);
+            await onCreated(created);
+          }}
+          onCancel={() => setAdding(false)}
+          onError={onError}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+// A new size, typed where the other sizes are.
+//
+// Shaped like the rows above it on purpose — size, price, and the same
+// two columns left empty — so it reads as the next line of the table
+// rather than as a form that happens to be underneath one. The unit
+// comes from its siblings: a sixth size of milk is measured the way the
+// other five are, and asking again would be asking somebody to repeat
+// what the screen already knows.
+function AddSizeRow({ group, token, onDone, onCancel, onError }) {
+  const [size, setSize] = useState('');
+  const [price, setPrice] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const name = `${group.name} ${size.trim()}`.trim();
+
+  const submit = async () => {
+    if (!size.trim()) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const rupees = Number(price);
+      await api.createProduct(token, {
+        name,
+        unit: group.items[0]?.unit || '',
+        price_cents: Number.isFinite(rupees) && rupees > 0 ? Math.round(rupees * 100) : 0,
+      });
+      await onDone(name);
+    } catch (err) {
+      onError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={styles.productBlock}>
+      <View style={styles.productRow}>
+        <input
+          value={size}
+          autoFocus
+          placeholder="750ml"
+          aria-label={`New size of ${group.name}`}
+          disabled={busy}
+          onChange={(event) => setSize(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              submit();
+            } else if (event.key === 'Escape') {
+              onCancel();
+            }
+          }}
+          style={{ ...numberCellStyle, ...numberCellFocusStyle, ...addSizeNameStyle }}
+        />
+        <input
+          value={price}
+          inputMode="decimal"
+          placeholder="Price"
+          aria-label={`Price of the new size of ${group.name}`}
+          disabled={busy}
+          onChange={(event) => setPrice(event.target.value.replace(/[^0-9.]/g, ''))}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              submit();
+            } else if (event.key === 'Escape') {
+              onCancel();
+            }
+          }}
+          style={{ ...numberCellStyle, ...numberCellFocusStyle }}
+        />
+        {/* One control, sized like the ✕ it sits above, so the row keeps
+            the table's columns. Cancelling is the heading's "✕ Cancel",
+            which is already on screen and already says so — a second
+            Cancel here would be the same word twice. */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Add ${name}`}
+          disabled={!size.trim() || busy}
+          onPress={submit}
+          style={({ hovered }) => [
+            styles.addSizeGo,
+            !size.trim() && styles.addSizeGoOff,
+            hovered && size.trim() ? styles.addSizeGoHover : null,
+          ]}
+        >
+          <Text style={[styles.addSizeGoText, !size.trim() && styles.addSizeGoTextOff]}>Add</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -664,7 +783,7 @@ function ProductGroup({ group, demand, token, onChanged, onError }) {
 // "Needed today" stays read-only. It is worked out from the round rather
 // than typed, and it is what makes the stock number mean anything — 118
 // needed against 120 in stock is a morning nobody has to think about.
-function ProductRow({ product, label, neededToday, token, onChanged, onError }) {
+function ProductRow({ product, label, neededToday, token, canDelete, onChanged, onError }) {
   const [busy, setBusy] = useState(false);
 
   const have = Number(product.stock_quantity) || 0;
@@ -716,6 +835,22 @@ function ProductRow({ product, label, neededToday, token, onChanged, onError }) 
         <Text style={[styles.productCell, styles.productCellRead, short && styles.productCellShort]}>
           {neededToday > 0 ? formatQuantity(neededToday) : '—'}
         </Text>
+        {/* Only while the window is open, and only ever a ✕ — a size
+            added by mistake is a small thing to undo, and it should not
+            cost the row a column the rest of the year. */}
+        {canDelete ? (
+          <DeleteButton
+            armed
+            compact
+            label={`Delete ${product.name}`}
+            describe={async () =>
+              `Deleting "${product.name}" removes the size from your list. It cannot be undone, and anything already delivered keeps it.`
+            }
+            onDelete={() => api.deleteProduct(token, product.id)}
+            onDone={onChanged}
+            onError={onError}
+          />
+        ) : null}
       </View>
     </View>
   );
@@ -810,13 +945,9 @@ const numberCellFocusStyle = {
 
 const numberCellWarnStyle = { color: colors.warning, fontWeight: '700' };
 
-
-// Quantities are whole numbers almost always (12 packets, not 12.0), but
-// half a can is a real thing — so show a decimal only when there is one.
-function formatQuantity(value) {
-  const n = Number(value) || 0;
-  return Number.isInteger(n) ? String(n) : n.toFixed(1);
-}
+// The size box in the add row: text, not a figure, so it gets the width
+// of the column it will end up in rather than a number cell's.
+const addSizeNameStyle = { width: 'auto', flex: 1, textAlign: 'left', fontVariantNumeric: 'normal' };
 
 // The "+" that sits at a section's own heading rather than on a repeated
 // title row underneath it ("Add a service area" directly below "Service
@@ -1075,6 +1206,19 @@ const styles = StyleSheet.create({
   // the same place theirs do.
   productCellRead: { paddingHorizontal: 6 },
   productCellShort: { color: colors.warning, fontWeight: '700' },
+  addSizeGo: {
+    // Pushed to the end of the row, past the columns this row leaves
+    // empty, so it lands under the ✕ it stands in for.
+    marginLeft: 'auto',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
+    borderRadius: radius.sm,
+    backgroundColor: colors.accent,
+  },
+  addSizeGoOff: { backgroundColor: colors.border },
+  addSizeGoHover: { opacity: 0.9 },
+  addSizeGoText: { fontSize: 13, fontWeight: '700', color: colors.accentText },
+  addSizeGoTextOff: { color: colors.subtitle },
   productChevron: { fontSize: 14, color: colors.link, fontWeight: '700', width: 16, textAlign: 'center' },
   productEditor: { marginBottom: spacing.sm },
   cardSection: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs },

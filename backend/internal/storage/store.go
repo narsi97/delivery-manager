@@ -14,6 +14,11 @@ var (
 	// uniqueness rule — a second admin for an email already in use, a
 	// second driver on the same phone number.
 	ErrConflict = errors.New("conflicts with an existing record")
+
+	// ErrInUse is a delete that something else still points at. The
+	// database refuses it, and it should reach the reader as a fact about
+	// their data ("it has been delivered") rather than as a failure.
+	ErrInUse = errors.New("still referenced by other records")
 )
 
 // Store is implemented by both the in-memory store (local dev without
@@ -150,6 +155,12 @@ type Store interface {
 	// until a business needed to price what it already sells and say what
 	// it has in stock.
 	UpdateProduct(ctx context.Context, p domain.Product) (domain.Product, error)
+	// DeleteProduct removes a product outright. Only ever safe for one
+	// nobody has ordered: daily_orders and recurring_orders reference
+	// products with no cascade, deliberately, because a delivery that
+	// forgot what it delivered is not a record. The handler checks first
+	// so the refusal is a sentence rather than a constraint violation.
+	DeleteProduct(ctx context.Context, businessID string, id string) error
 
 	// ServiceArea is normally soft-deactivated (see
 	// domain.ServiceArea.Active) rather than destroyed, folded into

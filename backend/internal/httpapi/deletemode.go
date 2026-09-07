@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -257,4 +258,51 @@ func (s *Server) handleDeleteServiceArea(w http.ResponseWriter, r *http.Request)
 		// pin says, which the screen should tell somebody.
 		"unassigned": freed,
 	})
+}
+
+// handleDeleteProduct removes a size nobody has ordered. A product that
+// has been delivered stays: daily_orders and recurring_orders reference
+// it, and a delivery record that has forgotten what it delivered is not
+// a record. The two refusals are worded as facts about the data rather
+// than as errors, because from the admin's side that is what they are.
+func (s *Server) handleDeleteProduct(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r.Context())
+	if !s.requireDeleteMode(w, r, sess) {
+		return
+	}
+
+	product, err := s.store.GetProduct(r.Context(), sess.Business.ID, r.PathValue("id"))
+	if err != nil {
+		writeStoreError(w, err, "product")
+		return
+	}
+
+	// Checked here rather than left to the foreign key so the sentence can
+	// say how many, which is what decides whether they go and edit those
+	// standing orders or leave the product alone.
+	subs, err := s.store.ListRecurringOrders(r.Context(), sess.Business.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "store_error")
+		return
+	}
+	standing := 0
+	for _, sub := range subs {
+		if sub.ProductID == product.ID {
+			standing++
+		}
+	}
+	if standing > 0 {
+		writeError(w, http.StatusConflict,
+			fmt.Sprintf("%s is on %d standing order%s — change those first, or turn it off instead of deleting it",
+				product.Name, standing, map[bool]string{true: "", false: "s"}[standing == 1]),
+			"in_use")
+		return
+	}
+
+	if err := s.store.DeleteProduct(r.Context(), sess.Business.ID, product.ID); err != nil {
+		writeStoreError(w, err, "product")
+		return
+	}
+	log.Printf("%s deleted product %s", sess.User.Name, product.Name)
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": product.Name})
 }

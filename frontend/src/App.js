@@ -31,15 +31,17 @@ const CONTENT_WIDTH = 720;
 // otherwise, and duplicated most of Today to do it. What was genuinely
 // only there — the stops outside every area, and the rare destructive
 // actions — moved onto Today, where the day already lives.
-// Three, not four. Today and Customers are what a dairy opens every
-// morning; drivers, products and rounds are all things set up once and
-// changed rarely, so they live together on Business. See
-// Docs/DESIGN.md.
+// Two, not three. Today and Customers are what a dairy opens every
+// morning, and a tab bar should hold what somebody is coming back to —
+// not everything the app can do. Products, service routes and drivers
+// are set up once and changed rarely, so Business went where the other
+// rarely-used screen already lives: behind the avatar, next to Manage
+// account, as "Manage business". Rule 3 in Docs/DESIGN.md — rare
+// controls are not furniture.
 function adminTabs(labels, t) {
   return [
     { key: 'today', label: t('nav_today') },
     { key: 'customers', label: labels.customer_plural },
-    { key: 'business', label: t('nav_business') },
   ];
 }
 
@@ -148,6 +150,8 @@ function AppShell() {
 
   const { user, business, token } = session;
   const labels = labelsFor(business);
+  // The two screens that left the tab bar for the avatar menu.
+  const onSetupScreen = tab === 'business' || tab === 'account';
   const isAdmin = user.role === 'admin' || user.role === 'admin_driver';
   const canDrive = user.role === 'driver' || user.role === 'admin_driver';
   const showDriverView = driving || !isAdmin;
@@ -199,9 +203,14 @@ function AppShell() {
                 accessibilityRole="button"
                 accessibilityLabel={accountOpen ? 'Close account menu' : 'Account menu'}
                 accessibilityState={{ expanded: accountOpen }}
-                style={[styles.avatar, accountOpen && styles.avatarOpen]}
+                style={[styles.avatar, (accountOpen || onSetupScreen) && styles.avatarOpen]}
               >
-                <Text style={[styles.avatarText, accountOpen && styles.avatarTextOpen]}>{initialOf(user.name)}</Text>
+                {/* Filled while one of its screens is on the page, so
+                    somebody on Manage business can still see where they
+                    are — the tab bar no longer says it. */}
+                <Text style={[styles.avatarText, (accountOpen || onSetupScreen) && styles.avatarTextOpen]}>
+                  {initialOf(user.name)}
+                </Text>
               </Pressable>
 
               {/* Hangs off the avatar rather than pushing the page down.
@@ -222,16 +231,35 @@ function AppShell() {
                       driver has no business details to manage, and their
                       password is on their own account screen. */}
                   {isAdmin && !showDriverView ? (
-                    <Pressable
-                      onPress={() => {
-                        setTab('account');
-                        setAccountOpen(false);
-                      }}
-                      accessibilityRole="button"
-                      style={({ pressed }) => [styles.accountItem, pressed && styles.accountItemPressed]}
-                    >
-                      <Text style={styles.accountItemText}>{t('manage_account')}</Text>
-                    </Pressable>
+                    <>
+                      {/* The setup screen. Not a tab any more: an owner
+                          opens it to add a product or draw a route, and
+                          then does not open it again for weeks. */}
+                      <Pressable
+                        onPress={() => {
+                          setTab('business');
+                          setAccountOpen(false);
+                        }}
+                        accessibilityRole="button"
+                        style={({ pressed }) => [styles.accountItem, pressed && styles.accountItemPressed]}
+                      >
+                        <Text style={[styles.accountItemText, tab === 'business' && styles.accountItemCurrent]}>
+                          {t('manage_business')}
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => {
+                          setTab('account');
+                          setAccountOpen(false);
+                        }}
+                        accessibilityRole="button"
+                        style={({ pressed }) => [styles.accountItem, pressed && styles.accountItemPressed]}
+                      >
+                        <Text style={[styles.accountItemText, tab === 'account' && styles.accountItemCurrent]}>
+                          {t('manage_account')}
+                        </Text>
+                      </Pressable>
+                    </>
                   ) : null}
 
                   {isAdmin && canDrive ? (
@@ -417,6 +445,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   accountLabel: { fontSize: 13, fontWeight: '600', color: colors.label },
+  // Which of the two setup screens is on the page behind the menu —
+  // they left the tab bar, so this is the only thing still saying it.
+  accountItemCurrent: { color: colors.accent, fontWeight: '700' },
   accountItem: {
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,

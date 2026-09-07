@@ -1182,3 +1182,18 @@ func (s *PostgresStore) DeleteServiceArea(ctx context.Context, businessID string
 	}
 	return tx.Commit(ctx)
 }
+
+func (s *PostgresStore) DeleteProduct(ctx context.Context, businessID string, id string) error {
+	tag, err := s.pool.Exec(ctx, `delete from products where id=$1 and business_id=$2`, id, businessID)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return ErrInUse
+		}
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}

@@ -141,6 +141,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/products", s.withAdmin(s.handleListProducts))
 	s.mux.HandleFunc("POST /api/v1/products", s.withAdmin(s.handleCreateProduct))
 	s.mux.HandleFunc("PATCH /api/v1/products/{id}", s.withAdmin(s.handleUpdateProduct))
+	s.mux.HandleFunc("DELETE /api/v1/products/{id}", s.withAdmin(s.handleDeleteProduct))
 	s.mux.HandleFunc("GET /api/v1/products/demand", s.withAdmin(s.handleProductDemand))
 
 	s.mux.HandleFunc("GET /api/v1/drivers", s.withAdmin(s.handleListDrivers))
@@ -493,6 +494,8 @@ func writeStoreError(w http.ResponseWriter, err error, what string) {
 		writeError(w, http.StatusNotFound, what+" was not found", "not_found")
 	case errors.Is(err, storage.ErrConflict):
 		writeError(w, http.StatusConflict, what+" already exists", "conflict")
+	case errors.Is(err, storage.ErrInUse):
+		writeError(w, http.StatusConflict, "that "+what+" is already part of a delivery — turn it off instead of deleting it", "in_use")
 	default:
 		log.Printf("%s: %v", what, err)
 		writeError(w, http.StatusInternalServerError, "something went wrong", "")

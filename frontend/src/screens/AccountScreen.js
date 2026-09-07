@@ -2,12 +2,12 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import * as api from '../api';
-import { Banner, Button, Card, Disclosure, Field, SectionTitle } from '../components';
+import { Banner, Button, Card, Field } from '../components';
 import { useLanguage } from '../i18n';
 import LocationPicker from '../LocationPicker';
 import { arm, describeUntil, disarm, useDeleteMode, WINDOWS } from '../deleteMode';
 import { usePageStyle } from '../layout';
-import { colors, spacing } from '../theme';
+import { colors, radius, spacing } from '../theme';
 
 // Everything about the account rather than about the deliveries.
 //
@@ -23,7 +23,8 @@ import { colors, spacing } from '../theme';
 // works on.
 export default function AccountScreen({ token, business, user, onBusinessUpdated, onUserUpdated }) {
   const pageStyle = usePageStyle(720);
-  const [changingPassword, setChangingPassword] = useState(false);
+  // Which tile is open, if any: 'name' | 'home' | 'password' | 'deleting'.
+  const [open, setOpen] = useState(null);
   const { t } = useLanguage();
   const [drivers, setDrivers] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -61,40 +62,92 @@ export default function AccountScreen({ token, business, user, onBusinessUpdated
     return <ActivityIndicator style={styles.loader} color={colors.accent} />;
   }
 
+  // Four settings, drawn as four tiles rather than four stacked cards —
+  // the same shape the Business and Customers tabs use. A page of full
+  // width cards, each holding one line of text, spends a screen saying
+  // four short things; as tiles they are all in view at once and the one
+  // being changed takes the width it needs.
+  //
+  // Only one opens at a time. These are not things anybody does two of
+  // together, and an open map underneath an open password form is two
+  // half-finished jobs on one screen.
+  const toggle = (which) => setOpen((prev) => (prev === which ? null : which));
+
   return (
     <ScrollView contentContainerStyle={pageStyle}>
       <Banner message={error} />
       <Banner message={notice} tone="success" />
 
-      <BusinessDetailsCard
-        token={token}
-        business={business}
-        drivers={drivers}
-        customers={customers}
-        areas={areas}
-        onSaved={(updated) => {
-          setNotice('Business details saved.');
-          onBusinessUpdated(updated);
-        }}
-        onChanged={refresh}
-        onError={setError}
-      />
-
-      {/* Closed. Three password boxes and a button, standing open on a
-          page somebody opened to change their business name, is a form
-          for a thing done twice a year taking up the room of the things
-          done weekly. See Docs/DESIGN.md. */}
       <Card>
-        <Disclosure open={changingPassword} onToggle={() => setChangingPassword((prev) => !prev)}>
-          {t('change_password')}
-        </Disclosure>
-        {changingPassword ? (
-          <ChangePasswordForm token={token} user={user} onNotice={setNotice} onError={setError} />
-        ) : null}
-      </Card>
+        <View style={styles.tiles}>
+          <BusinessDetailsTiles
+            token={token}
+            business={business}
+            drivers={drivers}
+            customers={customers}
+            areas={areas}
+            open={open}
+            onToggle={toggle}
+            onSaved={(updated) => {
+              setNotice('Business details saved.');
+              onBusinessUpdated(updated);
+            }}
+            onChanged={refresh}
+            onError={setError}
+          />
 
-      <DeleteModeCard token={token} user={user} onUserUpdated={onUserUpdated} onNotice={setNotice} onError={setError} />
+          {/* Shut. Three password boxes and a button, standing open on a
+              page somebody opened to change their business name, is a
+              form for a thing done twice a year taking up the room of
+              the things done weekly. See Docs/DESIGN.md. */}
+          <SettingTile
+            title={t('change_password')}
+            value="••••••••"
+            open={open === 'password'}
+            onPress={() => toggle('password')}
+          >
+            <ChangePasswordForm token={token} user={user} onNotice={setNotice} onError={setError} />
+          </SettingTile>
+
+          <DeleteModeTile
+            token={token}
+            user={user}
+            open={open === 'deleting'}
+            onToggle={() => toggle('deleting')}
+            onUserUpdated={onUserUpdated}
+            onNotice={setNotice}
+            onError={setError}
+          />
+        </View>
+      </Card>
     </ScrollView>
+  );
+}
+
+// One setting: its name, what it currently says, and the thing you use
+// to change it once you have tapped it.
+//
+// Closed it is a tile among tiles; open it takes the whole row, because
+// a map or a three-field form in a 160-pixel column is not a form. The
+// pencil is the same affordance the rest of the app uses for "this line
+// is editable" — see CustomerCard.
+function SettingTile({ title, value, tone, open, onPress, children }) {
+  return (
+    <View style={[styles.tile, open && styles.tileOpen, tone === 'danger' && open && styles.tileDanger]}>
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        style={({ pressed }) => [styles.tileHead, pressed && styles.pressed]}
+      >
+        <View style={styles.tileHeadText}>
+          <Text style={[styles.tileName, tone === 'danger' && styles.dangerText]}>{title}</Text>
+          {value ? <Text style={styles.tileMeta} numberOfLines={1}>{value}</Text> : null}
+        </View>
+        <Text style={[styles.tilePencil, tone === 'danger' && styles.dangerText]}>{open ? '▾' : '✎'}</Text>
+      </Pressable>
+      {open ? <View style={styles.tileBody}>{children}</View> : null}
+    </View>
   );
 }
 
@@ -105,14 +158,10 @@ export default function AccountScreen({ token, business, user, onBusinessUpdated
 // talking out of it, and somebody who did not is not going to switch it
 // on by accident. What it does need to say is that the window closes by
 // itself, because that is the part that makes leaving it on harmless.
-function DeleteModeCard({ token, user, onUserUpdated, onNotice, onError }) {
+function DeleteModeTile({ token, user, open: shown, onToggle, onUserUpdated, onNotice, onError }) {
   const [me, setMe] = useState(user);
   const [busy, setBusy] = useState(0);
   const { open, until } = useDeleteMode(me);
-  // Opened by hand, or already open because the window is running — a
-  // card that hides the fact that deleting is switched on would be the
-  // one thing this card must never do.
-  const [shown, setShown] = useState(open);
 
   const set = async (hours) => {
     setBusy(hours || -1);
@@ -130,37 +179,40 @@ function DeleteModeCard({ token, user, onUserUpdated, onNotice, onError }) {
     }
   };
 
+  // Named and coloured for what it is, and shut until asked for.
+  // Everything else on this page is reversible; this is the one tile
+  // where a wrong press costs something that cannot be got back, so it
+  // neither shouts at somebody who came here to change their business
+  // name nor hides from somebody who came to tidy up. While the window
+  // is running the tile says so on its face, red, without being opened —
+  // a screen that hid the fact that deleting is switched on would be the
+  // one thing this must never do.
   return (
-    <Card style={open ? styles.dangerCard : null}>
-      {/* Named and coloured for what it is, and shut until asked for.
-          Everything else on this page is reversible; this is the one
-          card where a wrong press costs something that cannot be got
-          back, so it neither shouts at somebody who came here to change
-          their business name nor hides from somebody who came to tidy
-          up. Open, it is red, because then it is armed. */}
+    <View style={[styles.tile, shown && styles.tileOpen, open && styles.tileArmed]}>
       <Pressable
-        onPress={() => setShown((prev) => !prev)}
+        onPress={onToggle}
         accessibilityRole="button"
         accessibilityState={{ expanded: shown }}
-        style={({ pressed }) => [styles.dangerHead, pressed && styles.pressed]}
+        style={({ pressed }) => [styles.tileHead, pressed && styles.pressed]}
       >
-        <View style={styles.dangerHeadText}>
-          <Text style={styles.dangerTitle}>Deleting</Text>
-          <Text style={styles.dangerSub}>Danger zone</Text>
+        <View style={styles.tileHeadText}>
+          <Text style={[styles.tileName, open && styles.dangerText]}>Deleting</Text>
+          <Text style={[styles.tileMeta, open ? styles.dangerText : styles.dangerSub]}>
+            {open ? `On until ${describeUntil(until)}` : 'Danger zone'}
+          </Text>
         </View>
         {open ? <Text style={styles.dangerOnPill}>on</Text> : null}
-        <Text style={[styles.dangerChevron, open && styles.dangerTitleArmed]}>{shown ? '▾' : '▸'}</Text>
+        <Text style={[styles.tilePencil, open && styles.dangerText]}>{shown ? '▾' : '✎'}</Text>
       </Pressable>
       {!shown ? null : open ? (
-        <View>
-          <Text style={styles.deleteOn}>Delete buttons are on until {describeUntil(until)}.</Text>
+        <View style={styles.tileBody}>
           <Text style={styles.deleteNote}>
             They turn off by themselves. Deleting takes a customer&apos;s whole history with them, and cannot be undone.
           </Text>
           <Button title="Turn them off now" variant="secondary" onPress={() => set(0)} busy={busy === -1} />
         </View>
       ) : (
-        <View>
+        <View style={styles.tileBody}>
           <Text style={styles.deleteNote}>
             Nothing can be deleted while this is off. Turn it on to tidy up, and it turns itself back off.
           </Text>
@@ -178,7 +230,7 @@ function DeleteModeCard({ token, user, onUserUpdated, onNotice, onError }) {
           </View>
         </View>
       )}
-    </Card>
+    </View>
   );
 }
 
@@ -271,9 +323,7 @@ function ChangePasswordForm({ token, user, onNotice, onError }) {
 // Each half still opens on its own: the name behind a pencil, the
 // location behind its summary. They're set once and rarely touched, so
 // neither should sit open as a form every visit.
-function BusinessDetailsCard({ token, business, drivers, customers, areas, onSaved, onError, onChanged }) {
-  const [editingName, setEditingName] = useState(false);
-  const [editingHome, setEditingHome] = useState(false);
+function BusinessDetailsTiles({ token, business, drivers, customers, areas, open, onToggle, onSaved, onError, onChanged }) {
   const [name, setName] = useState(business.name);
   const [busy, setBusy] = useState(false);
   const hasHome = business.home_lat || business.home_lng;
@@ -288,7 +338,7 @@ function BusinessDetailsCard({ token, business, drivers, customers, areas, onSav
     setBusy(true);
     try {
       onSaved(await api.updateBusiness(token, { name }));
-      setEditingName(false);
+      onToggle('name');
     } catch (err) {
       onError(err.message);
     } finally {
@@ -308,96 +358,91 @@ function BusinessDetailsCard({ token, business, drivers, customers, areas, onSav
   };
 
   return (
-    <Card>
-      {editingName ? (
-        <View>
-          <Field label="Business name" size="md" value={name} onChangeText={setName} placeholder="Anita's Dairy" />
-          <View style={styles.buttonRow}>
-            <Button title="Save" onPress={saveName} busy={busy} disabled={!name.trim()} style={styles.flexButton} />
-            <Button
-              title="Cancel"
-              variant="secondary"
-              onPress={() => {
-                setName(business.name);
-                setEditingName(false);
-              }}
-              style={styles.flexButton}
-            />
-          </View>
+    <>
+      <SettingTile
+        title="Business name"
+        value={business.name}
+        open={open === 'name'}
+        onPress={() => onToggle('name')}
+      >
+        <Field label="Business name" size="md" value={name} onChangeText={setName} placeholder="Anita's Dairy" />
+        <View style={styles.buttonRow}>
+          <Button title="Save" onPress={saveName} busy={busy} disabled={!name.trim()} style={styles.flexButton} />
+          <Button
+            title="Cancel"
+            variant="secondary"
+            onPress={() => {
+              setName(business.name);
+              onToggle('name');
+            }}
+            style={styles.flexButton}
+          />
         </View>
-      ) : (
-        <Pressable onPress={() => setEditingName(true)} accessibilityRole="button">
-          <View style={styles.readRow}>
-            <View style={styles.readRowText}>
-              <Text style={styles.readLabel}>Business name</Text>
-              <Text style={styles.readValue}>{business.name}</Text>
-            </View>
-            <Text style={styles.pencil}>✎</Text>
-          </View>
-        </Pressable>
-      )}
+      </SettingTile>
 
-      <View style={styles.cardSection}>
-        {editingHome ? (
-          <View>
-            <View style={styles.editHeader}>
-              <Text style={styles.readLabel}>Where you&apos;re based</Text>
-              <Pressable onPress={() => setEditingHome(false)} accessibilityRole="button">
-                <Text style={styles.doneLink}>Done</Text>
-              </Pressable>
-            </View>
-            <LocationPicker
-              label="The depot, the shop, the dairy"
-              hint="Routes start here, and every map in the app opens on the area around it. Tap a customer or driver on the map to manage them."
-              lat={business.home_lat}
-              lng={business.home_lng}
-              onChange={savePin}
-              areas={areas}
-              drivers={drivers}
-              customers={customers}
-              height={320}
-              onSelectReference={setSelected}
-            />
-            {selected ? (
-              <SelectedEntityEditor
-                key={`${selected.kind}-${selected.data.id}`}
-                token={token}
-                selected={selected}
-                home={{ lat: business.home_lat, lng: business.home_lng }}
-                onClose={() => setSelected(null)}
-                onChanged={async () => {
-                  await onChanged();
-                  setSelected(null);
-                }}
-                onError={onError}
-              />
-            ) : null}
-          </View>
-        ) : (
-          <Pressable onPress={() => setEditingHome(true)} accessibilityRole="button">
-            <View style={styles.readRow}>
-              <View style={styles.readRowText}>
-                <Text style={styles.readLabel}>Where you&apos;re based</Text>
-                <Text style={styles.readValue}>{hasHome ? 'Pinned on the map' : 'Not set yet'}</Text>
-              </View>
-              <Text style={styles.pencil}>✎</Text>
-            </View>
-          </Pressable>
-        )}
-      </View>
-    </Card>
+      <SettingTile
+        title="Where you're based"
+        value={hasHome ? 'Pinned on the map' : 'Not set yet'}
+        open={open === 'home'}
+        onPress={() => onToggle('home')}
+      >
+        <LocationPicker
+          label="The depot, the shop, the dairy"
+          hint="Routes start here, and every map in the app opens on the area around it. Tap a customer or driver on the map to manage them."
+          lat={business.home_lat}
+          lng={business.home_lng}
+          onChange={savePin}
+          areas={areas}
+          drivers={drivers}
+          customers={customers}
+          height={320}
+          onSelectReference={setSelected}
+        />
+        {selected ? (
+          <SelectedEntityEditor
+            key={`${selected.kind}-${selected.data.id}`}
+            token={token}
+            selected={selected}
+            home={{ lat: business.home_lat, lng: business.home_lng }}
+            onClose={() => setSelected(null)}
+            onChanged={async () => {
+              await onChanged();
+              setSelected(null);
+            }}
+            onError={onError}
+          />
+        ) : null}
+      </SettingTile>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  dangerCard: { borderColor: colors.error },
-  dangerHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
-  dangerHeadText: { flex: 1 },
-  dangerTitle: { fontSize: 17, fontWeight: '700', color: colors.text },
-  // Says what kind of card this is without taking the heading's job.
-  dangerSub: { fontSize: 12, fontWeight: '700', color: colors.error, marginTop: 1 },
-  dangerTitleArmed: { color: colors.error },
-  dangerChevron: { fontSize: 20, fontWeight: '700', color: colors.link, width: 20, textAlign: 'center' },
+  // The same tiles the Business and Customers tabs are built from.
+  tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  tile: {
+    flexGrow: 1,
+    flexBasis: 200,
+    minWidth: 0,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: spacing.sm,
+  },
+  // Open, it stops being a tile: it is a form, and a form needs the row.
+  tileOpen: { flexBasis: '100%' },
+  tileArmed: { borderColor: colors.error },
+  tileDanger: { borderColor: colors.error },
+  tileHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: 40 },
+  tileHeadText: { flex: 1, minWidth: 0 },
+  tileName: { fontSize: 15, fontWeight: '700', color: colors.text },
+  tileMeta: { fontSize: 12, color: colors.subtitle, marginTop: 1 },
+  tilePencil: { fontSize: 15, color: colors.link, width: 20, textAlign: 'center' },
+  tileBody: { marginTop: spacing.sm },
+  dangerText: { color: colors.error },
+  // Says what kind of tile this is without taking the heading's job.
+  dangerSub: { fontWeight: '700', color: colors.error },
   dangerOnPill: {
     fontSize: 11,
     fontWeight: '800',
@@ -409,7 +454,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   pressed: { opacity: 0.6 },
-  deleteOn: { fontSize: 14, fontWeight: '700', color: colors.error, marginBottom: spacing.xs },
   deleteNote: { fontSize: 13, color: colors.subtitle, lineHeight: 18, marginBottom: spacing.md },
   deleteWindows: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
   deleteWindow: { flexGrow: 1, minWidth: 96 },

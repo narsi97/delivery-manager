@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Banner, Button } from './components';
 import { colors, radius, spacing } from './theme';
@@ -15,7 +15,12 @@ import { colors, radius, spacing } from './theme';
 // security — it is not — but because the first press is often a thumb
 // on a phone, and the sentence between the two presses is the only
 // chance anybody gets to read what they are about to lose.
-export default function DeleteButton({ armed, label, describe, onDelete, onDone, onError }) {
+//
+// `compact` is the same thing sized for a table row: a single ✕ where a
+// full-width red button would be a third column. The confirmation is
+// unchanged — it still says what will go and still wants a second
+// press, because that sentence is the point of the control.
+export default function DeleteButton({ armed, label, describe, compact, onDelete, onDone, onError }) {
   const [asking, setAsking] = useState(false);
   const [detail, setDetail] = useState('');
   const [busy, setBusy] = useState(false);
@@ -58,6 +63,18 @@ export default function DeleteButton({ armed, label, describe, onDelete, onDone,
   };
 
   if (!asking) {
+    if (compact) {
+      return (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={label || 'Delete'}
+          onPress={ask}
+          style={({ hovered }) => [styles.icon, hovered && styles.iconHover]}
+        >
+          <Text style={styles.iconGlyph}>✕</Text>
+        </Pressable>
+      );
+    }
     return (
       <View style={styles.wrap}>
         <Banner message={error} />
@@ -80,6 +97,16 @@ export default function DeleteButton({ armed, label, describe, onDelete, onDone,
 
 const styles = StyleSheet.create({
   wrap: { marginTop: spacing.sm },
+  // Sized to the number cells beside it so the row keeps its baseline.
+  icon: {
+    width: 26,
+    height: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+  },
+  iconHover: { backgroundColor: colors.errorBg },
+  iconGlyph: { fontSize: 13, lineHeight: 16, color: colors.error, fontWeight: '700' },
   button: { alignSelf: 'flex-start' },
   confirm: {
     marginTop: spacing.sm,

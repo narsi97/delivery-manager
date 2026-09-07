@@ -12,6 +12,7 @@ import { labelsFor, lower } from '../labels';
 import { serviceRouteOfRoute } from '../serviceAreas';
 import { CauseStops, notGoingOutCauses, OneOffRoute } from '../NotGoingOut';
 import { usePageStyle } from '../layout';
+import { formatQuantity } from '../productGroups';
 import { colors, spacing } from '../theme';
 
 // The admin's whole day, on one screen.
@@ -29,6 +30,11 @@ export default function TodayScreen({ token, business }) {
   const [day, setDay] = useState(null);
   const [drivers, setDrivers] = useState([]);
   const [products, setProducts] = useState([]);
+  // What the day being shown adds up to, per product. Asked for the
+  // selected date rather than today's, so somebody looking at tomorrow
+  // is told what tomorrow needs — which is the whole reason this
+  // question moved off the Business page (see the comment there).
+  const [demand, setDemand] = useState({});
   const [areas, setAreas] = useState([]);
   const [checkins, setCheckins] = useState([]);
   const [error, setError] = useState('');
@@ -47,16 +53,19 @@ export default function TodayScreen({ token, business }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [dayResponse, driverResponse, productResponse, areaResponse, checkinResponse] = await Promise.all([
-        api.getDay(token, selectedDate || undefined),
-        api.listDrivers(token),
-        api.listProducts(token),
-        api.listServiceAreas(token),
-        api.listCheckins(token, selectedDate || undefined),
-      ]);
+      const [dayResponse, driverResponse, productResponse, areaResponse, checkinResponse, demandResponse] =
+        await Promise.all([
+          api.getDay(token, selectedDate || undefined),
+          api.listDrivers(token),
+          api.listProducts(token),
+          api.listServiceAreas(token),
+          api.listCheckins(token, selectedDate || undefined),
+          api.getProductDemand(token, selectedDate || undefined),
+        ]);
       setDay(dayResponse);
       setDrivers(driverResponse.drivers || []);
       setProducts(productResponse.products || []);
+      setDemand(demandResponse.needed || {});
       setAreas(areaResponse.service_areas || []);
       setCheckins(checkinResponse.checkins || []);
       setError('');
@@ -217,6 +226,34 @@ export default function TodayScreen({ token, business }) {
       stops: causes.waiting,
     });
   }
+  // Not enough in the cold room for what this day is asking for.
+  //
+  // This used to be a column on the Business page, which could only ever
+  // answer it about today — and a business looks at tomorrow the night
+  // before. Here it follows the date picker, and it says the shortfall
+  // in words rather than leaving two numbers side by side for somebody
+  // to subtract.
+  const shortSizes = products
+    .map((product) => ({
+      name: product.name,
+      short: Math.max(0, (demand[product.id] || 0) - (Number(product.stock_quantity) || 0)),
+      needed: demand[product.id] || 0,
+      have: Number(product.stock_quantity) || 0,
+    }))
+    .filter((line) => line.short > 0)
+    .sort((a, b) => b.short - a.short);
+  if (shortSizes.length > 0) {
+    exceptions.push({
+      key: 'short-stock',
+      count: shortSizes.length,
+      message:
+        shortSizes.length === 1
+          ? `${shortSizes[0].name}: ${formatQuantity(shortSizes[0].short)} short of what this day needs.`
+          : `${shortSizes.length} things are short of what this day needs.`,
+      lines: shortSizes,
+    });
+  }
+
   // On a round, but nobody has found the door yet. Not a problem to
   // solve from a desk — the driver is the one who will be standing
   // there — so it reads as a note about today rather than as a fault.
@@ -277,6 +314,20 @@ export default function TodayScreen({ token, business }) {
         ) : (
           exceptions.map((exception) => (
             <Banner key={exception.key} tone="info" message={exception.message} count={exception.count}>
+              {exception.lines ? (
+                <View style={styles.shortList}>
+                  {exception.lines.map((line) => (
+                    <View key={line.name} style={styles.shortRow}>
+                      <Text style={styles.shortName}>{line.name}</Text>
+                      <Text style={styles.shortNumbers}>
+                        {formatQuantity(line.needed)} needed · {formatQuantity(line.have)} in stock
+                      </Text>
+                      <Text style={styles.shortBy}>{formatQuantity(line.short)} short</Text>
+                    </View>
+                  ))}
+                  <Text style={styles.shortNote}>Stock is set under Manage business.</Text>
+                </View>
+              ) : null}
               {exception.stops ? (
                 <CauseStops
                   stops={exception.stops}
@@ -324,7 +375,7 @@ export default function TodayScreen({ token, business }) {
           ) : routes.length === 0 ? (
             <Empty>
               {areas.length === 0
-                ? `A ${lower(labels.route)} is prepared for each service ${lower(labels.route)} you set up, and you have none yet — start on the Business tab.`
+                ? `A ${lower(labels.route)} is prepared for each service ${lower(labels.route)} you set up, and you have none yet — start under Manage business.`
                 : summary.total === 0
                   ? 'Nothing to deliver on this day.'
                   : `Nothing routed yet. ${labels.route}s are prepared for each service ${lower(labels.route)} that has deliveries in it.`}
@@ -387,6 +438,12 @@ export default function TodayScreen({ token, business }) {
 }
 
 const styles = StyleSheet.create({
+  shortList: { gap: 2 },
+  shortRow: { flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap', gap: spacing.sm, paddingVertical: 3 },
+  shortName: { fontSize: 14, fontWeight: '600', color: colors.text },
+  shortNumbers: { fontSize: 12, color: colors.subtitle, fontVariant: ['tabular-nums'] },
+  shortBy: { fontSize: 13, fontWeight: '700', color: colors.warning, marginLeft: 'auto' },
+  shortNote: { fontSize: 12, color: colors.subtitle, marginTop: spacing.xs },
   loader: { marginTop: spacing.xl * 2 },
   chartRow: { marginBottom: spacing.md },
   note: { fontSize: 12, color: colors.hint, marginTop: spacing.sm, lineHeight: 17 },

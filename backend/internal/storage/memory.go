@@ -945,3 +945,27 @@ func (s *MemoryStore) DeleteServiceArea(_ context.Context, businessID string, id
 	}
 	return nil
 }
+
+func (s *MemoryStore) DeleteProduct(_ context.Context, businessID string, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	p, ok := s.products[id]
+	if !ok || p.BusinessID != businessID {
+		return ErrNotFound
+	}
+	// Postgres refuses this with a foreign key; here it has to be written
+	// out, or the two stores disagree about what a delete leaves behind.
+	for _, o := range s.daily {
+		if o.ProductID == id {
+			return ErrInUse
+		}
+	}
+	for _, sub := range s.recurring {
+		if sub.ProductID == id {
+			return ErrInUse
+		}
+	}
+	delete(s.products, id)
+	return nil
+}

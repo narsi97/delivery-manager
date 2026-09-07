@@ -36,7 +36,7 @@ export function ReadOnlyEntityCard({ kind, data }) {
     return (
       <View style={styles.box}>
         <Text style={styles.name}>Your business</Text>
-        <Text style={styles.hint}>Edit this on the Business tab.</Text>
+        <Text style={styles.hint}>Edit this under Manage business.</Text>
       </View>
     );
   }

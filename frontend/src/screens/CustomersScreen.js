@@ -1413,7 +1413,7 @@ function NewOrderForm({ token, customer, subscriptions = [], products, labels, t
   if (products.length === 0) {
     return (
       <View style={styles.subForm}>
-        <Empty>Add a {lower(labels.product)} on the Business tab before placing an order.</Empty>
+        <Empty>Add a {lower(labels.product)} under Manage business before placing an order.</Empty>
       </View>
     );
   }

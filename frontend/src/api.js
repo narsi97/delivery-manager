@@ -413,6 +413,10 @@ export function deleteDriver(token, id) {
   return request(`/api/v1/drivers/${id}`, { method: 'DELETE', token });
 }
 
+export function deleteProduct(token, id) {
+  return request(`/api/v1/products/${id}`, { method: 'DELETE', token });
+}
+
 export function deleteServiceArea(token, id) {
   return request(`/api/v1/service-areas/${id}`, { method: 'DELETE', token });
 }

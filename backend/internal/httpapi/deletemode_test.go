@@ -168,3 +168,35 @@ func TestDeletingAServiceRouteHandsItsCustomersBackToTheirPins(t *testing.T) {
 		t.Errorf("service_area_id = %q, want it cleared — that id points at nothing now", str(c, "service_area_id"))
 	}
 }
+
+// A size added by mistake can go. A size somebody is already getting
+// cannot, because the deliveries that name it would be left pointing at
+// nothing — the refusal is the feature, not a limitation of it.
+func TestDeletingAProductNobodyOrdersButKeepingOneTheyDo(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+	admin.mustDo(http.MethodPost, "/api/v1/account/delete-mode", map[string]any{"hours": 1}, http.StatusOK)
+
+	spare := admin.mustDo(http.MethodPost, "/api/v1/products", map[string]any{
+		"name": "Milk 3L", "unit": "L", "price_cents": 18000,
+	}, http.StatusCreated)
+	admin.mustDo(http.MethodDelete, "/api/v1/products/"+str(spare, "id"), nil, http.StatusOK)
+
+	ordered := firstProductID(t, admin)
+	customer := createCustomer(t, admin, "Anita", 17.05, 79.26)
+	admin.mustDo(http.MethodPost, "/api/v1/recurring-orders", map[string]any{
+		"customer_id": customer, "product_id": ordered,
+		"quantity": 1, "frequency": "daily",
+		"weekdays": []any{0, 1, 2, 3, 4, 5, 6},
+	}, http.StatusCreated)
+
+	admin.mustDo(http.MethodDelete, "/api/v1/products/"+ordered, nil, http.StatusConflict)
+
+	listed := admin.mustDo(http.MethodGet, "/api/v1/products", nil, http.StatusOK)
+	for _, raw := range listed["products"].([]any) {
+		if str(raw.(map[string]any), "id") == ordered {
+			return
+		}
+	}
+	t.Fatal("the ordered product was deleted anyway")
+}
