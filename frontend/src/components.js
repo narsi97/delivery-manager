@@ -337,8 +337,12 @@ export function Banner({ message, tone = 'error', children, count }) {
         accessibilityState={{ expanded: open }}
         style={({ pressed }) => [styles.bannerHead, pressed && styles.bannerPressed]}
       >
-        <Text style={[styles.bannerText, styles.bannerHeadText, { color: fg }]}>{message}</Text>
+        {/* The number leads. "3 Needs restock" is read in one go;
+            with the count parked on the far right, the label and its
+            size were two separate reads with a line of empty warning
+            between them. */}
         {count > 0 ? <Text style={[styles.bannerCount, { color: fg }]}>{count}</Text> : null}
+        <Text style={[styles.bannerText, styles.bannerHeadText, { color: fg }]}>{message}</Text>
         <Text style={[styles.bannerChevron, { color: fg }]}>{open ? '▾' : '▸'}</Text>
       </Pressable>
       {open ? <View style={styles.bannerBody}>{children}</View> : null}
@@ -652,7 +656,9 @@ const styles = StyleSheet.create({
   },
   bannerHeadText: { flex: 1 },
   bannerPressed: { opacity: 0.7 },
-  bannerCount: { fontSize: 13, fontWeight: '800' },
+  // Wide enough that two digits and one line up down a column of
+  // warnings, and right-aligned so their units do.
+  bannerCount: { fontSize: 15, fontWeight: '800', minWidth: 18, textAlign: 'right', fontVariant: ['tabular-nums'] },
   // Big enough to aim at. The row is what you press, so this is only
   // ever a mark — but a 12px glyph reads as decoration, and somebody has
   // to see that a warning has more inside it before they will open one.
