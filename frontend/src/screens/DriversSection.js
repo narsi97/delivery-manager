@@ -2,8 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import * as api from '../api';
-import { AddButton, Banner, Button, Card, Disclosure, Empty, Field, Pill, SectionTitle, ViewToggle } from '../components';
-import EntityMapPanel from '../EntityMapPanel';
+import { AddButton, Banner, Button, Card, Disclosure, Empty, Field, Pill, SectionTitle } from '../components';
 import LocationPicker, { InlineLocationEditor } from '../LocationPicker';
 import DeleteButton from '../DeleteButton';
 import { useDeleteMode } from '../deleteMode';
@@ -14,35 +13,23 @@ export default function DriversSection({ token, currentUserId, business, user })
   const labels = labelsFor(business);
   const { open: canDelete } = useDeleteMode(user);
   const [drivers, setDrivers] = useState([]);
-  const [customers, setCustomers] = useState([]);
-  const [areas, setAreas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [adding, setAdding] = useState(false);
-  // The same drivers, two ways of looking at them — see ViewToggle.
-  const [view, setView] = useState('list');
   // Today's routes, so the roster can answer the question it is actually
   // opened to answer: who is out, and with how much. "finishes at the
   // farm" is a setting; "Nalgonda town, 15 stops" is the morning.
   const [day, setDay] = useState(null);
 
-  // Scopes the "see everyone" map below to the business's own operating
-  // area instead of an India-wide default — see MapPicker.web.js.
+  // Where a driver's own finish-point map opens — see MapPicker.web.js.
   const home =
     business && (business.home_lat || business.home_lng) ? { lat: business.home_lat, lng: business.home_lng } : null;
 
   const refresh = useCallback(async () => {
     try {
-      const [driverResponse, customerResponse, areaResponse, dayResponse] = await Promise.all([
-        api.listDrivers(token),
-        api.listCustomers(token),
-        api.listServiceAreas(token),
-        api.getDay(token),
-      ]);
+      const [driverResponse, dayResponse] = await Promise.all([api.listDrivers(token), api.getDay(token)]);
       setDrivers(driverResponse.drivers || []);
-      setCustomers(customerResponse.customers || []);
-      setAreas(areaResponse.service_areas || []);
       setDay(dayResponse);
       setError('');
     } catch (err) {
@@ -83,25 +70,16 @@ export default function DriversSection({ token, currentUserId, business, user })
       <Banner message={notice} tone="success" />
 
       <Card>
+        {/* No map. A driver is not a place — what the map showed was
+            where they finish, which is one line on their own card and
+            not something anybody browses a map to compare. */}
         <SectionTitle
-          after={
+          right={
             <AddButton
               open={adding}
               onPress={() => setAdding((prev) => !prev)}
               label={adding ? 'Cancel adding a driver' : 'Add a driver'}
             />
-          }
-          right={
-            <View style={styles.headingActions}>
-              <ViewToggle
-                value={view}
-                onChange={setView}
-                options={[
-                  { value: 'list', label: 'List' },
-                  { value: 'map', label: 'Map' },
-                ]}
-              />
-            </View>
           }
         >
           Drivers ({drivers.length})
@@ -120,18 +98,7 @@ export default function DriversSection({ token, currentUserId, business, user })
           />
         ) : null}
 
-        {view === 'map' ? (
-          <EntityMapPanel
-            token={token}
-            editableKind="driver"
-            home={home}
-            drivers={drivers}
-            customers={customers}
-            areas={areas}
-            onChanged={refresh}
-            onError={setError}
-          />
-        ) : drivers.length === 0 ? (
+        {drivers.length === 0 ? (
           <Empty>No drivers yet.</Empty>
         ) : (
           <View style={styles.driverTiles}>

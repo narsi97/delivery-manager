@@ -426,6 +426,12 @@ export function setProductStock(token, id, date, quantity) {
   });
 }
 
+// Empties whole kinds of thing at once — see handleReset. Never touches
+// the business, its products, or anyone who can administer it.
+export function resetEntities(token, kinds) {
+  return request('/api/v1/account/reset', { method: 'POST', token, body: JSON.stringify(kinds) });
+}
+
 export function deleteProduct(token, id) {
   return request(`/api/v1/products/${id}`, { method: 'DELETE', token });
 }

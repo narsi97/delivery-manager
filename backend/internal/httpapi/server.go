@@ -137,6 +137,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/v1/drivers/{id}", s.withAdmin(s.handleDeleteDriver))
 	s.mux.HandleFunc("DELETE /api/v1/service-areas/{id}", s.withAdmin(s.handleDeleteServiceArea))
 	s.mux.HandleFunc("POST /api/v1/account/delete-mode", s.withAdmin(s.handleSetDeleteMode))
+	s.mux.HandleFunc("POST /api/v1/account/reset", s.withAdmin(s.handleReset))
 
 	s.mux.HandleFunc("GET /api/v1/products", s.withAdmin(s.handleListProducts))
 	s.mux.HandleFunc("POST /api/v1/products", s.withAdmin(s.handleCreateProduct))

@@ -151,14 +151,17 @@ export default function CustomersScreen({ token, business, user }) {
 
       <Card>
         <SectionTitle
-          after={
-            <View style={styles.headingActions}>
-              <AddButton
-                open={adding}
-                onPress={() => setAdding((prev) => !prev)}
-                label={adding ? `Cancel adding a ${lower(labels.customer)}` : `Add a ${lower(labels.customer)}`}
+          right={
+            <>
+              <ViewToggle
+                value={view}
+                onChange={setView}
+                options={[
+                  { value: 'list', label: 'List' },
+                  { value: 'map', label: 'Map' },
+                ]}
               />
-              {/* Next to Add rather than behind the ⋯, even though it is
+              {/* Out here rather than behind the ⋯, even though it is
                   used once and never again. That once is the first hour
                   with the product, when the list is empty and nobody has
                   learned where anything is hidden yet. */}
@@ -170,17 +173,12 @@ export default function CustomersScreen({ token, business, user }) {
               >
                 <Text style={styles.importText}>Import</Text>
               </Pressable>
-            </View>
-          }
-          right={
-            <ViewToggle
-              value={view}
-              onChange={setView}
-              options={[
-                { value: 'list', label: 'List' },
-                { value: 'map', label: 'Map' },
-              ]}
-            />
+              <AddButton
+                open={adding}
+                onPress={() => setAdding((prev) => !prev)}
+                label={adding ? `Cancel adding a ${lower(labels.customer)}` : `Add a ${lower(labels.customer)}`}
+              />
+            </>
           }
         >
           {labels.customer_plural} ({visibleCustomers.length}

@@ -177,7 +177,7 @@ export default function BusinessScreen({ token, business, user, currentUserId, o
 
       <Card>
         <SectionTitle
-          after={
+          right={
             <AddButton
               open={addingArea}
               onPress={() => {
@@ -507,6 +507,25 @@ function metersBetween(aLat, aLng, bLat, bLng) {
 // Matches Field's input styling — a raw <input> can't take
 // StyleSheet.create output. Full width because a slider is a distance
 // control and needs the travel.
+// The one question at the top of the add form. Takes the slack so it
+// reads as a sentence — "Add | another size of Milk" — rather than as a
+// labelled field.
+const groupSelectStyle = {
+  flex: 1,
+  minWidth: 0,
+  borderWidth: 1,
+  borderColor: colors.border,
+  borderRadius: radius.md,
+  paddingTop: spacing.sm,
+  paddingBottom: spacing.sm,
+  paddingLeft: spacing.md,
+  paddingRight: spacing.md,
+  fontSize: 15,
+  color: colors.text,
+  backgroundColor: colors.surface,
+  fontFamily: 'inherit',
+};
+
 const radiusSliderStyle = {
   width: '100%',
   marginTop: 4,
@@ -531,26 +550,39 @@ const radiusSliderStyle = {
 // needed, not something to fake client-side.
 function ProductCatalogCard({ token, products, demand, stock, date, canDelete, onChanged, onCreated, onError }) {
   const [expanded, setExpanded] = useState(false);
+  // Which product the new thing joins, or '' for a product of its own.
+  // A sixth size of milk and a first jar of paneer are the same act from
+  // the admin's side — "we sell something new" — so they are one form
+  // with one question at the top of it, rather than a "+" on the card
+  // and another "+" on every product heading in it. That second one did
+  // not scale: a dairy with eight products grew eight of them.
+  const [joins, setJoins] = useState('');
   const [name, setName] = useState('');
   const [unit, setUnit] = useState('');
   const [price, setPrice] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const groups = groupProducts(products);
+  const group = groups.find((candidate) => candidate.name === joins);
+  // Joining a product, the box holds a size and the full name is made
+  // from both — "Milk" and "750ml" is "Milk 750ml", which is what
+  // splitSize reads back out of it. See productGroups.js.
+  const fullName = group ? `${group.name} ${name.trim()}`.trim() : name.trim();
 
   const submit = async () => {
     setBusy(true);
     try {
       const priceRupees = Number(price);
       await api.createProduct(token, {
-        name,
-        unit,
+        name: fullName,
+        unit: group ? unit || group.items[0]?.unit || '' : unit,
         price_cents: Number.isFinite(priceRupees) && priceRupees > 0 ? Math.round(priceRupees * 100) : 0,
       });
-      const created = name;
       setName('');
       setUnit('');
       setPrice('');
       setExpanded(false);
-      await onCreated(created);
+      await onCreated(fullName);
     } catch (err) {
       onError(err.message);
     } finally {
@@ -561,7 +593,7 @@ function ProductCatalogCard({ token, products, demand, stock, date, canDelete, o
   return (
     <Card>
       <SectionTitle
-        after={
+        right={
           <AddButton
             open={expanded}
             onPress={() => setExpanded((prev) => !prev)}
@@ -575,12 +607,55 @@ function ProductCatalogCard({ token, products, demand, stock, date, canDelete, o
 
       {expanded ? (
         <View style={styles.inlineForm}>
-          <Field label="Name" size="md" value={name} onChangeText={setName} placeholder="Paneer 200g" />
-          <FieldRow>
-            <Field label="Unit" size="sm" value={unit} onChangeText={setUnit} placeholder="packet / can / trip" />
-            <Field label="Price ₹" size="xs" value={price} onChangeText={setPrice} keyboardType="numeric" placeholder="60" />
-          </FieldRow>
-          <Button title="Add product" onPress={submit} busy={busy} disabled={!name.trim()} />
+          {groups.length > 0 ? (
+            <View style={styles.addWhatRow}>
+              <Text style={styles.addWhatLabel}>Add</Text>
+              <select
+                value={joins}
+                aria-label="What kind of thing to add"
+                style={groupSelectStyle}
+                onChange={(event) => {
+                  setJoins(event.target.value);
+                  setName('');
+                  setUnit('');
+                }}
+              >
+                <option value="">something new</option>
+                {groups.map((candidate) => (
+                  <option key={candidate.key} value={candidate.name}>
+                    another size of {candidate.name}
+                  </option>
+                ))}
+              </select>
+            </View>
+          ) : null}
+
+          {group ? (
+            <FieldRow>
+              <Field
+                label="Size"
+                size="sm"
+                value={name}
+                onChangeText={setName}
+                placeholder="750ml"
+              />
+              <Field label="Price ₹" size="xs" value={price} onChangeText={setPrice} keyboardType="numeric" placeholder="60" />
+            </FieldRow>
+          ) : (
+            <>
+              <Field label="Name" size="md" value={name} onChangeText={setName} placeholder="Paneer 200g" />
+              <FieldRow>
+                <Field label="Unit" size="sm" value={unit} onChangeText={setUnit} placeholder="packet / can / trip" />
+                <Field label="Price ₹" size="xs" value={price} onChangeText={setPrice} keyboardType="numeric" placeholder="60" />
+              </FieldRow>
+            </>
+          )}
+          <Button
+            title={group ? `Add ${fullName || group.name}` : 'Add product'}
+            onPress={submit}
+            busy={busy}
+            disabled={!name.trim()}
+          />
         </View>
       ) : null}
 
@@ -594,9 +669,7 @@ function ProductCatalogCard({ token, products, demand, stock, date, canDelete, o
           date={date}
           token={token}
           canDelete={canDelete}
-          canAdd
           onChanged={onChanged}
-          onCreated={onCreated}
           onError={onError}
         />
       )}

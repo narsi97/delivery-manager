@@ -306,3 +306,96 @@ func (s *Server) handleDeleteProduct(w http.ResponseWriter, r *http.Request) {
 	log.Printf("%s deleted product %s", sess.User.Name, product.Name)
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": product.Name})
 }
+
+// handleReset empties whole kinds of thing at once.
+//
+// A business setting up for real does this two or three times — a trial
+// import that came out wrong, a list loaded against the wrong route —
+// and doing it one customer at a time through thirty-eight confirmations
+// is not a fix, it is a punishment. What it is not is a factory reset:
+// the business, its products and its admins stay, because those are the
+// things somebody would have to be given back by hand.
+//
+// Behind the same delete window as everything else, and it says what it
+// removed rather than reporting success.
+func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r.Context())
+	if !s.requireDeleteMode(w, r, sess) {
+		return
+	}
+
+	var req struct {
+		Customers    bool `json:"customers"`
+		Drivers      bool `json:"drivers"`
+		ServiceAreas bool `json:"service_areas"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if !req.Customers && !req.Drivers && !req.ServiceAreas {
+		writeError(w, http.StatusBadRequest, "pick at least one thing to clear", "nothing_selected")
+		return
+	}
+
+	removed := map[string]int{}
+
+	// Customers first. Their orders go with them, and a service route
+	// deleted underneath them would leave the rounds referring to
+	// customers this is about to remove anyway.
+	if req.Customers {
+		customers, err := s.store.ListCustomers(r.Context(), sess.Business.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error(), "store_error")
+			return
+		}
+		for _, c := range customers {
+			if err := s.store.DeleteCustomer(r.Context(), sess.Business.ID, c.ID); err != nil {
+				writeStoreError(w, err, "customer")
+				return
+			}
+			removed["customers"]++
+		}
+	}
+
+	if req.ServiceAreas {
+		areas, err := s.store.ListServiceAreas(r.Context(), sess.Business.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error(), "store_error")
+			return
+		}
+		for _, a := range areas {
+			if err := s.store.DeleteServiceArea(r.Context(), sess.Business.ID, a.ID); err != nil {
+				writeStoreError(w, err, "service route")
+				return
+			}
+			removed["service_areas"]++
+		}
+	}
+
+	// Drivers, but never an admin and never yourself. An account that can
+	// administer the business is the way back into it — there is no
+	// signup and no password reset — so a checkbox must not be able to
+	// take one away. The owner of a one-person dairy is an admin_driver,
+	// and "clear the drivers" from them means the people they hired.
+	if req.Drivers {
+		users, err := s.store.ListUsers(r.Context(), sess.Business.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error(), "store_error")
+			return
+		}
+		for _, u := range users {
+			if u.ID == sess.User.ID || u.Role.CanAdmin() || !u.Role.CanDrive() {
+				continue
+			}
+			if err := s.store.DeleteUser(r.Context(), sess.Business.ID, u.ID); err != nil {
+				writeStoreError(w, err, "driver")
+				return
+			}
+			removed["drivers"]++
+		}
+	}
+
+	log.Printf("%s cleared %d customers, %d service routes, %d drivers",
+		sess.User.Name, removed["customers"], removed["service_areas"], removed["drivers"])
+	writeJSON(w, http.StatusOK, map[string]any{"removed": removed})
+}

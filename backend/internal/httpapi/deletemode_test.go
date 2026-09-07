@@ -200,3 +200,83 @@ func TestDeletingAProductNobodyOrdersButKeepingOneTheyDo(t *testing.T) {
 	}
 	t.Fatal("the ordered product was deleted anyway")
 }
+
+// Clearing the drivers must not be able to lock a business out of itself.
+// The owner of a one-person dairy is an admin_driver, and the account
+// pressing the button is the one that would be gone.
+func TestResetClearsDriversButNeverAdminsOrYourself(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+	admin.mustDo(http.MethodPost, "/api/v1/account/delete-mode", map[string]any{"hours": 1}, http.StatusOK)
+
+	admin.mustDo(http.MethodPost, "/api/v1/drivers",
+		map[string]any{"name": "Chandu", "phone": "9998887770"}, http.StatusCreated)
+	admin.mustDo(http.MethodPost, "/api/v1/drivers",
+		map[string]any{"name": "Ravi", "phone": "9998887771"}, http.StatusCreated)
+
+	result := admin.mustDo(http.MethodPost, "/api/v1/account/reset",
+		map[string]any{"drivers": true}, http.StatusOK)
+	if got := num(result["removed"].(map[string]any), "drivers"); got != 2 {
+		t.Fatalf("removed %v drivers, want 2", got)
+	}
+
+	users := admin.mustDo(http.MethodGet, "/api/v1/drivers", nil, http.StatusOK)
+	for _, raw := range users["drivers"].([]any) {
+		u := raw.(map[string]any)
+		if str(u, "name") == "Chandu" || str(u, "name") == "Ravi" {
+			t.Errorf("%s survived the reset", str(u, "name"))
+		}
+	}
+	// The admin who pressed it is still able to sign in and use the app.
+	admin.mustDo(http.MethodGet, "/api/v1/customers", nil, http.StatusOK)
+}
+
+// Customers and service routes go together or separately, and the count
+// that comes back is what the screen tells somebody was removed.
+func TestResetClearsCustomersAndServiceRoutes(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+	admin.mustDo(http.MethodPost, "/api/v1/account/delete-mode", map[string]any{"hours": 1}, http.StatusOK)
+
+	createCustomer(t, admin, "Anita", 17.05, 79.26)
+	createCustomer(t, admin, "Bhavani", 17.06, 79.27)
+	admin.mustDo(http.MethodPost, "/api/v1/service-areas",
+		map[string]any{"name": "Nalgonda", "lat": 17.05, "lng": 79.26, "radius_meters": 4000}, http.StatusCreated)
+
+	result := admin.mustDo(http.MethodPost, "/api/v1/account/reset",
+		map[string]any{"customers": true, "service_areas": true}, http.StatusOK)
+	removed := result["removed"].(map[string]any)
+	if got := num(removed, "customers"); got != 2 {
+		t.Errorf("removed %v customers, want 2", got)
+	}
+	if got := num(removed, "service_areas"); got != 1 {
+		t.Errorf("removed %v service routes, want 1", got)
+	}
+
+	after := admin.mustDo(http.MethodGet, "/api/v1/customers", nil, http.StatusOK)
+	if list, _ := after["customers"].([]any); len(list) != 0 {
+		t.Errorf("%d customers left, want 0", len(list))
+	}
+
+	// Products and the business itself are not part of a reset — they are
+	// what somebody would have to be given back by hand.
+	products := admin.mustDo(http.MethodGet, "/api/v1/products", nil, http.StatusOK)
+	if list, _ := products["products"].([]any); len(list) == 0 {
+		t.Error("the reset took the products with it")
+	}
+}
+
+// The same gate as every other delete.
+func TestResetIsRefusedWhileTheWindowIsShut(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+	createCustomer(t, admin, "Anita", 17.05, 79.26)
+
+	admin.mustDo(http.MethodPost, "/api/v1/account/reset",
+		map[string]any{"customers": true}, http.StatusForbidden)
+
+	after := admin.mustDo(http.MethodGet, "/api/v1/customers", nil, http.StatusOK)
+	if list, _ := after["customers"].([]any); len(list) != 1 {
+		t.Errorf("%d customers, want 1 — nothing should have been cleared", len(list))
+	}
+}

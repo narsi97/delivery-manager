@@ -18,14 +18,14 @@ export function SectionTitle({ children, right, after }) {
     <View style={styles.sectionTitleRow}>
       <View style={styles.sectionTitleLeft}>
         <Text style={styles.sectionTitle}>{children}</Text>
-        {/* `after` sits with the title; `right` sits at the far end of
-            the row. The difference matters for an add button: a bare
-            "+" floating by the view toggle reads as another view
-            control, while "+ Add" beside "Customers (9)" reads as
-            "add a customer" without anything having to say so. */}
         {after || null}
       </View>
-      {right ? <View>{right}</View> : null}
+      {/* The end of the row, where every card puts the thing you press.
+          Beside the heading they landed at a different x on every card,
+          because they were pushed along by however long the heading
+          happened to be — a column of buttons that never lines up is a
+          column the eye has to hunt down. */}
+      {right ? <View style={styles.sectionTitleRight}>{right}</View> : null}
     </View>
   );
 }
@@ -476,6 +476,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm + 2,
   },
   sectionTitle: { fontSize: 17, fontWeight: '700', color: colors.text },
+  sectionTitleRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginLeft: 'auto' },
   dialogBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.45)',

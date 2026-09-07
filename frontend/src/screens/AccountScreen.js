@@ -4,6 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import * as api from '../api';
 import { Banner, Button, Card, Field } from '../components';
 import { useLanguage } from '../i18n';
+import { labelsFor, lower } from '../labels';
 import LocationPicker from '../LocationPicker';
 import { arm, describeUntil, disarm, useDeleteMode, WINDOWS } from '../deleteMode';
 import { usePageStyle } from '../layout';
@@ -23,6 +24,7 @@ import { colors, radius, spacing } from '../theme';
 // works on.
 export default function AccountScreen({ token, business, user, onBusinessUpdated, onUserUpdated }) {
   const pageStyle = usePageStyle(720);
+  const labels = labelsFor(business);
   // Which tile is open, if any: 'name' | 'home' | 'password' | 'deleting'.
   const [open, setOpen] = useState(null);
   const { t } = useLanguage();
@@ -112,6 +114,7 @@ export default function AccountScreen({ token, business, user, onBusinessUpdated
           <DeleteModeTile
             token={token}
             user={user}
+            labels={labels}
             open={open === 'deleting'}
             onToggle={() => toggle('deleting')}
             onUserUpdated={onUserUpdated}
@@ -158,7 +161,7 @@ function SettingTile({ title, value, tone, open, onPress, children }) {
 // talking out of it, and somebody who did not is not going to switch it
 // on by accident. What it does need to say is that the window closes by
 // itself, because that is the part that makes leaving it on harmless.
-function DeleteModeTile({ token, user, open: shown, onToggle, onUserUpdated, onNotice, onError }) {
+function DeleteModeTile({ token, user, labels, open: shown, onToggle, onUserUpdated, onNotice, onError }) {
   const [me, setMe] = useState(user);
   const [busy, setBusy] = useState(0);
   const { open, until } = useDeleteMode(me);
@@ -210,6 +213,7 @@ function DeleteModeTile({ token, user, open: shown, onToggle, onUserUpdated, onN
             They turn off by themselves. Deleting takes a customer&apos;s whole history with them, and cannot be undone.
           </Text>
           <Button title="Turn them off now" variant="secondary" onPress={() => set(0)} busy={busy === -1} />
+          <ResetEntities token={token} labels={labels} onNotice={onNotice} onError={onError} />
         </View>
       ) : (
         <View style={styles.tileBody}>
@@ -230,6 +234,103 @@ function DeleteModeTile({ token, user, open: shown, onToggle, onUserUpdated, onN
           </View>
         </View>
       )}
+    </View>
+  );
+}
+
+// Emptying a whole kind of thing at once.
+//
+// A business setting up for real does this two or three times — a trial
+// import that came out wrong, a list loaded against the wrong round —
+// and doing it one customer at a time through thirty-eight
+// confirmations is not a fix, it is a punishment.
+//
+// It is not a factory reset, and says so: the business, what it sells
+// and the people who can administer it stay, because those are the ones
+// somebody would have to be given back by hand. Two presses, with the
+// counts named in between, same as every other delete in this app.
+function ResetEntities({ token, labels, onNotice, onError }) {
+  const [picked, setPicked] = useState({});
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const kinds = [
+    { key: 'customers', label: labels.customer_plural },
+    { key: 'service_areas', label: `Service ${lower(labels.route)}s` },
+    { key: 'drivers', label: `${labels.driver}s` },
+  ];
+  const chosen = kinds.filter((kind) => picked[kind.key]);
+
+  const run = async () => {
+    setBusy(true);
+    try {
+      const result = await api.resetEntities(token, {
+        customers: !!picked.customers,
+        drivers: !!picked.drivers,
+        service_areas: !!picked.service_areas,
+      });
+      const said = Object.entries(result.removed || {})
+        .filter(([, n]) => n > 0)
+        .map(([kind, n]) => `${n} ${kind.replace('_', ' ')}`)
+        .join(', ');
+      onNotice(said ? `Cleared ${said}.` : 'Nothing to clear.');
+      setPicked({});
+      setAsking(false);
+    } catch (err) {
+      onError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={styles.resetBlock}>
+      <Text style={styles.resetTitle}>Start over</Text>
+      <View style={styles.resetKinds}>
+        {kinds.map((kind) => {
+          const on = !!picked[kind.key];
+          return (
+            <Pressable
+              key={kind.key}
+              onPress={() => {
+                setAsking(false);
+                setPicked((prev) => ({ ...prev, [kind.key]: !prev[kind.key] }));
+              }}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: on }}
+              accessibilityLabel={`Clear all ${kind.label.toLowerCase()}`}
+              style={({ pressed }) => [styles.resetKind, on && styles.resetKindOn, pressed && styles.pressed]}
+            >
+              <Text style={[styles.resetKindText, on && styles.resetKindTextOn]}>
+                {on ? '✓ ' : ''}
+                {kind.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {chosen.length === 0 ? null : asking ? (
+        <View>
+          <Text style={styles.resetWarning}>
+            All {chosen.map((kind) => kind.label.toLowerCase()).join(' and ')} in this business, and everything that
+            belongs to them. This cannot be undone.
+          </Text>
+          <View style={styles.resetButtons}>
+            <Button title="Yes, clear them" variant="danger" onPress={run} busy={busy} style={styles.flexButton} />
+            <Button title="Keep them" variant="secondary" onPress={() => setAsking(false)} style={styles.flexButton} />
+          </View>
+        </View>
+      ) : (
+        <Button
+          title={`Clear ${chosen.map((kind) => kind.label.toLowerCase()).join(' and ')}`}
+          variant="danger"
+          onPress={() => setAsking(true)}
+        />
+      )}
+      <Text style={styles.resetKeeps}>
+        Keeps what you sell, and anyone who can manage the business.
+      </Text>
     </View>
   );
 }
@@ -440,6 +541,23 @@ const styles = StyleSheet.create({
   tilePencil: { fontSize: 18, lineHeight: 20, color: colors.link, width: 22, textAlign: 'center' },
   tileBody: { marginTop: spacing.sm },
   dangerText: { color: colors.error },
+  resetBlock: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md },
+  resetTitle: { fontSize: 14, fontWeight: '700', color: colors.text, marginBottom: spacing.sm },
+  resetKinds: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm },
+  resetKind: {
+    paddingVertical: 7,
+    paddingHorizontal: spacing.md,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  resetKindOn: { borderColor: colors.error, backgroundColor: colors.errorBg },
+  resetKindText: { fontSize: 13, fontWeight: '600', color: colors.text },
+  resetKindTextOn: { color: colors.error },
+  resetWarning: { fontSize: 13, fontWeight: '700', color: colors.error, lineHeight: 18, marginBottom: spacing.sm },
+  resetButtons: { flexDirection: 'row', gap: spacing.sm },
+  resetKeeps: { fontSize: 12, color: colors.subtitle, marginTop: spacing.sm },
   // Says what kind of tile this is without taking the heading's job.
   dangerSub: { fontWeight: '700', color: colors.error },
   dangerOnPill: {
