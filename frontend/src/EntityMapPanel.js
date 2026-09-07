@@ -31,6 +31,11 @@ export default function EntityMapPanel({
   drivers = [],
   customers = [],
   areas = [],
+  // Whether what came in is the result of a search rather than the whole
+  // roster. Only used to explain an empty map: a search that matches
+  // people who have no pin leaves nothing to draw, and a blank map with
+  // no reason given reads as a broken one.
+  searching = false,
   onChanged,
   onError,
 }) {
@@ -62,11 +67,22 @@ export default function EntityMapPanel({
   };
 
   const kindWord = editableKind === 'driver' ? 'driver' : 'customer';
+  const pinned = (customers || []).filter((c) => c.lat || c.lng).length;
 
   return (
     <View>
       {/* Tapping a pin is what a map is for. What was here was three
           lines explaining the legend of a map with a legend. */}
+      {searching && pinned === 0 ? (
+        <Text style={styles.note}>
+          {customers.length === 0
+            ? 'Nobody matches that.'
+            : `Nothing to show — ${
+                customers.length === 1 ? 'the one match has' : 'the matches have'
+              } no pin yet.`}
+        </Text>
+      ) : null}
+
       <EntityMap
         home={home}
         drivers={drivers}

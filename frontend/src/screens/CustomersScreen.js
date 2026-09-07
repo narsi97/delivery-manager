@@ -214,33 +214,30 @@ export default function CustomersScreen({ token, business, user }) {
             and a dropdown reading "By route" says what it is by saying
             what it is set to.
 
-            The picker stays out on the map too — it is the way back, and
-            hiding it would have left the map as a room with no door.
-            Searching is what is put away there, because the map has no
-            list to narrow. */}
+            Both stay out on the map. The picker is the way back, and
+            searching narrows the pins — typing a name leaves one, and a
+            map that fits its pins is then a map of that door. */}
         <View style={styles.toolsRow}>
-          {!onMap ? (
-            <View style={styles.searchBox}>
-              <Text style={styles.searchGlyph}>⌕</Text>
-              <input
-                value={search}
-                aria-label={`Search ${lower(labels.customer_plural)}`}
-                placeholder="Name, phone, or address"
-                onChange={(event) => setSearch(event.target.value)}
-                style={searchInputStyle}
-              />
-              {search ? (
-                <Pressable
-                  onPress={() => setSearch('')}
-                  accessibilityRole="button"
-                  accessibilityLabel="Clear the search"
-                  style={({ pressed }) => [styles.searchClear, pressed && styles.pressed]}
-                >
-                  <Text style={styles.searchClearGlyph}>✕</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          ) : null}
+          <View style={styles.searchBox}>
+            <Text style={styles.searchGlyph}>⌕</Text>
+            <input
+              value={search}
+              aria-label={`Search ${lower(labels.customer_plural)}`}
+              placeholder="Name, phone, or address"
+              onChange={(event) => setSearch(event.target.value)}
+              style={searchInputStyle}
+            />
+            {search ? (
+              <Pressable
+                onPress={() => setSearch('')}
+                accessibilityRole="button"
+                accessibilityLabel="Clear the search"
+                style={({ pressed }) => [styles.searchClear, pressed && styles.pressed]}
+              >
+                <Text style={styles.searchClearGlyph}>✕</Text>
+              </Pressable>
+            ) : null}
+          </View>
           <select
             value={groupBy}
             aria-label="What to show"
@@ -337,8 +334,12 @@ export default function CustomersScreen({ token, business, user }) {
             editableKind="customer"
             home={home}
             drivers={drivers}
-            customers={customers}
+            // What the search left, so typing a name leaves one pin and
+            // the map — which fits itself to what it is given — becomes
+            // a map of that door.
+            customers={visibleCustomers}
             areas={areas}
+            searching={words.length > 0}
             onChanged={refresh}
             onError={setError}
           />
