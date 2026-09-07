@@ -597,24 +597,38 @@ function ProductRow({ product, neededToday, token, onChanged, onError }) {
       <Pressable onPress={() => setExpanded((prev) => !prev)} accessibilityRole="button" style={styles.productRow}>
         <View style={styles.productRowText}>
           <Text style={styles.productName}>{product.name}</Text>
+          {/* An absence is not worth stating on every row. "No price
+              set" on all three products is three identical lines saying
+              nothing you could act on differently — the price appears
+              when there is one. See Docs/DESIGN.md. */}
           <Text style={styles.productMeta}>
             {product.unit || 'no unit'}
-            {product.price_cents > 0 ? ` · ₹${(product.price_cents / 100).toFixed(2)}` : ' · no price set'}
+            {product.price_cents > 0 ? ` · ₹${(product.price_cents / 100).toFixed(2)}` : ''}
           </Text>
         </View>
         <View style={styles.productRight}>
-          <Pill
-            label={`${formatQuantity(product.stock_quantity)} in stock`}
-            tone={short() ? 'warning' : 'neutral'}
-          />
+          {/* Stock is worth a badge once somebody is counting it. A
+              business that has never entered any gets "0 in stock" on
+              every product, which is the app reporting its own empty
+              field back as news. */}
+          {Number(product.stock_quantity) > 0 || short() ? (
+            <Pill
+              label={`${formatQuantity(product.stock_quantity)} in stock`}
+              tone={short() ? 'warning' : 'neutral'}
+            />
+          ) : null}
           <Text style={styles.productChevron}>{expanded ? '▾' : '▸'}</Text>
         </View>
       </Pressable>
 
+      {/* One number, not the same one twice. "110 needed for today's
+          deliveries — 110 short" is a sentence that says 110 in both
+          halves; what the reader wants is how many to make. */}
       {neededToday > 0 ? (
         <Text style={[styles.productNeeded, short() && styles.productShort]}>
-          {formatQuantity(neededToday)} needed for today&apos;s deliveries
-          {short() ? ` — ${formatQuantity(neededToday - (Number(product.stock_quantity) || 0))} short` : ''}
+          {short()
+            ? `${formatQuantity(neededToday - (Number(product.stock_quantity) || 0))} short for today`
+            : `${formatQuantity(neededToday)} needed today`}
         </Text>
       ) : null}
 
@@ -690,7 +704,7 @@ function SuggestedAreas({ suggestions, onAccept }) {
           <Button title="Set this up" onPress={() => onAccept(suggestion)} style={styles.suggestButton} />
         </View>
       ))}
-      <Text style={styles.note}>You can change the name and how far it reaches before saving.</Text>
+
     </View>
   );
 }
@@ -740,7 +754,9 @@ function ServiceAreaRow({ area, home, token, labels, customerCount, onAddCustome
         right={
           <View style={styles.rowPills}>
             <Pill label={`${customerCount}`} tone="neutral" />
-            {area.active ? <Pill label="active" tone="success" /> : <Pill label="paused" tone="neutral" />}
+            {/* Every route is active until somebody pauses one, so the
+                badge only ever means something in its off state. */}
+            {area.active ? null : <Pill label="paused" tone="neutral" />}
           </View>
         }
       >

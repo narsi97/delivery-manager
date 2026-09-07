@@ -253,7 +253,13 @@ function CompactStopRow({ door, token, captures, onChanged, onError }) {
             {stop.sequence}. {stop.customer_name}
             {door.length > 1 ? ` · ${door.length} items` : ''}
           </Text>
-          <Pill label={done && statuses.length === 1 ? t(`status_${statuses[0]}`) : t('status_pending')} tone={tone} />
+          {/* A finished stop is already greyed and struck through, and
+              an unfinished one is every other stop on the round — so
+              the badge only earns its place on the outcome that is not
+              a plain delivery. See Docs/DESIGN.md. */}
+          {done && statuses.length === 1 && statuses[0] !== 'delivered' ? (
+            <Pill label={t(`status_${statuses[0]}`)} tone={tone} />
+          ) : null}
         </View>
       </Pressable>
 

@@ -45,6 +45,8 @@ export default function AreaRoutesCard({
   const [error, setError] = useState('');
   const [showOptions, setShowOptions] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  // Whether the per-stop move arrows are out. Off by default.
+  const [arranging, setArranging] = useState(false);
   // Edits to how many stops each driver will take, keyed by driver id.
   // Only what the admin has actually typed lives here — an untouched
   // driver keeps whatever limit is stored on them, which is why the
@@ -281,6 +283,27 @@ export default function AreaRoutesCard({
                     </Text>
                   </View>
                 ) : null}
+                {/* The same switch the roster has. Nudging a stop up or
+                    down is what an admin does when the round changes,
+                    not while reading it — and forty-two arrows down a
+                    page of twenty-one deliveries is furniture. See
+                    Docs/DESIGN.md. */}
+                {routeStops.length > 1 ? (
+                  <Pressable
+                    onPress={() => setArranging((prev) => !prev)}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: arranging }}
+                    style={({ pressed }) => [
+                      styles.arrangeToggle,
+                      arranging && styles.arrangeToggleOn,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text style={[styles.arrangeToggleText, arranging && styles.arrangeToggleTextOn]}>
+                      {arranging ? 'Done arranging' : 'Change the order'}
+                    </Text>
+                  </Pressable>
+                ) : null}
                 {routeStops.length === 0 ? (
                   <Text style={styles.routeStopsEmpty}>Nothing on this {lower(labels.route)} yet.</Text>
                 ) : (
@@ -293,7 +316,7 @@ export default function AreaRoutesCard({
                       token={token}
                       onChanged={onChanged}
                       onError={onError}
-                      onReorder={(position) => moveStop(door[0].id, position)}
+                      onReorder={arranging ? (position) => moveStop(door[0].id, position) : null}
                       canMoveUp={index > 0}
                       canMoveDown={index < doors.length - 1}
                       home={home}
@@ -426,6 +449,19 @@ const looseSelectStyle = {
 };
 
 const styles = StyleSheet.create({
+  pressed: { opacity: 0.6 },
+  arrangeToggle: {
+    alignSelf: 'flex-start',
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  arrangeToggleOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  arrangeToggleText: { fontSize: 13, fontWeight: '700', color: colors.link },
+  arrangeToggleTextOn: { color: colors.accentText },
   box: {
     backgroundColor: colors.surfaceAlt,
     borderRadius: radius.md,

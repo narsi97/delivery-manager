@@ -104,6 +104,8 @@ export function StopCard({
   const stop = stops[0];
   const [adding, setAdding] = useState(false);
   const [showingDoor, setShowingDoor] = useState(false);
+  // Whether the door's own occasional actions are out.
+  const [showingMore, setShowingMore] = useState(false);
   const hasPin = Number.isFinite(stop.lat) && Number.isFinite(stop.lng) && (stop.lat !== 0 || stop.lng !== 0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -153,7 +155,11 @@ export function StopCard({
           {stop.customer_address ? <Text style={styles.stopAddress}>{stop.customer_address}</Text> : null}
         </View>
         <View style={styles.stopHeaderRight}>
-          <Pill label={doorStatus} tone={statusTone} />
+          {/* Pending is what every stop is before the van leaves, so
+              twenty-one identical badges are twenty-one eye stops
+              carrying nothing — and they spend the colour that should
+              be marking the one that failed. See Docs/DESIGN.md. */}
+          {doorStatus === 'pending' ? null : <Pill label={doorStatus} tone={statusTone} />}
           {/* Up and down rather than drag: a drag inside a scrolling list
               is unreliable on a phone, and this stack has no gesture
               precedent. See Docs/COMPROMISES.md. */}
@@ -191,10 +197,24 @@ export function StopCard({
         <StopItem key={item.id} item={item} busy={busy} onSave={save} />
       ))}
 
-      {/* The two things you do to the door rather than to one line of
-          it, on one row and sized to their words — a full-width "Map"
-          was the loudest control on a card about what to deliver. */}
-      <View style={styles.doorActions}>
+      {/* Rare things live behind the ⋯ this app already uses for rare
+          things. Reading today's round is constant; fixing a pin or
+          adding a jar of curd is occasional, and two links on every one
+          of twenty-one cards is forty-two controls for a page nobody
+          came to edit. See Docs/DESIGN.md.
+          The exception stays out: a door with no pin cannot be driven
+          to, so its amber button is not furniture, it is the job. */}
+      {!hasPin || showingMore || showingDoor || adding ? null : (
+        <Pressable
+          onPress={() => setShowingMore(true)}
+          accessibilityRole="button"
+          accessibilityLabel={`More for ${stop.customer_name}`}
+          style={({ pressed }) => [styles.doorMore, pressed && styles.pressed]}
+        >
+          <Text style={styles.doorMoreGlyph}>⋯</Text>
+        </Pressable>
+      )}
+      <View style={[styles.doorActions, !hasPin || showingMore || showingDoor || adding ? null : styles.doorActionsHidden]}>
         {/* Always offered, and loudest on the doors that have no pin.
             It used to appear only once a customer had one, which put the
             control out of reach of exactly the deliveries that need it:
@@ -549,6 +569,9 @@ const styles = StyleSheet.create({
   itemNameDone: { color: colors.subtitle, textDecorationLine: 'line-through' },
   itemNote: { fontSize: 12, color: colors.hint, marginTop: 1 },
   itemChevron: { fontSize: 14, fontWeight: '700', color: colors.link, width: 14, textAlign: 'center' },
+  doorActionsHidden: { display: 'none' },
+  doorMore: { alignSelf: 'flex-start', paddingHorizontal: spacing.xs, paddingVertical: 2 },
+  doorMoreGlyph: { fontSize: 16, fontWeight: '700', color: colors.link, lineHeight: 18 },
   doorActions: {
     flexDirection: 'row',
     gap: spacing.md,

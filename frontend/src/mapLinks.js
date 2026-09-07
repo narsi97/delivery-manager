@@ -144,13 +144,13 @@ function inRange({ lat, lng }) {
 // it is a map link, it just can't be opened from here.
 export function mapLinkError(text) {
   if (isShortMapLink(text)) {
-    return 'Short map links can’t be read directly. Open it in Maps first, then copy the full link from the address bar — or just drop the pin below.';
+    return 'Short links can’t be opened from here. Open it in Maps, copy the full link — or drop the pin below.';
   }
   // A short plus code that got this far had nowhere to be measured from.
   // Saying "that isn't a map link" would be wrong — it is one, we just
   // don't know which town it is in yet.
   if (looksLikePlusCode(text)) {
-    return 'That plus code is the short kind, which only means something near a known place. Set your farm’s location on the Business tab first, or paste the full code (it starts with a few more letters).';
+    return 'A short plus code needs a nearby place to measure from. Set your farm’s location first, or paste the full code.';
   }
-  return 'That doesn’t look like a map link. Paste a Google or Apple link, a plus code, or coordinates — decimal or 17°03′24″N 79°16′05″E.';
+  return 'Not a location we can read. A map link, a plus code or coordinates all work.';
 }

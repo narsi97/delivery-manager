@@ -92,7 +92,7 @@ export default function LocationPicker({
       return;
     }
     if (nextLat < -90 || nextLat > 90 || nextLng < -180 || nextLng > 180) {
-      setError('Latitude runs from -90 to 90 and longitude from -180 to 180 — those are the wrong way round, maybe?');
+      setError('Those are out of range — the wrong way round, maybe?');
       return;
     }
     setError('');
@@ -103,7 +103,7 @@ export default function LocationPicker({
     setError('');
     const position = await currentPosition();
     if (!position) {
-      setError('Could not read your location. Drop the pin on the map instead, or paste a map link.');
+      setError('Couldn’t read your location. Drop the pin instead.');
       return;
     }
     onChange(position.lat, position.lng);

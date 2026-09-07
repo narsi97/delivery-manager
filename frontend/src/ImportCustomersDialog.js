@@ -99,7 +99,7 @@ export default function ImportCustomersDialog({
     setDone(null);
     const built = build(parsed);
     if (built.length === 0) {
-      setError('There are no rows in that. Paste the list, or pick a .csv or .pdf file.');
+      setError('No rows in that. Paste the list, or pick a CSV or PDF.');
       setPreview(null);
       return;
     }
@@ -150,8 +150,8 @@ export default function ImportCustomersDialog({
           if (reason) {
             setError(
               reason === 'nothing-readable'
-                ? 'Nothing could be read out of that PDF. If it is a scan rather than a document, the text is a picture — save the list as a CSV instead.'
-                : 'That PDF has no delivery rows this can find. It should be a table with a number, a name, a phone and a quantity on each row.',
+                ? 'Nothing readable in that PDF. If it is a scan, the text is a picture — save the list as a CSV instead.'
+                : 'No delivery rows found. Each row needs a number, a name, a phone and a quantity.',
             );
             setPreview(null);
             return;
@@ -187,16 +187,16 @@ export default function ImportCustomersDialog({
 
       {!preview ? (
         <View>
-          <Text style={styles.note}>
-            The delivery list you already have — the PDF straight off the printer, a spreadsheet saved as CSV, or the
-            columns pasted in. Commas or tabs, with or without a header row.
-          </Text>
+          {/* Short, because the next screen does the teaching. This
+              dialog has a preview: whatever the file turns out to be,
+              it says so row by row before anything is written — so an
+              essay about accepted formats up front is explaining a
+              thing the reader is about to be shown. See
+              Docs/DESIGN.md. */}
+          <Text style={styles.note}>Your delivery list, as a PDF or a CSV — or paste the columns in.</Text>
           <Text style={styles.columns}>
             name · phone · address · what they take · where they live{'\n'}
-            <Text style={styles.columnsHint}>
-              plus optional delivery days and notes. The location can be a Google link, a plus code, or coordinates in
-              degrees — whatever the list already holds.
-            </Text>
+            <Text style={styles.columnsHint}>days and notes optional</Text>
           </Text>
 
           {/* Which round the file is. Almost every list is one — the
@@ -218,8 +218,8 @@ export default function ImportCustomersDialog({
               </select>
               <Text style={styles.routeHint}>
                 {routeId
-                  ? `Everyone in the file joins this ${lower(labels.route)}, pin or no pin — the ${lower(labels.driver)} can drop the missing ones at the door.`
-                  : `Only the ones with a location will land on a ${lower(labels.route)}. Pick one above to put the whole file on it.`}
+                  ? `Everyone joins it, pin or no pin — the ${lower(labels.driver)} pins the rest at the door.`
+                  : `Only rows with a location will land on a ${lower(labels.route)}.`}
               </Text>
             </View>
           ) : null}
@@ -231,7 +231,7 @@ export default function ImportCustomersDialog({
             style={fileInputStyle}
           />
 
-          <Text style={styles.or}>or paste it here</Text>
+          <Text style={styles.or}>or paste</Text>
           <textarea
             value={text}
             onChange={(event) => setText(event.target.value)}

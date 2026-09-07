@@ -225,10 +225,13 @@ function DriverRow({ driver, today, token, business, isSelf, isFirst, onChanged,
   };
 
   const hasHome = !!(driver.home_lat || driver.home_lng);
-  const finishLabel =
-    { farm: 'finishes at the farm', home: 'finishes at home', custom: 'finishes at a set place' }[
-      driver.finish_at || 'farm'
-    ];
+  // Every driver ends at the farm unless somebody changed it, so saying
+  // so on every row is the default read back as news — and it is the
+  // one that is *not* the farm that a round is planned around. See
+  // Docs/DESIGN.md.
+  const finishLabel = { farm: '', home: 'finishes at home', custom: 'finishes at a set place' }[
+    driver.finish_at || 'farm'
+  ];
 
   const saveFinish = (choice, pin) =>
     act(
@@ -280,7 +283,8 @@ function DriverRow({ driver, today, token, business, isSelf, isFirst, onChanged,
           )}
         </View>
         <View style={styles.driverHeaderRight}>
-          <Pill label={driver.active ? 'active' : 'deactivated'} tone={driver.active ? 'success' : 'neutral'} />
+          {/* Active is what a driver is until somebody stops them. */}
+          {driver.active ? null : <Pill label="deactivated" tone="neutral" />}
           <Pressable
             onPress={() => setOptionsOpen((prev) => !prev)}
             accessibilityRole="button"
