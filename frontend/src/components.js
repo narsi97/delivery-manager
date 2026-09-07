@@ -346,6 +346,31 @@ export function Banner({ message, tone = 'error', children, count }) {
   );
 }
 
+// One number worth seeing without opening anything.
+//
+// Used at the head of a page whose job is setup — what you sell, how
+// many customers, what is short — where the count is the reason to look
+// at the section below it. Not a dashboard: an exception tile only
+// appears when there is an exception, because a tile reading 0 every
+// morning is a tile nobody reads on the day it says 40. See
+// Docs/DESIGN.md.
+export function SummaryTile({ label, value, note, tone }) {
+  return (
+    <View style={[styles.summaryTile, tone === 'warning' && styles.summaryTileWarn]}>
+      <Text style={styles.summaryLabel}>{label}</Text>
+      <View style={styles.summaryValueRow}>
+        <Text style={[styles.summaryValue, tone === 'warning' && styles.summaryValueWarn]}>{value}</Text>
+        {note ? <Text style={styles.summaryNote}>{note}</Text> : null}
+      </View>
+    </View>
+  );
+}
+
+// The row they sit in.
+export function SummaryRow({ children }) {
+  return <View style={styles.summaryRow}>{children}</View>;
+}
+
 export function Stat({ label, value, tone }) {
   return (
     <View style={styles.stat}>
@@ -639,6 +664,28 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: radius.md,
     borderBottomRightRadius: radius.md,
   },
+  summaryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
+  summaryTile: {
+    flexGrow: 1,
+    flexBasis: 120,
+    minWidth: 0,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceAlt,
+  },
+  summaryTileWarn: { backgroundColor: colors.warningBg },
+  summaryLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: colors.hint,
+  },
+  summaryValueRow: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.xs, flexWrap: 'wrap' },
+  summaryValue: { fontSize: 24, fontWeight: '800', color: colors.text, fontVariant: ['tabular-nums'] },
+  summaryValueWarn: { color: colors.warning },
+  summaryNote: { fontSize: 12, color: colors.subtitle },
   banner: { borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md },
   bannerText: { fontSize: 14, fontWeight: '600' },
   stat: { flex: 1, minWidth: 76, alignItems: 'center', paddingVertical: spacing.sm },

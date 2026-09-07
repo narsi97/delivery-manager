@@ -7,20 +7,7 @@ import CustomerTimeline from '../CustomerTimeline';
 import DeleteButton from '../DeleteButton';
 import { useDeleteMode } from '../deleteMode';
 import * as api from '../api';
-import {
-  AddButton,
-  Banner,
-  Button,
-  Card,
-  DeclaredFields,
-  Disclosure,
-  Empty,
-  Field,
-  FieldRow,
-  Pill,
-  SectionTitle,
-  ViewToggle,
-} from '../components';
+import { AddButton, Banner, Button, Card, DeclaredFields, Disclosure, Empty, Field, FieldRow, Pill, SectionTitle, SummaryRow, SummaryTile, ViewToggle } from '../components';
 import EntityMapPanel from '../EntityMapPanel';
 import { customFieldsFor, labelsFor, lower } from '../labels';
 import LocationPicker from '../LocationPicker';
@@ -132,6 +119,13 @@ export default function CustomersScreen({ token, business, user }) {
   const groups = groupCustomers(groupBy, customers, areas, labels);
   const matching = words.length === 0 ? null : new Set(visibleCustomers.map((customer) => customer.id));
 
+  // The same three-tile summary the Business tab opens with. Only the
+  // exceptions show: a roster where everyone is pinned and routed says
+  // so by having nothing else to say. See Docs/DESIGN.md.
+  const noPin = customers.filter((c) => !(c.lat || c.lng)).length;
+  const paused = customers.filter((c) => c.active === false).length;
+  const offRoute = customers.filter((c) => c.active !== false && !serviceRouteFor(c, areas)).length;
+
   return (
     <ScrollView contentContainerStyle={pageStyle}>
       <Banner message={error} />
@@ -145,6 +139,15 @@ export default function CustomersScreen({ token, business, user }) {
         onUndo={undoStack.undo}
         onRedo={undoStack.redo}
       />
+
+      <SummaryRow>
+        <SummaryTile label={labels.customer_plural} value={String(customers.length)} />
+        {offRoute > 0 ? (
+          <SummaryTile label={`Off a ${lower(labels.route)}`} value={String(offRoute)} tone="warning" />
+        ) : null}
+        {noPin > 0 ? <SummaryTile label="No pin" value={String(noPin)} tone="warning" /> : null}
+        {paused > 0 ? <SummaryTile label="Paused" value={String(paused)} /> : null}
+      </SummaryRow>
 
       <Card>
         <SectionTitle
@@ -503,6 +506,10 @@ function CustomerGroup({
   // Whether the reorder controls are out. Off by default: reading the
   // list is constant, rearranging it is rare.
   const [arranging, setArranging] = useState(false);
+  // Which customer is open. Held here rather than in the card because
+  // the card's own wrapper has to become full width when it opens, and
+  // a flex item cannot resize itself from the inside.
+  const [openId, setOpenId] = useState(null);
 
   // The whole round, in order. Positions and moves are both computed
   // against this rather than against what happens to be on screen: a
@@ -592,6 +599,7 @@ function CustomerGroup({
           ) : null}
         </View>
       ) : null}
+      <View style={arranging ? null : styles.tiles}>
       {isExpanded
         ? shown.map((customer) => {
             // Where this customer actually is in the round, not where
@@ -600,6 +608,7 @@ function CustomerGroup({
             return (
             <SortableRow
               key={customer.id}
+              style={arranging || openId === customer.id ? styles.rowFull : styles.rowTile}
               // Dragging needs somewhere to drop. With rows hidden by a
               // search the gaps between what is left are other people,
               // so a drag would mean nothing — the number and the arrows
@@ -647,6 +656,8 @@ function CustomerGroup({
               areas={areas}
               onRecord={onRecord}
               canDelete={canDelete}
+              expanded={openId === customer.id}
+              onToggle={() => setOpenId((prev) => (prev === customer.id ? null : customer.id))}
               reorder={
                 canReorder
                   ? {
@@ -667,6 +678,7 @@ function CustomerGroup({
             );
           })
         : null}
+      </View>
     </View>
   );
 }
@@ -681,9 +693,9 @@ function CustomerGroup({
 //
 // A raw <div> because RN's View has no drag events on web; same reason
 // the <select>s and coordinate boxes in this app are raw elements.
-function SortableRow({ children, draggable, isDragging, isOver, onDragStart, onDragEnter, onDragEnd, onDrop }) {
+function SortableRow({ children, style, draggable, isDragging, isOver, onDragStart, onDragEnter, onDragEnd, onDrop }) {
   if (!draggable) {
-    return <View style={styles.plainRow}>{children}</View>;
+    return <View style={[styles.plainRow, style]}>{children}</View>;
   }
   return (
     <div
@@ -698,6 +710,7 @@ function SortableRow({ children, draggable, isDragging, isOver, onDragStart, onD
       }}
       style={{
         display: 'block',
+        width: '100%',
         opacity: isDragging ? 0.4 : 1,
         borderTop: isOver ? `2px solid ${colors.accent}` : '2px solid transparent',
         cursor: 'grab',
@@ -885,12 +898,13 @@ function CustomerCard({
   areas = [],
   onRecord,
   canDelete = false,
+  expanded = false,
+  onToggle,
   reorder = null,
   onChanged,
   onError,
 }) {
   const narrow = useNarrow();
-  const [expanded, setExpanded] = useState(false);
   const [customFields, setCustomFields] = useState(customer.custom_fields || {});
   const [details, setDetails] = useState({
     name: customer.name,
@@ -978,11 +992,19 @@ function CustomerCard({
       `${customer.name}: details saved`,
     );
 
+  // A box when shut, the whole row when open or while the round is being
+  // arranged.
+  //
+  // A grid is right for reading a roster and wrong for ordering one: a
+  // sequence that runs left to right and wraps is a sequence nobody can
+  // follow. So the layout follows the mode — boxes to browse, a single
+  // column to arrange, which is the same switch the arrows already live
+  // behind. See Docs/DESIGN.md.
   return (
-    <Card>
+    <Card style={styles.customerTile}>
       <Disclosure
         open={expanded}
-        onToggle={() => setExpanded((prev) => !prev)}
+        onToggle={onToggle}
         middle={reorder ? <ReorderControls {...reorder} /> : null}
         right={
           <View style={[styles.pills, !narrow && styles.pillsAligned]}>
@@ -1518,6 +1540,14 @@ function productName(products, id) {
 const styles = StyleSheet.create({
   loader: { marginTop: spacing.xl * 2 },
   group: { marginBottom: spacing.md },
+  // Boxes to browse, a single column to arrange — a sequence that runs
+  // left to right and wraps is a sequence nobody can follow.
+  tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  rowTile: { flexGrow: 1, flexBasis: 280, minWidth: 0 },
+  rowFull: { flexBasis: '100%', width: '100%' },
+  // Fills its wrapper, so tiles in a row share a bottom edge rather
+  // than each ending wherever its own address happens to stop.
+  customerTile: { height: '100%' },
   headingActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   importButton: {
     paddingHorizontal: spacing.sm,

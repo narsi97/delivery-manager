@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import * as api from '../api';
-import { AddButton, Banner, Button, Card, Disclosure, Empty, Field, FieldRow, Pill, SectionTitle } from '../components';
+import { AddButton, Banner, Button, Card, Disclosure, Empty, Field, FieldRow, Pill, SectionTitle, SummaryRow, SummaryTile } from '../components';
 import LocationPicker, { InlineLocationEditor } from '../LocationPicker';
 import AddCustomerDialog from '../AddCustomerDialog';
 import DeleteButton from '../DeleteButton';
@@ -110,7 +110,7 @@ export default function BusinessScreen({ token, business, user, currentUserId, o
       <Banner message={error} />
       <Banner message={notice} tone="success" />
 
-      <View style={styles.summary}>
+      <SummaryRow>
         <SummaryTile
           label="Sells"
           value={String(groups.length)}
@@ -121,7 +121,7 @@ export default function BusinessScreen({ token, business, user, currentUserId, o
             morning, and a tile reading 0 every day is a tile nobody
             reads on the day it says 40. */}
         {shortToday > 0 ? <SummaryTile label="Short today" value={formatQuantity(shortToday)} tone="warning" /> : null}
-      </View>
+      </SummaryRow>
 
       <ProductCatalogCard
         token={token}
@@ -596,19 +596,6 @@ function ProductCatalogCard({ token, products, demand, onChanged, onCreated, onE
   );
 }
 
-// One number that is worth seeing without opening anything.
-function SummaryTile({ label, value, note, tone }) {
-  return (
-    <View style={[styles.summaryTile, tone === 'warning' && styles.summaryTileWarn]}>
-      <Text style={styles.summaryLabel}>{label}</Text>
-      <View style={styles.summaryValueRow}>
-        <Text style={[styles.summaryValue, tone === 'warning' && styles.summaryValueWarn]}>{value}</Text>
-        {note ? <Text style={styles.summaryNote}>{note}</Text> : null}
-      </View>
-    </View>
-  );
-}
-
 // One thing the business sells, and the sizes it sells it in.
 //
 // A dairy's five milk products are one product in five sizes, and the
@@ -979,28 +966,6 @@ const styles = StyleSheet.create({
   tileMetaWanting: { color: colors.warning, fontWeight: '600' },
   tileChevron: { fontSize: 14, color: colors.link, fontWeight: '700', width: 14, textAlign: 'center' },
   pressed: { opacity: 0.6 },
-  summary: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
-  summaryTile: {
-    flexGrow: 1,
-    flexBasis: 120,
-    minWidth: 0,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.md,
-    backgroundColor: colors.surfaceAlt,
-  },
-  summaryTileWarn: { backgroundColor: colors.warningBg },
-  summaryLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    color: colors.hint,
-  },
-  summaryValueRow: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.xs, flexWrap: 'wrap' },
-  summaryValue: { fontSize: 24, fontWeight: '800', color: colors.text, fontVariant: ['tabular-nums'] },
-  summaryValueWarn: { color: colors.warning },
-  summaryNote: { fontSize: 12, color: colors.subtitle },
   productGroup: { marginBottom: spacing.md },
   productGroupHead: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm, marginBottom: 2 },
   productGroupName: { fontSize: 16, fontWeight: '700', color: colors.text },
