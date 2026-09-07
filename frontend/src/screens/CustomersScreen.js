@@ -7,7 +7,7 @@ import CustomerTimeline from '../CustomerTimeline';
 import DeleteButton from '../DeleteButton';
 import { useDeleteMode } from '../deleteMode';
 import * as api from '../api';
-import { AddButton, Banner, Button, Card, DeclaredFields, Disclosure, Empty, Field, FieldRow, Pill, SectionTitle, SummaryRow, SummaryTile, ViewToggle } from '../components';
+import { AddButton, Banner, Button, Card, DeclaredFields, Disclosure, Empty, Field, FieldRow, Pill, SectionTitle, SummaryRow, SummaryTile } from '../components';
 import EntityMapPanel from '../EntityMapPanel';
 import { customFieldsFor, labelsFor, lower } from '../labels';
 import LocationPicker from '../LocationPicker';
@@ -43,15 +43,17 @@ export default function CustomersScreen({ token, business, user }) {
   // How each group is ordered. "priority" is the order deliveries are
   // actually driven in, which is why it is the default and the only one
   // that can be dragged — see sortCustomers.
-  const [sortBy, setSortBy] = useState('priority');
   const [reordering, setReordering] = useState('');
   // Everything on this screen saves as soon as you press the button, so
   // the browser's own undo cannot help once you have. See undo.js.
   const undoStack = useUndoStack({ onError: setError });
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
-  // The same customers, two ways of looking at them — see ViewToggle.
-  const [view, setView] = useState('list');
+  // The map is one of the ways of looking at the roster, so it is one of
+  // the entries in the picker below rather than a switch of its own next
+  // to it. Two controls that both answered "what am I looking at" sat
+  // side by side saying different halves of it.
+  const onMap = groupBy === 'map';
 
   // Scopes every map below to the business's own operating area instead
   // of an India-wide default view — see MapPicker.web.js.
@@ -153,14 +155,6 @@ export default function CustomersScreen({ token, business, user }) {
         <SectionTitle
           right={
             <>
-              <ViewToggle
-                value={view}
-                onChange={setView}
-                options={[
-                  { value: 'list', label: 'List' },
-                  { value: 'map', label: 'Map' },
-                ]}
-              />
               {/* Out here rather than behind the ⋯, even though it is
                   used once and never again. That once is the first hour
                   with the product, when the list is empty and nobody has
@@ -215,60 +209,57 @@ export default function CustomersScreen({ token, business, user }) {
           }}
         />
 
-        {view === 'list' ? (
-          <>
-            {/* One row, no field labels. A box you type in with a
-                magnifier in it is a search box everywhere else somebody
-                uses a phone, and a dropdown reading "By route" says what
-                it is by saying what it is set to. The words "Search",
-                "View" and "Sort by" above them were the screen naming
-                its own controls. */}
-            <View style={styles.toolsRow}>
-              <View style={styles.searchBox}>
-                <Text style={styles.searchGlyph}>⌕</Text>
-                <input
-                  value={search}
-                  aria-label={`Search ${lower(labels.customer_plural)}`}
-                  placeholder="Name, phone, or address"
-                  onChange={(event) => setSearch(event.target.value)}
-                  style={searchInputStyle}
-                />
-                {search ? (
-                  <Pressable
-                    onPress={() => setSearch('')}
-                    accessibilityRole="button"
-                    accessibilityLabel="Clear the search"
-                    style={({ pressed }) => [styles.searchClear, pressed && styles.pressed]}
-                  >
-                    <Text style={styles.searchClearGlyph}>✕</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-              <select
-                value={groupBy}
-                aria-label="Which ones to show"
-                style={groupBySelectStyle}
-                onChange={(event) => setGroupBy(event.target.value)}
-              >
-                <option value="city">By {lower(labels.route)}</option>
-                <option value="all">Everyone</option>
-                <option value="business">Shops only</option>
-                <option value="early">Needs it early</option>
-                <option value="unrouted">Not on a {lower(labels.route)}</option>
-                <option value="nopin">Missing a pin</option>
-                <option value="paused">Paused</option>
-              </select>
-              <select
-                value={sortBy}
-                aria-label="What order to show them in"
-                style={groupBySelectStyle}
-                onChange={(event) => setSortBy(event.target.value)}
-              >
-                <option value="priority">Delivery order</option>
-                <option value="name">Name</option>
-              </select>
-            </View>
+        {/* One row, no field labels. A box you type in with a magnifier
+            in it is a search box everywhere else somebody uses a phone,
+            and a dropdown reading "By route" says what it is by saying
+            what it is set to.
 
+            The picker stays out on the map too — it is the way back, and
+            hiding it would have left the map as a room with no door.
+            Searching is what is put away there, because the map has no
+            list to narrow. */}
+        <View style={styles.toolsRow}>
+          {!onMap ? (
+            <View style={styles.searchBox}>
+              <Text style={styles.searchGlyph}>⌕</Text>
+              <input
+                value={search}
+                aria-label={`Search ${lower(labels.customer_plural)}`}
+                placeholder="Name, phone, or address"
+                onChange={(event) => setSearch(event.target.value)}
+                style={searchInputStyle}
+              />
+              {search ? (
+                <Pressable
+                  onPress={() => setSearch('')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear the search"
+                  style={({ pressed }) => [styles.searchClear, pressed && styles.pressed]}
+                >
+                  <Text style={styles.searchClearGlyph}>✕</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+          <select
+            value={groupBy}
+            aria-label="What to show"
+            style={groupBySelectStyle}
+            onChange={(event) => setGroupBy(event.target.value)}
+          >
+            <option value="city">By {lower(labels.route)}</option>
+            <option value="all">Everyone</option>
+            <option value="business">Shops only</option>
+            <option value="early">Needs it early</option>
+            <option value="unrouted">Not on a {lower(labels.route)}</option>
+            <option value="nopin">Missing a pin</option>
+            <option value="paused">Paused</option>
+            <option value="map">On the map</option>
+          </select>
+        </View>
+
+        {!onMap ? (
+          <>
             {customers.length === 0 ? (
               <Empty>No {lower(labels.customer_plural)} yet.</Empty>
             ) : visibleCustomers.length === 0 ? (
@@ -296,7 +287,6 @@ export default function CustomersScreen({ token, business, user }) {
                   fieldSpecs={fieldSpecs}
                   home={home}
                   areas={areas}
-                  sortBy={sortBy}
                   onRecord={undoStack.record}
                   busy={reordering === group.key}
                   onReorder={async (orderedIds, options) => {
@@ -514,7 +504,6 @@ function CustomerGroup({
   fieldSpecs,
   home,
   areas,
-  sortBy,
   busy,
   onReorder,
   onRecord,
@@ -549,13 +538,13 @@ function CustomerGroup({
   // search that matches one customer used to number them "1" and, worse,
   // send that single id as the entire new order — which set their rank
   // to 1 and moved them to the front of a round nobody meant to touch.
-  const ordered = sortCustomers(sortBy, customers);
+  const ordered = sortCustomers(customers);
   const shown = matching ? ordered.filter((customer) => matching.has(customer.id)) : ordered;
   // Nothing to order in the catch-all: these customers are on no round
   // at all, so "which order are they driven in" has no answer to give.
   // Offering the grip there was the app asking a question it could not
   // act on.
-  const canReorder = sortBy === 'priority' && routed;
+  const canReorder = routed;
   const anyRanked = customers.some((customer) => customer.rank > 0);
 
   // Moving a row is the same operation whether it came from a drag or an
@@ -877,16 +866,17 @@ function ReorderControls({ position, total, onUp, onDown, onJump, showGrip = tru
 
 // The order a group is shown in.
 //
-// "Delivery order" is not a display preference — it is what the driver
+// Delivery order is not a display preference — it is what the driver
 // will actually do, so it mirrors the backend exactly: tier first, then
-// the admin's own rank, then name for anything still tied. Sorting by
-// name is a way to *find* somebody, and deliberately turns dragging off:
-// a drag in an alphabetical list would mean nothing.
-function sortCustomers(sortBy, customers) {
+// the admin's own rank, then name for anything still tied.
+//
+// There used to be an alphabetical mode beside it. Nothing about this
+// roster is alphabetical: the number on the card is a position in a
+// round, and a list sorted by name showed those numbers out of order
+// while turning off the only thing that could fix them. Finding
+// somebody is what the search box is for.
+function sortCustomers(customers) {
   const list = [...customers];
-  if (sortBy === 'name') {
-    return list.sort((a, b) => a.name.localeCompare(b.name));
-  }
   return list.sort((a, b) => {
     const tierA = priorityRank(a.priority);
     const tierB = priorityRank(b.priority);

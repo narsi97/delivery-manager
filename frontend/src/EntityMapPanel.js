@@ -65,11 +65,8 @@ export default function EntityMapPanel({
 
   return (
     <View>
-      <Text style={styles.note}>
-        Every {kindWord} you have, plus {kindWord === 'driver' ? 'customers' : 'drivers'} and your business shown muted
-        for reference. Tap a {kindWord} to move their pin; tap anything else to see what it is.
-      </Text>
-
+      {/* Tapping a pin is what a map is for. What was here was three
+          lines explaining the legend of a map with a legend. */}
       <EntityMap
         home={home}
         drivers={drivers}
@@ -107,7 +104,6 @@ export default function EntityMapPanel({
         </View>
       ) : (
         <View>
-          <Text style={styles.note}>Tap any pin to see who it is and act on it.</Text>
           {/* The view frames the bulk of the work, so a genuine outlier
               can sit off-screen. Saying so beats a map that quietly
               leaves somebody out — see splitOutliers in mapFit.js. */}
