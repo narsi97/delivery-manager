@@ -494,6 +494,9 @@ function CustomerGroup({
   const [over, setOver] = useState(null);
   const isExpanded = expanded || forceExpanded;
   const touchOnly = useTouchOnly();
+  // Whether the reorder controls are out. Off by default: reading the
+  // list is constant, rearranging it is rare.
+  const [arranging, setArranging] = useState(false);
 
   // The whole round, in order. Positions and moves are both computed
   // against this rather than against what happens to be on screen: a
@@ -544,30 +547,42 @@ function CustomerGroup({
           Not on any {lower(labels.route)} yet — give them a pin inside one, or put them on one from their card.
         </Text>
       ) : null}
+      {/* Reordering is something a business does when the round
+          changes, not while reading it. One switch, rather than a
+          hundred and fifty-six glyphs down the side of the list — see
+          Docs/DESIGN.md. The switch is quiet until it is on, and then
+          it says what it turned on and how to leave. */}
       {isExpanded && canReorder ? (
         <View style={styles.orderHintRow}>
-          {/* What to actually do, on the device you are holding. HTML5
-              drag-and-drop does not exist under a thumb, so telling a
-              phone to drag a row is an instruction that cannot be
-              followed — the number and the arrows are the whole answer
-              there. */}
-          <Text style={styles.orderHint}>
-            {anyRanked
-              ? touchOnly
-                ? 'Delivered in this order. Tap a number to move somebody, or use the arrows.'
-                : 'Delivered in this order. Drag a row, or use the arrows, to change it.'
-              : touchOnly
-                ? 'Ordered by the shortest route. Tap a number to set your own order instead.'
-                : 'Ordered by the shortest route. Drag a row to set your own order instead.'}
-          </Text>
-          {anyRanked ? (
-            <Pressable
-              onPress={() => onReorder(customers.map((customer) => customer.id), { clear: true })}
-              accessibilityRole="button"
-              style={styles.resetOrder}
-            >
-              <Text style={styles.resetOrderText}>Use shortest route</Text>
-            </Pressable>
+          <Pressable
+            onPress={() => setArranging((prev) => !prev)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: arranging }}
+            style={({ pressed }) => [styles.arrangeToggle, arranging && styles.arrangeToggleOn, pressed && styles.pressed]}
+          >
+            <Text style={[styles.arrangeToggleText, arranging && styles.arrangeToggleTextOn]}>
+              {arranging ? 'Done arranging' : 'Change the order'}
+            </Text>
+          </Pressable>
+          {arranging ? (
+            <>
+              {/* Only now, when it is about to be acted on. HTML5
+                  drag-and-drop does not exist under a thumb, so telling
+                  a phone to drag a row is an instruction that cannot be
+                  followed. */}
+              <Text style={styles.orderHint}>
+                {touchOnly ? 'Tap a number to move somebody, or use the arrows.' : 'Drag a row, or use the arrows.'}
+              </Text>
+              {anyRanked ? (
+                <Pressable
+                  onPress={() => onReorder(customers.map((customer) => customer.id), { clear: true })}
+                  accessibilityRole="button"
+                  style={styles.resetOrder}
+                >
+                  <Text style={styles.resetOrderText}>Use shortest route</Text>
+                </Pressable>
+              ) : null}
+            </>
           ) : null}
         </View>
       ) : null}
@@ -584,7 +599,7 @@ function CustomerGroup({
               // so a drag would mean nothing — the number and the arrows
               // still work, because those name a position rather than
               // pointing at one.
-              draggable={canReorder && !matching && !touchOnly && !busy}
+              draggable={canReorder && arranging && !matching && !touchOnly && !busy}
               isDragging={dragging === customer.id}
               isOver={over === customer.id && dragging !== customer.id}
               onDragStart={() => {
@@ -630,7 +645,8 @@ function CustomerGroup({
                   ? {
                       position: index + 1,
                       total: ordered.length,
-                      showGrip: !touchOnly && !matching,
+                      arranging,
+                      showGrip: arranging && !touchOnly && !matching,
                       onUp: index > 0 ? () => moveTo(index, index - 1) : null,
                       onDown: index < ordered.length - 1 ? () => moveTo(index, index + 1) : null,
                       onJump: (to) => moveTo(index, to - 1),
@@ -692,7 +708,7 @@ function SortableRow({ children, draggable, isDragging, isOver, onDragStart, onD
 // that customer was, and left an empty channel running down the whole
 // list. Across the top of the card it belongs to the card, lines up with
 // every other row, and gives the card its full width back.
-function ReorderControls({ position, total, onUp, onDown, onJump, showGrip = true }) {
+function ReorderControls({ position, total, onUp, onDown, onJump, showGrip = true, arranging = true }) {
   // What is in the box while it is being typed. Null means "show the
   // position" — which is every moment except the one where somebody is
   // halfway through replacing 17 with 3 and would not thank us for
@@ -726,6 +742,17 @@ function ReorderControls({ position, total, onUp, onDown, onJump, showGrip = tru
       onJump(target);
     }
   };
+
+  // Where somebody is in the round is a fact about them, so the number
+  // stays on the card. The handles and arrows are tools, and tools live
+  // in the hand you picked them up with — see Docs/DESIGN.md.
+  if (!arranging) {
+    return (
+      <View style={styles.orderControlsQuiet}>
+        <Text style={styles.positionQuiet}>{position}</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.orderControls}>
@@ -832,6 +859,12 @@ function sortCustomers(sortBy, customers) {
 
 const STATUS_TONE = { pending: 'neutral', delivered: 'success', failed: 'error', skipped: 'warning' };
 
+// Pending is what every customer is every morning, so it is not news.
+// Fifty-two identical badges cost fifty-two eye stops and spend the
+// colour that should have been carrying "failed" — see Docs/DESIGN.md,
+// and PriorityBadge, which has always done this for the default tier.
+const worthShowing = (status) => !!status && status !== 'pending';
+
 function CustomerCard({
   customer,
   products,
@@ -866,11 +899,19 @@ function CustomerCard({
   // The standing order in one line. Shown under the name while
   // collapsed, and as the order section's own heading once open —
   // once in each state, never twice at the same time.
+  // Every day is what almost every standing order is, so saying it is
+  // three words that carry nothing — and on a hundred-customer roster it
+  // is three hundred. The days show when they are the exception, which
+  // is the only time anybody needs to read them. See Docs/DESIGN.md.
   const orderSummary =
     subscriptions.length === 0
       ? 'No standing order yet'
       : subscriptions
-          .map((sub) => `${sub.quantity} × ${productName(products, sub.product_id)} on ${describeDays(daysFromMask(sub.weekday_mask))}`)
+          .map((sub) => {
+            const days = daysFromMask(sub.weekday_mask);
+            const what = `${sub.quantity} × ${productName(products, sub.product_id)}`;
+            return days.length === 7 ? what : `${what} · ${describeDays(days)}`;
+          })
           .join('  ·  ');
 
   // What "from their pin" would actually resolve to, so the default
@@ -938,7 +979,9 @@ function CustomerCard({
         right={
           <View style={[styles.pills, !narrow && styles.pillsAligned]}>
             <PriorityBadge value={customer.priority} />
-            {today ? <Pill label={today.status} tone={STATUS_TONE[today.status] || 'neutral'} /> : null}
+            {worthShowing(today?.status) ? (
+              <Pill label={today.status} tone={STATUS_TONE[today.status] || 'neutral'} />
+            ) : null}
             {customer.lat || customer.lng ? null : <Pill label="no pin" tone="warning" />}
             {!customer.active ? <Pill label="paused" tone="neutral" /> : null}
           </View>
@@ -1508,6 +1551,22 @@ const styles = StyleSheet.create({
   // One pill holding the handle, the position and the two arrows —
   // they are a single control, and three separate outlines above a card
   // that already has one read as clutter stacked on clutter.
+  // Resting state: the position, and nothing else. No border, no
+  // background — it is a number on a card, not a control.
+  orderControlsQuiet: { alignSelf: 'center', paddingHorizontal: spacing.xs },
+  positionQuiet: { fontSize: 13, fontWeight: '700', color: colors.hint, minWidth: 18, textAlign: 'center' },
+  pressed: { opacity: 0.6 },
+  arrangeToggle: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  arrangeToggleOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  arrangeToggleText: { fontSize: 13, fontWeight: '700', color: colors.link },
+  arrangeToggleTextOn: { color: colors.accentText },
   orderControls: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -222,6 +222,12 @@ export default function TodayScreen({ token, business }) {
       <Card>
         <DateNav date={day?.date} selectedDate={selectedDate} onSelect={setSelectedDate} />
         <View style={styles.chartRow}>
+          {/* Only what happened. Before a round goes out this reads
+              91 / 0 / 0 / 0, spending three quarters of itself on things
+              that have not occurred — and "0 failed" is worth saying
+              only on a day that had some. Pending always shows, because
+              on an untouched morning it is the whole story. See
+              Docs/DESIGN.md. */}
           <DonutChart
             total={summary.total ?? 0}
             segments={[
@@ -229,7 +235,7 @@ export default function TodayScreen({ token, business }) {
               { label: 'Delivered', value: summary.delivered ?? 0, color: colors.success },
               { label: 'Failed', value: summary.failed ?? 0, color: colors.error },
               { label: 'Skipped', value: summary.skipped ?? 0, color: colors.warning },
-            ]}
+            ].filter((segment) => segment.value > 0 || segment.label === 'Pending')}
           />
         </View>
         {/* The morning in one line. Rounds prepare themselves, so the
@@ -315,10 +321,15 @@ export default function TodayScreen({ token, business }) {
               ))}
             </View>
           )}
-          {view === 'list' ? (
+          {/* How the rounds get made is worth saying to somebody who
+              has never seen it, and worth saying once — so it sits under
+              an empty list, not under a working one. A sentence read
+              every morning for a year is furniture. See
+              Docs/DESIGN.md. */}
+          {view === 'list' && workingAreas.length === 0 && looseRoutes.length === 0 ? (
             <Text style={styles.note}>
-              One {lower(labels.route)} per service {lower(labels.route)}, prepared for every day automatically. Tell it who is driving and it splits
-              itself between them.
+              One {lower(labels.route)} per service {lower(labels.route)}, prepared for every day automatically. Tell it
+              who is driving and it splits itself between them.
             </Text>
           ) : null}
         </View>

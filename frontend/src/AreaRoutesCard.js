@@ -207,13 +207,15 @@ export default function AreaRoutesCard({
         </View>
       ) : null}
 
-      <Text style={styles.note}>
-        {assigned.length === 0
-          ? `Nobody assigned yet. Tap a name — the ${lower(labels.route)} is already planned and waiting.`
-          : assigned.length === 1
-            ? 'Tap another name to share the area between two drivers.'
-            : `Split between ${assigned.length}, each taking the side nearest where they finish.`}
-      </Text>
+      {/* Only when it says something this round does not already show.
+          "Nobody assigned yet" under a row of unpicked names is the
+          screen reading itself out; "split between 2" is a fact you
+          cannot see from the names alone. See Docs/DESIGN.md. */}
+      {assigned.length > 1 ? (
+        <Text style={styles.note}>
+          Split between {assigned.length}, each taking the side nearest where they finish.
+        </Text>
+      ) : null}
 
       {routes.length > 1 ? (
         <View style={styles.splitList}>
