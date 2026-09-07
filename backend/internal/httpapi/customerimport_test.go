@@ -445,3 +445,137 @@ func TestExistingCustomerIsStillCalledAlreadyOnTheList(t *testing.T) {
 		t.Error("in_file is set for somebody who was already on the list")
 	}
 }
+
+// A round written in milk rather than in bottles. The preset dairy fills
+// 500ml, 750ml and 1L, and a list that says "2 Lit" means two of the
+// litre bottles — not a product called "Milk 2L" that somebody has to
+// invent to hold the row.
+func TestImportMakesUpAVolumeFromTheSizesOnTheShelf(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+
+	body := admin.mustDo(http.MethodPost, "/api/v1/customers/import", map[string]any{
+		"rows": importRows(map[string]any{
+			"name": "Shiva Balaji Hotel", "lat": 17.0567, "lng": 79.2681,
+			"items": []any{map[string]any{"product": "2 Lit", "quantity": 1}},
+		}),
+	}, http.StatusOK)
+	if got := verdicts(t, body); len(got) != 1 || got[0] != "new" {
+		t.Fatalf("verdicts = %v, want [new]", got)
+	}
+
+	orders := admin.mustDo(http.MethodGet, "/api/v1/recurring-orders", nil, http.StatusOK)
+	list, _ := orders["recurring_orders"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("got %d standing orders, want 1 — two litres is two of the litre bottle", len(list))
+	}
+	if got := num(list[0].(map[string]any), "quantity"); got != 2 {
+		t.Errorf("quantity = %v, want 2", got)
+	}
+
+	// And nothing was invented to hold it.
+	products := admin.mustDo(http.MethodGet, "/api/v1/products", nil, http.StatusOK)
+	for _, raw := range products["products"].([]any) {
+		if name := str(raw.(map[string]any), "name"); name == "Milk 2L" || name == "2 Lit" {
+			t.Errorf("the import created %q", name)
+		}
+	}
+}
+
+// One and a half litres is a litre and a half-litre — largest first,
+// which is how anybody fills a crate.
+func TestImportSplitsAnOddVolumeAcrossTwoSizes(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+
+	admin.mustDo(http.MethodPost, "/api/v1/customers/import", map[string]any{
+		"rows": importRows(map[string]any{
+			"name": "Mounika", "lat": 17.0567, "lng": 79.2681,
+			"items": []any{map[string]any{"product": "1 1/2 Lit", "quantity": 2}},
+		}),
+	}, http.StatusOK)
+
+	orders := admin.mustDo(http.MethodGet, "/api/v1/recurring-orders", nil, http.StatusOK)
+	list, _ := orders["recurring_orders"].([]any)
+	if len(list) != 2 {
+		t.Fatalf("got %d standing orders, want 2 (a litre and a half-litre)", len(list))
+	}
+
+	products := admin.mustDo(http.MethodGet, "/api/v1/products", nil, http.StatusOK)
+	byID := map[string]string{}
+	for _, raw := range products["products"].([]any) {
+		p := raw.(map[string]any)
+		byID[str(p, "id")] = str(p, "name")
+	}
+	got := map[string]float64{}
+	for _, raw := range list {
+		o := raw.(map[string]any)
+		got[byID[str(o, "product_id")]] = num(o, "quantity")
+	}
+	// Two of "one and a half litres" is two litre bottles and two halves.
+	if got["Milk 1L"] != 2 {
+		t.Errorf("Milk 1L = %v, want 2", got["Milk 1L"])
+	}
+	if got["Milk 500ml"] != 2 {
+		t.Errorf("Milk 500ml = %v, want 2", got["Milk 500ml"])
+	}
+}
+
+// A volume the shelf cannot make exactly is still an error. Delivering
+// an amount nobody asked for is worse than saying so.
+func TestImportRefusesAVolumeItCannotMakeExactly(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+
+	body := admin.mustDo(http.MethodPost, "/api/v1/customers/import", map[string]any{
+		"dry_run": true,
+		"rows": importRows(map[string]any{
+			"name": "Odd One", "lat": 17.0567, "lng": 79.2681,
+			"items": []any{map[string]any{"product": "1.3 Lit", "quantity": 1}},
+		}),
+	}, http.StatusOK)
+
+	if got := verdicts(t, body); len(got) != 1 || got[0] != "error" {
+		t.Errorf("verdicts = %v, want [error] — 1.3 litres is not makeable from 1L/750ml/500ml", got)
+	}
+}
+
+// The import has never created a product and must not start. A row
+// naming something the dairy does not sell is a question for a person.
+func TestImportNeverCreatesProducts(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+	before := len(admin.mustDo(http.MethodGet, "/api/v1/products", nil, http.StatusOK)["products"].([]any))
+
+	admin.mustDo(http.MethodPost, "/api/v1/customers/import", map[string]any{
+		"rows": importRows(map[string]any{
+			"name": "Anita", "lat": 17.0567, "lng": 79.2681,
+			"items": []any{map[string]any{"product": "Paneer 200g", "quantity": 1}},
+		}),
+	}, http.StatusOK)
+
+	after := len(admin.mustDo(http.MethodGet, "/api/v1/products", nil, http.StatusOK)["products"].([]any))
+	if after != before {
+		t.Errorf("products went from %d to %d — the import invented one", before, after)
+	}
+}
+
+// And it says which problem it is. "Fix the spelling" sends somebody
+// looking at a word that is spelled correctly.
+func TestUnmakeableVolumeSaysSoRatherThanBlamingTheSpelling(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+
+	body := admin.mustDo(http.MethodPost, "/api/v1/customers/import", map[string]any{
+		"dry_run": true,
+		"rows": importRows(map[string]any{
+			"name": "Odd One", "lat": 17.0567, "lng": 79.2681,
+			"items": []any{map[string]any{"product": "1.3 Lit", "quantity": 1}},
+		}),
+	}, http.StatusOK)
+
+	problem := str(body["results"].([]any)[0].(map[string]any), "problem")
+	if !strings.Contains(problem, "cannot be made from the sizes you sell") {
+		t.Errorf("problem = %q, want it to say the volume cannot be made", problem)
+	}
+}

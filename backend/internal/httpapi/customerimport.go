@@ -2,8 +2,10 @@ package httpapi
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -230,16 +232,132 @@ func (s *Server) checkImportRow(row importRow, products []domain.Product) (strin
 
 	matched := make([]string, 0, len(row.Items))
 	for _, item := range row.Items {
-		product := matchProduct(item.Product, products)
-		if product == nil {
+		if item.Quantity <= 0 {
+			return fmt.Sprintf("%s has no quantity", item.Product), matched
+		}
+		lines := resolveItem(item.Product, item.Quantity, products)
+		if len(lines) == 0 {
+			// A volume that simply cannot be made is a different problem
+			// from a word nobody recognises, and telling somebody to fix
+			// their spelling when the spelling is fine sends them
+			// looking in the wrong place.
+			if millilitresOf(item.Product) > 0 {
+				return fmt.Sprintf("%s cannot be made from the sizes you sell", item.Product), matched
+			}
 			return fmt.Sprintf("nothing here is called %q — add that product first, or fix the spelling", item.Product), matched
 		}
-		if item.Quantity <= 0 {
-			return fmt.Sprintf("%s has no quantity", product.Name), matched
+		for _, line := range lines {
+			matched = append(matched, fmt.Sprintf("%g × %s", line.quantity, line.product.Name))
 		}
-		matched = append(matched, fmt.Sprintf("%g × %s", item.Quantity, product.Name))
 	}
 	return "", matched
+}
+
+// One line of a delivery: a product this business actually sells, and
+// how many of it.
+type orderLine struct {
+	product  *domain.Product
+	quantity float64
+}
+
+// resolveItem turns what the file wrote into what the dairy can put in
+// the van.
+//
+// The easy case is a product with that name. The other case is a list
+// written in milk rather than in bottles: a round that says "2 Lit"
+// against a dairy that fills 1-litre bottles means two bottles, and
+// "1 1/2 Lit" means a litre and a half-litre. Refusing those rows — or
+// worse, expecting somebody to invent a "Milk 2L" product to hold them —
+// makes the business change its catalogue to suit a file.
+//
+// Made up largest-first, which is how anybody fills a crate, and only
+// when it comes out exact. A volume that cannot be made from the sizes
+// on the shelf is still an error, because the alternative is delivering
+// an amount nobody asked for.
+func resolveItem(text string, quantity float64, products []domain.Product) []orderLine {
+	if product := matchProduct(text, products); product != nil {
+		return []orderLine{{product: product, quantity: quantity}}
+	}
+
+	want := millilitresOf(text)
+	if want <= 0 {
+		return nil
+	}
+
+	// Only sizes of one product can be added together. Two families with
+	// volumes — milk and curd, both sold by the litre — mean the file's
+	// bare "2 Lit" could be either, and a guess would put curd on a milk
+	// round. See matchProduct, which refuses ambiguity for the same
+	// reason.
+	stem := stemOf(text)
+	families := map[string][]orderLine{}
+	for i := range products {
+		if !products[i].Active {
+			continue
+		}
+		size := millilitresOf(products[i].Name)
+		if size <= 0 {
+			continue
+		}
+		family := stemOf(products[i].Name)
+		if stem != "" && family != stem {
+			continue
+		}
+		families[family] = append(families[family], orderLine{product: &products[i], quantity: size})
+	}
+	if len(families) != 1 {
+		return nil
+	}
+
+	var sizes []orderLine
+	for _, only := range families {
+		sizes = only
+	}
+	sort.Slice(sizes, func(a, b int) bool { return sizes[a].quantity > sizes[b].quantity })
+
+	lines := []orderLine{}
+	left := want
+	for _, size := range sizes {
+		if size.quantity <= 0 || left < size.quantity {
+			continue
+		}
+		count := math.Floor(left / size.quantity)
+		left -= count * size.quantity
+		lines = append(lines, orderLine{product: size.product, quantity: count * quantity})
+	}
+	// Floating point on millilitres: 1.5 litres is 1500, not 1499.999,
+	// but the division that produced it need not be.
+	if left > 0.001 || len(lines) == 0 {
+		return nil
+	}
+	return lines
+}
+
+// stemOf is a product name with its trailing size removed — "Milk 500ml"
+// is "milk", and a bare "2 Lit" is "". Read off the expanded spelling so
+// that "Lit" counts as a litre here exactly as it does everywhere else.
+func stemOf(name string) string {
+	return squash(trailingSize.ReplaceAllString(expandSize(name), ""))
+}
+
+// millilitresOf reads a volume out of a name or a file's word, in
+// millilitres. Anything without one — "packet", "Paneer 200g" — is 0,
+// which is what keeps this from adding up things that are not volumes.
+var trailingSize = regexp.MustCompile(`(?i)(\d+(?:[.,]\d+)?)\s*(ml|l)\s*$`)
+
+func millilitresOf(name string) float64 {
+	match := trailingSize.FindStringSubmatch(expandSize(name))
+	if match == nil {
+		return 0
+	}
+	value, err := strconv.ParseFloat(strings.Replace(match[1], ",", ".", 1), 64)
+	if err != nil || value <= 0 {
+		return 0
+	}
+	if strings.EqualFold(match[2], "l") {
+		return value * 1000
+	}
+	return value
 }
 
 func (s *Server) createImportedCustomer(r *http.Request, sess session, row importRow, products []domain.Product, rank int, route *string) (string, error) {
@@ -275,24 +393,26 @@ func (s *Server) createImportedCustomer(r *http.Request, sess session, row impor
 		mask = domain.MaskFromWeekdays([]int{0, 1, 2, 3, 4, 5, 6})
 	}
 	for _, item := range row.Items {
-		product := matchProduct(item.Product, products)
-		if product == nil {
-			continue
-		}
-		order := domain.RecurringOrder{
-			ID:          domain.NewID(),
-			BusinessID:  sess.Business.ID,
-			CustomerID:  saved.ID,
-			ProductID:   product.ID,
-			Quantity:    item.Quantity,
-			WeekdayMask: mask,
-			StartDate:   sess.Business.Today(),
-			Active:      true,
-		}
-		if _, err := s.store.CreateRecurringOrder(r.Context(), order); err != nil {
-			// The customer exists and is useful without this line; the
-			// alternative is a half-made record and a confusing error.
-			return saved.ID, fmt.Errorf("added, but %s could not be ordered: %w", product.Name, err)
+		// One written item can be several lines — "2 Lit" against a
+		// dairy that fills 1-litre bottles is two of them. See
+		// resolveItem, which the preview ran over the same row.
+		for _, line := range resolveItem(item.Product, item.Quantity, products) {
+			order := domain.RecurringOrder{
+				ID:          domain.NewID(),
+				BusinessID:  sess.Business.ID,
+				CustomerID:  saved.ID,
+				ProductID:   line.product.ID,
+				Quantity:    line.quantity,
+				WeekdayMask: mask,
+				StartDate:   sess.Business.Today(),
+				Active:      true,
+			}
+			if _, err := s.store.CreateRecurringOrder(r.Context(), order); err != nil {
+				// The customer exists and is useful without this line;
+				// the alternative is a half-made record and a confusing
+				// error.
+				return saved.ID, fmt.Errorf("added, but %s could not be ordered: %w", line.product.Name, err)
+			}
 		}
 	}
 	return saved.ID, nil
@@ -363,6 +483,17 @@ var litreWords = strings.NewReplacer(
 var mixedFraction = regexp.MustCompile(`(\d+)?\s*(\d+)\s*/\s*(\d+)`)
 
 func normalizeSize(s string) string {
+	return squash(expandSize(s))
+}
+
+// expandSize is normalizeSize without the final squash: the same volume
+// spelled one way, but with its decimal point and spacing intact.
+//
+// Kept apart because squash removes the "." from "1.5l", which is
+// harmless when the result is only ever compared to another squashed
+// name and very much not harmless when something reads a number out of
+// it — "1 1/2 Lit" became fifteen litres. See millilitresOf.
+func expandSize(s string) string {
 	out := strings.ToLower(strings.TrimSpace(s))
 	out = mixedFraction.ReplaceAllStringFunc(out, func(match string) string {
 		parts := mixedFraction.FindStringSubmatch(match)
@@ -383,7 +514,7 @@ func normalizeSize(s string) string {
 	out = strings.ReplaceAll(out, "ml", "\x00")
 	out = litreWords.Replace(out)
 	out = strings.ReplaceAll(out, "\x00", "ml")
-	return squash(out)
+	return out
 }
 
 func nonEmpty(s, fallback string) string {
