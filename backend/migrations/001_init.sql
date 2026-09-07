@@ -109,6 +109,16 @@ create table if not exists products (
 alter table products add column if not exists stock_quantity double precision not null default 0;
 create index if not exists products_business_idx on products(business_id);
 
+create table if not exists product_stock (
+		business_id text not null references businesses(id) on delete cascade,
+		product_id text not null references products(id) on delete cascade,
+		stock_date text not null,
+		quantity double precision not null default 0,
+		primary key (product_id, stock_date)
+	);
+
+create index if not exists product_stock_business_date_idx on product_stock(business_id, stock_date);
+
 create table if not exists recurring_orders (
 		id text primary key,
 		business_id text not null references businesses(id) on delete cascade,

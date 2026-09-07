@@ -28,12 +28,21 @@ type MemoryStore struct {
 	customers    map[string]domain.Customer
 	serviceAreas map[string]domain.ServiceArea
 	products     map[string]domain.Product
+	// Stock is per product per day — see the product_stock table.
+	productStock map[stockKey]float64
 	recurring    map[string]domain.RecurringOrder
 	daily        map[string]domain.DailyOrder
 	routes       map[string]domain.Route
 	events       []domain.DeliveryEvent
 	otps         map[string]domain.OTPChallenge
 	checkins     map[string]domain.Checkin
+}
+
+// One product on one day.
+type stockKey struct {
+	businessID string
+	productID  string
+	date       string
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -43,6 +52,7 @@ func NewMemoryStore() *MemoryStore {
 		pinHashes:    map[string]string{},
 		passwords:    map[string]string{},
 		customers:    map[string]domain.Customer{},
+		productStock: map[stockKey]float64{},
 		serviceAreas: map[string]domain.ServiceArea{},
 		products:     map[string]domain.Product{},
 		recurring:    map[string]domain.RecurringOrder{},
@@ -967,5 +977,26 @@ func (s *MemoryStore) DeleteProduct(_ context.Context, businessID string, id str
 		}
 	}
 	delete(s.products, id)
+	return nil
+}
+
+func (s *MemoryStore) ListProductStock(_ context.Context, businessID string, date string) (map[string]float64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	stock := map[string]float64{}
+	for key, quantity := range s.productStock {
+		if key.businessID == businessID && key.date == date {
+			stock[key.productID] = quantity
+		}
+	}
+	return stock, nil
+}
+
+func (s *MemoryStore) SetProductStock(_ context.Context, businessID string, productID string, date string, quantity float64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.productStock[stockKey{businessID: businessID, productID: productID, date: date}] = quantity
 	return nil
 }

@@ -35,6 +35,9 @@ export default function TodayScreen({ token, business }) {
   // is told what tomorrow needs — which is the whole reason this
   // question moved off the Business page (see the comment there).
   const [demand, setDemand] = useState({});
+  // What is in the cold room on the day being shown. Absent means none:
+  // every date starts empty and fills when the churns come in.
+  const [stock, setStock] = useState({});
   const [areas, setAreas] = useState([]);
   const [checkins, setCheckins] = useState([]);
   const [error, setError] = useState('');
@@ -66,6 +69,7 @@ export default function TodayScreen({ token, business }) {
       setDrivers(driverResponse.drivers || []);
       setProducts(productResponse.products || []);
       setDemand(demandResponse.needed || {});
+      setStock(demandResponse.stock || {});
       setAreas(areaResponse.service_areas || []);
       setCheckins(checkinResponse.checkins || []);
       setError('');
@@ -250,7 +254,7 @@ export default function TodayScreen({ token, business }) {
   const shortSizes = products
     .map((product) => ({
       name: product.name,
-      short: Math.max(0, (demand[product.id] || 0) - (Number(product.stock_quantity) || 0)),
+      short: Math.max(0, (demand[product.id] || 0) - (Number(stock[product.id]) || 0)),
     }))
     .filter((line) => line.short > 0)
     .sort((a, b) => b.short - a.short);
@@ -319,6 +323,8 @@ export default function TodayScreen({ token, business }) {
                 <ProductTable
                   products={products}
                   demand={demand}
+                  stock={stock}
+                  date={day?.date}
                   token={token}
                   onChanged={refresh}
                   onError={setError}
@@ -441,6 +447,8 @@ export default function TodayScreen({ token, business }) {
           <ProductTable
             products={products}
             demand={demand}
+            stock={stock}
+            date={day?.date}
             token={token}
             onChanged={refresh}
             onError={setError}

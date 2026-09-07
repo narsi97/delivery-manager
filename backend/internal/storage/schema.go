@@ -109,8 +109,33 @@ var schemaStatements = []string{
 	// No automatic decrementing on delivery, deliberately — a dairy
 	// reconciles stock by looking, not by trusting a tally that drifts
 	// the first time something is spilled or given away.
+	// Superseded by product_stock below, which is per day. Kept because
+	// dropping a column loses what businesses had already typed, and it
+	// costs nothing to leave: nothing reads it any more.
 	`alter table products add column if not exists stock_quantity double precision not null default 0`,
 	`create index if not exists products_business_idx on products(business_id)`,
+
+	// What is in the cold room on one day.
+	//
+	// Stock used to be a single number on the product, which meant it was
+	// the same number on every date — a dairy that filled forty litres on
+	// Monday still read forty on Friday. Milk does not work that way: the
+	// day starts with nothing and starts counting when the churns come
+	// in, and yesterday's leftover is not today's stock.
+	//
+	// So a row per product per day, absent until somebody enters one,
+	// and absent means zero. No automatic decrementing on delivery,
+	// deliberately — a dairy reconciles by looking, not by trusting a
+	// tally that drifts the first time something is spilled or given
+	// away.
+	`create table if not exists product_stock (
+		business_id text not null references businesses(id) on delete cascade,
+		product_id text not null references products(id) on delete cascade,
+		stock_date text not null,
+		quantity double precision not null default 0,
+		primary key (product_id, stock_date)
+	)`,
+	`create index if not exists product_stock_business_date_idx on product_stock(business_id, stock_date)`,
 
 	`create table if not exists recurring_orders (
 		id text primary key,

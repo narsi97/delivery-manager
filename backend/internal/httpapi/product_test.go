@@ -33,42 +33,77 @@ func TestUpdateProductPriceAndUnit(t *testing.T) {
 	}
 }
 
-// PATCH is partial: the stock control sends only a stock number and must
-// not blank out the price someone else set.
-func TestUpdateProductStockLeavesPriceAlone(t *testing.T) {
+// Milk filled on Monday is not still there on Friday. Stock belongs to a
+// date, and a date nobody has stocked has none of it — this is the whole
+// reason product_stock exists, so it is the test that must not rot.
+func TestStockIsPerDayAndStartsAtZero(t *testing.T) {
 	server := newTestServer(t)
 	admin := adminClient(t, server)
 	id := firstProductID(t, admin)
 
-	admin.mustDo(http.MethodPatch, "/api/v1/products/"+id,
-		map[string]any{"price_cents": 5000}, http.StatusOK)
-	updated := admin.mustDo(http.MethodPatch, "/api/v1/products/"+id,
-		map[string]any{"stock_quantity": 120}, http.StatusOK)
+	admin.mustDo(http.MethodPut, "/api/v1/products/"+id+"/stock",
+		map[string]any{"date": "2026-09-08", "quantity": 40}, http.StatusOK)
 
-	if got := num(updated, "stock_quantity"); got != 120 {
-		t.Fatalf("stock_quantity = %v, want 120", got)
+	monday := admin.mustDo(http.MethodGet, "/api/v1/products/demand?date=2026-09-08", nil, http.StatusOK)
+	if got := num(monday["stock"].(map[string]any), id); got != 40 {
+		t.Fatalf("stock on the day it was entered = %v, want 40", got)
 	}
-	if got := num(updated, "price_cents"); got != 5000 {
-		t.Fatalf("price_cents = %v after a stock-only update, want 5000", got)
+
+	friday := admin.mustDo(http.MethodGet, "/api/v1/products/demand?date=2026-09-12", nil, http.StatusOK)
+	if stock, _ := friday["stock"].(map[string]any); len(stock) != 0 {
+		t.Fatalf("stock on an unstocked day = %v, want nothing — every day starts empty", stock)
 	}
 }
 
-// Zero is a real value for both — "out of stock" and "no price set" are
-// things an admin needs to be able to say, which is why the request uses
-// pointers rather than treating zero as absent.
-func TestUpdateProductAcceptsExplicitZero(t *testing.T) {
+// Entering it again replaces it rather than adding to it: the number is
+// what is in the cold room, not a running tally of what arrived.
+func TestSettingStockAgainReplacesTheDaysFigure(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+	id := firstProductID(t, admin)
+
+	admin.mustDo(http.MethodPut, "/api/v1/products/"+id+"/stock",
+		map[string]any{"date": "2026-09-08", "quantity": 40}, http.StatusOK)
+	admin.mustDo(http.MethodPut, "/api/v1/products/"+id+"/stock",
+		map[string]any{"date": "2026-09-08", "quantity": 25}, http.StatusOK)
+
+	day := admin.mustDo(http.MethodGet, "/api/v1/products/demand?date=2026-09-08", nil, http.StatusOK)
+	if got := num(day["stock"].(map[string]any), id); got != 25 {
+		t.Fatalf("stock = %v, want 25", got)
+	}
+}
+
+// Zero is a real value — "we ran out" has to be sayable, and it is not
+// the same as never having entered a figure only because the screen
+// shows both as nothing.
+func TestStockAcceptsZeroAndRefusesNegatives(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+	id := firstProductID(t, admin)
+
+	admin.mustDo(http.MethodPut, "/api/v1/products/"+id+"/stock",
+		map[string]any{"date": "2026-09-08", "quantity": 50}, http.StatusOK)
+	admin.mustDo(http.MethodPut, "/api/v1/products/"+id+"/stock",
+		map[string]any{"date": "2026-09-08", "quantity": 0}, http.StatusOK)
+
+	day := admin.mustDo(http.MethodGet, "/api/v1/products/demand?date=2026-09-08", nil, http.StatusOK)
+	if got := num(day["stock"].(map[string]any), id); got != 0 {
+		t.Fatalf("stock = %v, want 0 — running out must be expressible", got)
+	}
+
+	admin.mustDo(http.MethodPut, "/api/v1/products/"+id+"/stock",
+		map[string]any{"date": "2026-09-08", "quantity": -5}, http.StatusBadRequest)
+}
+
+// The old way out. A client still sending stock with the product would
+// otherwise be silently setting a number nothing reads.
+func TestUpdateProductRefusesStock(t *testing.T) {
 	server := newTestServer(t)
 	admin := adminClient(t, server)
 	id := firstProductID(t, admin)
 
 	admin.mustDo(http.MethodPatch, "/api/v1/products/"+id,
-		map[string]any{"stock_quantity": 50}, http.StatusOK)
-	updated := admin.mustDo(http.MethodPatch, "/api/v1/products/"+id,
-		map[string]any{"stock_quantity": 0}, http.StatusOK)
-
-	if got := num(updated, "stock_quantity"); got != 0 {
-		t.Fatalf("stock_quantity = %v, want 0 — running out must be expressible", got)
-	}
+		map[string]any{"stock_quantity": 120}, http.StatusBadRequest)
 }
 
 func TestUpdateProductRejectsNegatives(t *testing.T) {
@@ -78,8 +113,6 @@ func TestUpdateProductRejectsNegatives(t *testing.T) {
 
 	admin.mustDo(http.MethodPatch, "/api/v1/products/"+id,
 		map[string]any{"price_cents": -1}, http.StatusBadRequest)
-	admin.mustDo(http.MethodPatch, "/api/v1/products/"+id,
-		map[string]any{"stock_quantity": -5}, http.StatusBadRequest)
 }
 
 // Another business's product must not be editable, and must read as

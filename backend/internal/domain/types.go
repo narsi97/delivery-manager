@@ -484,11 +484,12 @@ type Product struct {
 	// arithmetic never interprets it.
 	Unit       string `json:"unit"`
 	PriceCents int    `json:"price_cents"`
-	// StockQuantity is what the business has on hand, in Unit. Kept as a
-	// number the admin sets rather than one the app decrements on every
-	// delivery: a dairy counts what is in the cold room, and a tally that
-	// silently drifts the first time something is spilled, given away or
-	// delivered off the books is worse than no tally at all.
+	// StockQuantity is the last figure entered before stock became a
+	// per-day thing. Nothing reads it: milk filled on Monday is not
+	// still there on Friday, and one number on the product said it was.
+	// See the product_stock table and ListProductStock. Kept on the
+	// record so nobody's typing was thrown away, and still serialised so
+	// an old value can be looked at, never used.
 	StockQuantity float64 `json:"stock_quantity"`
 	Active        bool    `json:"active"`
 }

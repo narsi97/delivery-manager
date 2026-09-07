@@ -36,6 +36,8 @@ export default function BusinessScreen({ token, business, user, currentUserId, o
   // cold room with this page open wants the answer here, not one tab
   // away, so the number is in both places and says which day it means.
   const [demand, setDemand] = useState({});
+  const [stock, setStock] = useState({});
+  const [stockDate, setStockDate] = useState('');
   const [products, setProducts] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -72,6 +74,8 @@ export default function BusinessScreen({ token, business, user, currentUserId, o
       setAreas(areaResponse.service_areas || []);
       setProducts(productResponse.products || []);
       setDemand(demandResponse.needed || {});
+      setStock(demandResponse.stock || {});
+      setStockDate(demandResponse.date || '');
       setDrivers(driverResponse.drivers || []);
       setCustomers(customerResponse.customers || []);
       setError('');
@@ -103,7 +107,7 @@ export default function BusinessScreen({ token, business, user, currentUserId, o
   const groups = groupProducts(products);
   const shortToday = products.reduce((total, product) => {
     const needed = demand[product.id] || 0;
-    const have = Number(product.stock_quantity) || 0;
+    const have = Number(stock[product.id]) || 0;
     return total + Math.max(0, needed - have);
   }, 0);
 
@@ -129,6 +133,8 @@ export default function BusinessScreen({ token, business, user, currentUserId, o
         token={token}
         products={products}
         demand={demand}
+        stock={stock}
+        date={stockDate}
         canDelete={canDelete}
         onChanged={refresh}
         onCreated={async (name) => {
@@ -526,7 +532,7 @@ const radiusSliderStyle = {
 // storage/store.go), no update or deactivate path yet — that's a
 // backend addition to make when editing an existing product is actually
 // needed, not something to fake client-side.
-function ProductCatalogCard({ token, products, demand, canDelete, onChanged, onCreated, onError }) {
+function ProductCatalogCard({ token, products, demand, stock, date, canDelete, onChanged, onCreated, onError }) {
   const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState('');
   const [unit, setUnit] = useState('');
@@ -587,6 +593,8 @@ function ProductCatalogCard({ token, products, demand, canDelete, onChanged, onC
         <ProductTable
           products={products}
           demand={demand}
+          stock={stock}
+          date={date}
           token={token}
           canDelete={canDelete}
           canAdd

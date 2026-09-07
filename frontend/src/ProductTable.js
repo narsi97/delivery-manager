@@ -23,6 +23,11 @@ import { colors, radius, spacing } from './theme';
 export default function ProductTable({
   products,
   demand,
+  // What is in the cold room on `date`, keyed by product id. A product
+  // missing from it has none — every day starts empty, so this is a
+  // fact about a date and never about the product.
+  stock = {},
+  date,
   token,
   canDelete,
   canAdd,
@@ -37,6 +42,8 @@ export default function ProductTable({
           key={group.key}
           group={group}
           demand={demand}
+          stock={stock}
+          date={date}
           token={token}
           canDelete={canDelete}
           canAdd={canAdd}
@@ -58,7 +65,7 @@ export default function ProductTable({
 //
 // A product with one size gets no heading. A heading above a single row
 // is a heading about nothing.
-function ProductGroup({ group, demand, token, canDelete, canAdd, onChanged, onCreated, onError }) {
+function ProductGroup({ group, demand, stock, date, token, canDelete, canAdd, onChanged, onCreated, onError }) {
   const [adding, setAdding] = useState(false);
   // One size is not a group. A heading, a count of "1 size" and four
   // column labels over a single row is more chrome than content — it
@@ -95,7 +102,9 @@ function ProductGroup({ group, demand, token, canDelete, canAdd, onChanged, onCr
                 input is one more character to select around. */}
             <Text style={[styles.productCell, styles.productHeadCell]}>Price ₹</Text>
             <Text style={[styles.productCell, styles.productHeadCell]}>Stock</Text>
-            <Text style={[styles.productCell, styles.productHeadCell]}>Today</Text>
+            {/* Not "Today" — this table also draws tomorrow, and the
+                day it means is the one the page is on. */}
+            <Text style={[styles.productCell, styles.productHeadCell]}>Needed</Text>
           </View>
         </View>
       )}
@@ -105,6 +114,8 @@ function ProductGroup({ group, demand, token, canDelete, canAdd, onChanged, onCr
           product={product}
           label={lone ? product.name : product.size || product.name}
           neededToday={demand[product.id] || 0}
+          inStock={stock[product.id] || 0}
+          date={date}
           token={token}
           canDelete={canDelete}
           onChanged={onChanged}
@@ -231,13 +242,16 @@ function AddSizeRow({ group, token, onDone, onCancel, onError }) {
 // a number: the coordinate boxes, the priority picker, the position in
 // the round. See Docs/DESIGN.md.
 //
-// "Needed today" stays read-only. It is worked out from the round rather
-// than typed, and it is what makes the stock number mean anything — 118
+// "Needed" stays read-only. It is worked out from the round rather than
+// typed, and it is what makes the stock number mean anything — 118
 // needed against 120 in stock is a morning nobody has to think about.
-function ProductRow({ product, label, neededToday, token, canDelete, onChanged, onError }) {
+//
+// Stock is written against the date this table is showing, not onto the
+// product: a churn that came in on Monday is Monday's.
+function ProductRow({ product, label, neededToday, inStock, date, token, canDelete, onChanged, onError }) {
   const [busy, setBusy] = useState(false);
 
-  const have = Number(product.stock_quantity) || 0;
+  const have = Number(inStock) || 0;
   const short = neededToday > 0 && have < neededToday;
 
   const commit = async (changes) => {
@@ -276,10 +290,19 @@ function ProductRow({ product, label, neededToday, token, canDelete, onChanged, 
           busy={busy}
           warn={short}
           ariaLabel={`Stock of ${product.name}`}
-          onCommit={(raw) => {
+          onCommit={async (raw) => {
             const next = Number(raw) || 0;
-            if (next !== have) {
-              commit({ stock_quantity: next });
+            if (next === have) {
+              return;
+            }
+            setBusy(true);
+            try {
+              await api.setProductStock(token, product.id, date, next);
+              await onChanged();
+            } catch (err) {
+              onError(err.message);
+            } finally {
+              setBusy(false);
             }
           }}
         />

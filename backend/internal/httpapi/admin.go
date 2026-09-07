@@ -397,9 +397,13 @@ func (s *Server) handleUpdateProduct(w http.ResponseWriter, r *http.Request) {
 		// Pointers so that "not sent" and "explicitly zero" stay
 		// distinguishable — setting a price to nothing, or stock to none,
 		// are both real things to want.
-		PriceCents    *int     `json:"price_cents"`
+		PriceCents *int  `json:"price_cents"`
+		Active     *bool `json:"active"`
+		// Stock is not here any more. It belongs to a day rather than to
+		// the product — see handleSetProductStock — and leaving a second
+		// way to set it would have left two answers to "how much milk is
+		// there", one of which is the same on every date.
 		StockQuantity *float64 `json:"stock_quantity"`
-		Active        *bool    `json:"active"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -419,11 +423,9 @@ func (s *Server) handleUpdateProduct(w http.ResponseWriter, r *http.Request) {
 		existing.PriceCents = *req.PriceCents
 	}
 	if req.StockQuantity != nil {
-		if *req.StockQuantity < 0 {
-			writeError(w, http.StatusBadRequest, "stock cannot be negative", "invalid_stock")
-			return
-		}
-		existing.StockQuantity = *req.StockQuantity
+		writeError(w, http.StatusBadRequest,
+			"stock belongs to a day now — send it to /products/{id}/stock with a date", "stock_is_daily")
+		return
 	}
 	if req.Active != nil {
 		existing.Active = *req.Active
@@ -463,7 +465,61 @@ func (s *Server) handleProductDemand(w http.ResponseWriter, r *http.Request) {
 			needed[o.ProductID] += o.Quantity
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"date": date, "needed": needed})
+
+	// The two halves of the same question travel together: what this day
+	// wants, and what is in the cold room for it. Asking separately meant
+	// two round trips to work out one subtraction.
+	stock, err := s.store.ListProductStock(r.Context(), sess.Business.ID, date)
+	if err != nil {
+		writeStoreError(w, err, "stock")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"date": date, "needed": needed, "stock": stock})
+}
+
+// handleSetProductStock records what came in for one product on one day.
+//
+// Every date starts at zero. Milk filled on Monday is not still there on
+// Friday, and a single number on the product said it was — see the
+// product_stock table.
+func (s *Server) handleSetProductStock(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r.Context())
+
+	product, err := s.store.GetProduct(r.Context(), sess.Business.ID, r.PathValue("id"))
+	if err != nil {
+		writeStoreError(w, err, "product")
+		return
+	}
+
+	var req struct {
+		Date     string  `json:"date"`
+		Quantity float64 `json:"quantity"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Quantity < 0 {
+		writeError(w, http.StatusBadRequest, "stock cannot be negative", "invalid_stock")
+		return
+	}
+
+	date := strings.TrimSpace(req.Date)
+	if date == "" {
+		date = sess.Business.Today()
+	} else if _, err := time.Parse(domain.DateLayout, date); err != nil {
+		writeError(w, http.StatusBadRequest, "date must be YYYY-MM-DD", "invalid_date")
+		return
+	}
+
+	if err := s.store.SetProductStock(r.Context(), sess.Business.ID, product.ID, date, req.Quantity); err != nil {
+		writeStoreError(w, err, "stock")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"product_id": product.ID,
+		"date":       date,
+		"quantity":   req.Quantity,
+	})
 }
 
 // ---------- drivers ----------

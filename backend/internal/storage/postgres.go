@@ -1197,3 +1197,32 @@ func (s *PostgresStore) DeleteProduct(ctx context.Context, businessID string, id
 	}
 	return nil
 }
+
+func (s *PostgresStore) ListProductStock(ctx context.Context, businessID string, date string) (map[string]float64, error) {
+	rows, err := s.pool.Query(ctx,
+		`select product_id, quantity from product_stock where business_id=$1 and stock_date=$2`,
+		businessID, date)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	stock := map[string]float64{}
+	for rows.Next() {
+		var id string
+		var quantity float64
+		if err := rows.Scan(&id, &quantity); err != nil {
+			return nil, err
+		}
+		stock[id] = quantity
+	}
+	return stock, rows.Err()
+}
+
+func (s *PostgresStore) SetProductStock(ctx context.Context, businessID string, productID string, date string, quantity float64) error {
+	_, err := s.pool.Exec(ctx,
+		`insert into product_stock (business_id, product_id, stock_date, quantity) values ($1,$2,$3,$4)
+		 on conflict (product_id, stock_date) do update set quantity = excluded.quantity`,
+		businessID, productID, date, quantity)
+	return err
+}

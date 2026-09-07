@@ -246,8 +246,10 @@ export function updateProduct(token, id, changes) {
   return request(`/api/v1/products/${id}`, { method: 'PATCH', token, body: JSON.stringify(changes) });
 }
 
-// How much of each product the day's still-pending deliveries add up to,
-// keyed by product id — what stock has to be measured against.
+// Both halves of one question for a given date: `needed`, what that
+// day's still-pending deliveries add up to per product, and `stock`,
+// what is in the cold room for it. A product missing from `stock` has
+// none — every day starts empty.
 export function getProductDemand(token, date) {
   return request(`/api/v1/products/demand${date ? `?date=${date}` : ''}`, { method: 'GET', token });
 }
@@ -411,6 +413,17 @@ export function deleteCustomer(token, id) {
 
 export function deleteDriver(token, id) {
   return request(`/api/v1/drivers/${id}`, { method: 'DELETE', token });
+}
+
+// What came in for one product on one day. Every date starts at nothing
+// — see the product_stock table — so this is always about a date, even
+// when that date is today.
+export function setProductStock(token, id, date, quantity) {
+  return request(`/api/v1/products/${id}/stock`, {
+    method: 'PUT',
+    token,
+    body: JSON.stringify({ date: date || undefined, quantity }),
+  });
 }
 
 export function deleteProduct(token, id) {

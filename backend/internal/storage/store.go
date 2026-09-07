@@ -162,6 +162,14 @@ type Store interface {
 	// so the refusal is a sentence rather than a constraint violation.
 	DeleteProduct(ctx context.Context, businessID string, id string) error
 
+	// ListProductStock is what the business had on hand on one date,
+	// keyed by product id. A product with no row for that date is absent
+	// from the map, and absent means none: milk starts every day at zero
+	// and starts counting when the churns come in.
+	ListProductStock(ctx context.Context, businessID string, date string) (map[string]float64, error)
+	// SetProductStock records one product's stock on one date.
+	SetProductStock(ctx context.Context, businessID string, productID string, date string, quantity float64) error
+
 	// ServiceArea is normally soft-deactivated (see
 	// domain.ServiceArea.Active) rather than destroyed, folded into
 	// UpdateServiceArea. DeleteServiceArea is the harder version, for a
