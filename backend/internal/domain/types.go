@@ -141,8 +141,28 @@ type User struct {
 	// rounds re-prepare themselves on every read of the day (see
 	// ensureDayRounds): a limit the server didn't remember would be
 	// undone by the next page load.
-	MaxStops  int       `json:"max_stops"`
-	CreatedAt time.Time `json:"created_at"`
+	MaxStops int `json:"max_stops"`
+	// DeleteModeUntil is when this person's delete buttons stop working.
+	//
+	// Deleting a customer takes their delivery history with them and
+	// there is no undo, so it is not something to leave switched on. The
+	// owner arms it for an hour, or four, or a day, does the tidying,
+	// and it disarms itself.
+	//
+	// Enforced on the server, not just hidden in the app. A safety catch
+	// you can get past by opening the developer tools is not a safety
+	// catch, and the timer would be decoration.
+	//
+	// Per user rather than per business: the switch lives on your own
+	// account page, and one admin arming it must not hand a colleague
+	// live delete buttons they did not ask for.
+	DeleteModeUntil *time.Time `json:"delete_mode_until,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+}
+
+// CanDelete reports whether this person's delete window is open now.
+func (u User) CanDelete(now time.Time) bool {
+	return u.DeleteModeUntil != nil && u.DeleteModeUntil.After(now)
 }
 
 // HasHome reports whether this user has somewhere to finish. Mirrors

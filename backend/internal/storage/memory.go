@@ -840,3 +840,108 @@ func (s *MemoryStore) ListCheckins(_ context.Context, businessID string, date st
 	sort.SliceStable(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
 	return out, nil
 }
+
+func (s *MemoryStore) SetUserDeleteMode(_ context.Context, businessID string, id string, until *time.Time) (domain.User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	u, ok := s.users[id]
+	if !ok || u.BusinessID != businessID {
+		return domain.User{}, ErrNotFound
+	}
+	u.DeleteModeUntil = until
+	s.users[id] = u
+	return u, nil
+}
+
+// The cascades Postgres gets from its schema, written out. Both stores
+// have to leave the same world behind, or a bug only shows up in one of
+// them — see the foreign keys in schema.go for the authority on which
+// way each reference goes.
+func (s *MemoryStore) DeleteUser(_ context.Context, businessID string, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	u, ok := s.users[id]
+	if !ok || u.BusinessID != businessID {
+		return ErrNotFound
+	}
+	delete(s.users, id)
+	delete(s.pinHashes, id)
+	delete(s.passwords, id)
+	// routes.driver_id is "on delete set null": the round stays, with
+	// nobody driving it.
+	for rid, route := range s.routes {
+		if route.BusinessID == businessID && route.DriverID != nil && *route.DriverID == id {
+			route.DriverID = nil
+			s.routes[rid] = route
+		}
+	}
+	// checkins cascades: a start-of-day count by somebody who no longer
+	// exists is not a record anybody can act on.
+	for cid, checkin := range s.checkins {
+		if checkin.BusinessID == businessID && checkin.DriverID == id {
+			delete(s.checkins, cid)
+		}
+	}
+	return nil
+}
+
+func (s *MemoryStore) DeleteCustomer(_ context.Context, businessID string, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	c, ok := s.customers[id]
+	if !ok || c.BusinessID != businessID {
+		return ErrNotFound
+	}
+	delete(s.customers, id)
+	for rid, r := range s.recurring {
+		if r.BusinessID == businessID && r.CustomerID == id {
+			delete(s.recurring, rid)
+		}
+	}
+	for did, d := range s.daily {
+		if d.BusinessID == businessID && d.CustomerID == id {
+			delete(s.daily, did)
+		}
+	}
+	return nil
+}
+
+func (s *MemoryStore) DeleteServiceArea(_ context.Context, businessID string, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	area, ok := s.serviceAreas[id]
+	if !ok || area.BusinessID != businessID {
+		return ErrNotFound
+	}
+	delete(s.serviceAreas, id)
+
+	// The hand assignments that pointed at it. These carry no foreign
+	// key in Postgres either, which is exactly why both stores have to
+	// remember to clear them.
+	for cid, c := range s.customers {
+		if c.BusinessID == businessID && c.ServiceAreaID != nil && *c.ServiceAreaID == id {
+			c.ServiceAreaID = nil
+			s.customers[cid] = c
+		}
+	}
+	// Its rounds go; their stops are detached rather than deleted.
+	gone := map[string]bool{}
+	for rid, route := range s.routes {
+		if route.BusinessID == businessID && route.ServiceAreaID != nil && *route.ServiceAreaID == id {
+			gone[rid] = true
+			delete(s.routes, rid)
+		}
+	}
+	for did, d := range s.daily {
+		if d.BusinessID == businessID && d.RouteID != nil && gone[*d.RouteID] {
+			d.RouteID = nil
+			d.Sequence = 0
+			s.daily[did] = d
+		}
+	}
+	return nil
+}

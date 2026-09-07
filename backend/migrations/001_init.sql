@@ -206,6 +206,10 @@ alter table users add column if not exists max_stops int not null default 0;
 -- A password, for the deployment with no SMS provider.
 alter table users add column if not exists password_hash text;
 
+-- When this person's delete buttons stop working. Null is the normal
+-- state — see domain.User.DeleteModeUntil.
+alter table users add column if not exists delete_mode_until timestamptz;
+
 -- Who gets visited first, ahead of what the shortest path would say.
 alter table customers add column if not exists priority text not null default 'normal';
 

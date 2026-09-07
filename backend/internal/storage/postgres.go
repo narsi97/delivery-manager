@@ -142,7 +142,7 @@ func (s *PostgresStore) UpdateBusinessConfig(ctx context.Context, businessID str
 // duplication that quietly breaks the moment a column is added, which is
 // exactly what happened when drivers got a home location.
 const userColumns = `id, business_id, role, name, coalesce(email,''), coalesce(phone,''), active, home_lat, home_lng,
-	coalesce(finish_at,'farm'), finish_lat, finish_lng, max_stops, created_at`
+	coalesce(finish_at,'farm'), finish_lat, finish_lng, max_stops, delete_mode_until, created_at`
 
 func (s *PostgresStore) GetAdminByEmail(ctx context.Context, email string) (domain.User, error) {
 	row := s.pool.QueryRow(ctx,
@@ -838,7 +838,8 @@ func scanUser(row scanner) (domain.User, error) {
 	var u domain.User
 	var finishAt string
 	if err := row.Scan(&u.ID, &u.BusinessID, &u.Role, &u.Name, &u.Email, &u.Phone, &u.Active,
-		&u.HomeLat, &u.HomeLng, &finishAt, &u.FinishLat, &u.FinishLng, &u.MaxStops, &u.CreatedAt); err != nil {
+		&u.HomeLat, &u.HomeLng, &finishAt, &u.FinishLat, &u.FinishLng, &u.MaxStops,
+		&u.DeleteModeUntil, &u.CreatedAt); err != nil {
 		return domain.User{}, noRows(err)
 	}
 	u.FinishAt = domain.NormalizeFinishAt(domain.FinishAt(finishAt))
@@ -1094,4 +1095,90 @@ func scanCheckin(row scanner) (domain.Checkin, error) {
 	}
 	c.Status = domain.CheckinStatus(status)
 	return c, nil
+}
+
+func (s *PostgresStore) SetUserDeleteMode(ctx context.Context, businessID string, id string, until *time.Time) (domain.User, error) {
+	row := s.pool.QueryRow(ctx,
+		`update users set delete_mode_until=$3 where id=$1 and business_id=$2
+		 returning `+userColumns, id, businessID, until)
+	return scanUser(row)
+}
+
+// Everything that referenced this person either loses the reference or
+// goes with them — the schema says which, and says it in one place:
+// routes.driver_id is "on delete set null", checkins is "on delete
+// cascade". A round with nobody driving it is a normal state this app
+// already draws; a check-in for somebody who no longer exists is not.
+func (s *PostgresStore) DeleteUser(ctx context.Context, businessID string, id string) error {
+	tag, err := s.pool.Exec(ctx, `delete from users where id=$1 and business_id=$2`, id, businessID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// The customer, their standing orders and every delivery ever made to
+// them. The orders cascade from the schema; the delete is a transaction
+// anyway, so a failure half way leaves the customer intact rather than
+// stripped of their history and still on the round.
+func (s *PostgresStore) DeleteCustomer(ctx context.Context, businessID string, id string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx, `delete from customers where id=$1 and business_id=$2`, id, businessID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return tx.Commit(ctx)
+}
+
+// A service route, and the references to it that carry no foreign key.
+//
+// customers.service_area_id and routes.service_area_id are plain text
+// columns, so deleting the row they point at would leave a dangling id.
+// Today that degrades quietly — the lookup fails and the customer falls
+// back to their pin — but "quietly changes which round somebody is on"
+// is not a thing to leave to luck. Cleared in the same transaction.
+func (s *PostgresStore) DeleteServiceArea(ctx context.Context, businessID string, id string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx,
+		`update customers set service_area_id=null where business_id=$1 and service_area_id=$2`,
+		businessID, id); err != nil {
+		return err
+	}
+	// The rounds built for it go entirely: a route belongs to its area,
+	// and one prepared for an area that no longer exists is a round to
+	// nowhere. Their stops are detached rather than deleted.
+	if _, err := tx.Exec(ctx,
+		`update daily_orders set route_id=null, stop_sequence=0
+		 where business_id=$1 and route_id in (select id from routes where business_id=$1 and service_area_id=$2)`,
+		businessID, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`delete from routes where business_id=$1 and service_area_id=$2`, businessID, id); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, `delete from service_areas where id=$1 and business_id=$2`, id, businessID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return tx.Commit(ctx)
 }

@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"time"
 
 	"delivery-manager/internal/domain"
 )
@@ -92,6 +93,18 @@ type Store interface {
 	// (see httpapi's auth middleware, which reloads the user), without
 	// needing token revocation infrastructure.
 	SetUserActive(ctx context.Context, businessID string, id string, active bool) (domain.User, error)
+	// SetUserDeleteMode opens or closes this person's delete window. A
+	// nil time closes it. See domain.User.DeleteModeUntil for why this
+	// is stored rather than kept in the app.
+	SetUserDeleteMode(ctx context.Context, businessID string, id string, until *time.Time) (domain.User, error)
+	// DeleteUser removes a person entirely. Their rounds are left
+	// standing with nobody driving them, and their check-ins go with
+	// them — see the schema's foreign keys, which say exactly this.
+	//
+	// Refusing to delete the last admin, or yourself, is the handler's
+	// job: those are rules about who is asking, which the store does not
+	// know.
+	DeleteUser(ctx context.Context, businessID string, id string) error
 	// SetUserPIN replaces a driver's PIN — the "driver forgot their PIN"
 	// path, which an admin performs.
 	// SetUserHome records where a driver finishes their day, which is
@@ -119,6 +132,11 @@ type Store interface {
 	// becomes rank 1, and so on. Customers not listed keep the rank they
 	// had, so ordering one town leaves the rest alone. ClearCustomerOrder
 	// undoes it — see domain.Customer.Rank.
+	// DeleteCustomer removes a customer and everything that was only
+	// ever about them: their standing orders, and every delivery ever
+	// made to them. There is no undo, which is why the handler counts
+	// what will go first and says so.
+	DeleteCustomer(ctx context.Context, businessID string, id string) error
 	SetCustomerOrder(ctx context.Context, businessID string, ids []string) error
 	ClearCustomerOrder(ctx context.Context, businessID string, ids []string) error
 	GetCustomer(ctx context.Context, businessID string, id string) (domain.Customer, error)
@@ -133,13 +151,18 @@ type Store interface {
 	// it has in stock.
 	UpdateProduct(ctx context.Context, p domain.Product) (domain.Product, error)
 
-	// ServiceArea has no Delete — like Customer, RecurringOrder and User,
-	// it is soft-deactivated (see domain.ServiceArea.Active) rather than
-	// destroyed, folded into UpdateServiceArea.
+	// ServiceArea is normally soft-deactivated (see
+	// domain.ServiceArea.Active) rather than destroyed, folded into
+	// UpdateServiceArea. DeleteServiceArea is the harder version, for a
+	// route somebody created by mistake: it also detaches the customers
+	// and routes that pointed at it, because those columns carry no
+	// foreign key and a dangling id would quietly change which round a
+	// customer is on.
 	CreateServiceArea(ctx context.Context, sa domain.ServiceArea) (domain.ServiceArea, error)
 	GetServiceArea(ctx context.Context, businessID string, id string) (domain.ServiceArea, error)
 	ListServiceAreas(ctx context.Context, businessID string) ([]domain.ServiceArea, error)
 	UpdateServiceArea(ctx context.Context, sa domain.ServiceArea) (domain.ServiceArea, error)
+	DeleteServiceArea(ctx context.Context, businessID string, id string) error
 
 	CreateRecurringOrder(ctx context.Context, r domain.RecurringOrder) (domain.RecurringOrder, error)
 	ListRecurringOrders(ctx context.Context, businessID string) ([]domain.RecurringOrder, error)

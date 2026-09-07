@@ -222,6 +222,9 @@ var schemaStatements = []string{
 	// code path is still there and still works — see auth/password.go
 	// for why this exists alongside it rather than instead of it.
 	`alter table users add column if not exists password_hash text`,
+	// When this person's delete buttons stop working. Null is the normal
+	// state — see domain.User.DeleteModeUntil.
+	`alter table users add column if not exists delete_mode_until timestamptz`,
 
 	// Who gets visited first, ahead of what the shortest path would say.
 	// Defaults to 'normal', so every customer that existed before
