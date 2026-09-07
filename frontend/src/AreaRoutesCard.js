@@ -47,6 +47,9 @@ export default function AreaRoutesCard({
   const [expanded, setExpanded] = useState(false);
   // Whether the per-stop move arrows are out. Off by default.
   const [arranging, setArranging] = useState(false);
+  // Which of the two delivery views is showing. Only the cards one needs
+  // an arranging mode — the table carries its arrows on every row.
+  const [view, setView] = useState('table');
   // Edits to how many stops each driver will take, keyed by driver id.
   // Only what the admin has actually typed lives here — an untouched
   // driver keeps whatever limit is stored on them, which is why the
@@ -288,7 +291,7 @@ export default function AreaRoutesCard({
                     not while reading it — and forty-two arrows down a
                     page of twenty-one deliveries is furniture. See
                     Docs/DESIGN.md. */}
-                {routeStops.length > 1 ? (
+                {routeStops.length > 1 && view === 'cards' ? (
                   <Pressable
                     onPress={() => setArranging((prev) => !prev)}
                     accessibilityRole="button"
@@ -315,6 +318,7 @@ export default function AreaRoutesCard({
                     onError={onError}
                     onReorder={moveStop}
                     arranging={arranging}
+                    onViewChange={setView}
                     home={home}
                     drivers={drivers}
                     // This card is one service route, so a stop on it

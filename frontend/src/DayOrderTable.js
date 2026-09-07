@@ -1,35 +1,31 @@
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import * as api from './api';
-import { Banner, Pill } from './components';
-import { groupProducts } from './productGroups';
+import { Banner, Pill, ViewToggle } from './components';
 import { useNarrow } from './layout';
+import { formatQuantity } from './productGroups';
 import { groupStopsByCustomer, StopCard } from './routeCards';
-import { NumberCell, tableStyles } from './tableCells';
+import { tableStyles } from './tableCells';
 import { colors, radius, spacing } from './theme';
 
-// A day's round as a table: a row per door, a column per thing being
-// delivered, and the quantity where the two meet.
+// A day's round as a table: one row per door, in the order it is driven.
 //
 // It replaced a stack of cards. Thirty-eight doors was thirty-eight
-// cards, each repeating a name, an address, a line per item and a row of
-// controls — three screens of scrolling to answer "who takes 2 litres",
-// which a column answers by being read down. The same question the
-// interest optimizer's savings schedule answers by being a table rather
-// than a list of periods.
+// cards, each repeating a name, an address, a line per item and its own
+// row of controls — three screens of scrolling to read one round. The
+// same reason the interest optimizer draws its schedule as a table
+// rather than as a list of periods.
 //
-// Two things make it worth the width:
+// Four columns, and they are in the order somebody reads them: where the
+// door comes in the round, who it is, what they are getting, and where
+// to go. The position is on the left with its own arrows, because
+// changing the order is done *while* reading the round rather than in a
+// separate pass.
 //
-//   - The quantities are typed straight into the cells, so changing what
-//     goes to a door today is not a card to open and a form to fill.
-//   - The last row sums each column, which is the load list. Nobody has
-//     to add it up from the stops any more.
-//
-// Everything a card could do it can still do — the row opens onto the
-// card itself (see StopCard), which is where a pin, a skip, a reason and
-// a one-off extra live. The table is for reading; the card is for the
-// occasional thing that needs a form.
+// The row's own trouble is on the row. A door with no pin cannot be put
+// in order by the router, so its row is amber; a door with no written
+// address either has nothing to go on at all, and that cell is red.
+// Those are the two states worth colour on this screen.
 export default function DayOrderTable({
   stops,
   products = [],
@@ -38,159 +34,194 @@ export default function DayOrderTable({
   onError,
   onReorder,
   arranging,
+  onViewChange,
   home,
   drivers,
   focusAreas = [],
 }) {
-  // On a phone the whole table is wider than the screen, so every pixel
-  // the name column takes is a quantity column somebody has to scroll to
-  // find. The written address is the first thing to go: it is in the
-  // row's own card, and this table is for reading numbers across.
+  // Both versions are on the screen while the business decides which one
+  // it wants to keep. See Docs/DESIGN.md — the table is the one to beat.
+  const [view, setView] = useState('table');
   const narrow = useNarrow();
   const [openDoor, setOpenDoor] = useState(null);
-  const [busyCell, setBusyCell] = useState('');
-  const [error, setError] = useState('');
 
   const doors = groupStopsByCustomer(stops);
 
-  // Only what is actually going out today gets a column. Five sizes of
-  // milk when the round is all 1 litre would be four columns of nothing,
-  // and the answer to "she also wants curd" is the row's own card, not a
-  // permanently empty column on every row. Docs/DESIGN.md, rule 4.
-  const ordered = new Set(stops.map((s) => s.product_id));
-  const columns = groupProducts(products.filter((p) => ordered.has(p.id))).flatMap((group) =>
-    group.items.map((item) => ({
-      id: item.id,
-      // "500 ml" under a "Milk" heading is how the product list reads it,
-      // and a column head has even less room than that does.
-      label: item.size || item.name,
-      group: group.name,
-    })),
+  const chooseView = (next) => {
+    setView(next);
+    if (onViewChange) {
+      onViewChange(next);
+    }
+  };
+
+  const toggle = (
+    <View style={styles.toggleRow}>
+      <ViewToggle
+        value={view}
+        onChange={chooseView}
+        options={[
+          { value: 'table', label: 'Table' },
+          { value: 'cards', label: 'Cards' },
+        ]}
+      />
+    </View>
   );
 
-  // A status column only on a day that has one. Before the van leaves,
-  // every stop is pending and the column is the same word thirty-eight
-  // times.
+  if (view === 'cards') {
+    return (
+      <View style={styles.wrap}>
+        {toggle}
+        {doors.map((door, index) => (
+          <StopCard
+            key={door[0].customer_id || door[0].id}
+            stops={door}
+            position={index + 1}
+            products={products}
+            token={token}
+            onChanged={onChanged}
+            onError={onError}
+            onReorder={arranging && onReorder ? (position) => onReorder(door[0].id, position) : null}
+            canMoveUp={index > 0}
+            canMoveDown={index < doors.length - 1}
+            home={home}
+            drivers={drivers}
+            focusAreas={focusAreas}
+          />
+        ))}
+      </View>
+    );
+  }
+
+  // What the van is carrying, as one line rather than a column each.
+  // Milk in five sizes was five columns of mostly nothing; said as
+  // "8 × 500 ml · 3 × 750 ml" it is one line that stays true however many
+  // things the dairy sells.
+  const loadLines = [];
+  for (const stop of stops) {
+    if (stop.status === 'skipped') {
+      continue;
+    }
+    const found = loadLines.find((line) => line.id === stop.product_id);
+    if (found) {
+      found.quantity += Number(stop.quantity) || 0;
+    } else {
+      loadLines.push({ id: stop.product_id, name: stop.product_name, quantity: Number(stop.quantity) || 0 });
+    }
+  }
+
   const anyStatus = stops.some((s) => s.status && s.status !== 'pending');
-
-  const quantityOf = (door, productId) => {
-    const lines = door.filter((s) => s.product_id === productId && s.status !== 'skipped');
-    if (lines.length === 0) {
-      return null;
-    }
-    return lines.reduce((total, line) => total + (Number(line.quantity) || 0), 0);
-  };
-
-  // Typing over a cell changes this date and nothing else — the same
-  // override the card's own editor makes. An empty cell is a door that
-  // is not down for that product, so a number typed into one is a
-  // one-off, created the way "add another item" creates it.
-  const commit = async (door, productId, raw) => {
-    const next = Number(raw);
-    if (!Number.isFinite(next) || next < 0) {
-      return;
-    }
-    const key = `${door[0].customer_id}:${productId}`;
-    setBusyCell(key);
-    setError('');
-    try {
-      const line = door.find((s) => s.product_id === productId && s.status === 'pending');
-      if (line) {
-        await api.overrideOrder(token, line.id, { quantity: next });
-      } else if (next > 0) {
-        await api.createAdHocOrder(token, {
-          customer_id: door[0].customer_id,
-          product_id: productId,
-          quantity: next,
-          date: door[0].delivery_date,
-        });
-      }
-      await onChanged();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusyCell('');
-    }
-  };
-
-  const doorStatusOf = (door) => {
-    const statuses = [...new Set(door.map((s) => s.status))];
-    return statuses.length === 1 ? statuses[0] : 'part done';
-  };
-
-  const totals = columns.map((column) =>
-    doors.reduce((sum, door) => sum + (quantityOf(door, column.id) || 0), 0),
-  );
 
   return (
     <View style={styles.wrap}>
-      <Banner message={error} />
-      {/* Wide tables scroll rather than squash — a quantity column
-          crushed to fit a phone is a table nobody can read. */}
+      {toggle}
+      {/* Wide tables scroll rather than squash — an address crushed to
+          fit a phone is an address nobody can read. */}
       <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={styles.scroller}>
         <View>
           <View style={[tableStyles.row, tableStyles.head, tableStyles.rule, styles.headRow]}>
-            <Text style={[tableStyles.headCell, styles.numColumn]}>#</Text>
+            <Text style={[tableStyles.headCell, styles.posColumn]}>#</Text>
             <Text style={[tableStyles.headCell, styles.nameColumn, narrow && styles.nameColumnNarrow]}>Customer</Text>
-            {columns.map((column) => (
-              <Text
-                key={column.id}
-                style={[tableStyles.headCell, tableStyles.figure, styles.qtyColumn]}
-                numberOfLines={2}
-              >
-                {column.label}
-              </Text>
-            ))}
+            <Text style={[tableStyles.headCell, styles.orderColumn, narrow && styles.orderColumnNarrow]}>Order</Text>
+            <Text style={[tableStyles.headCell, styles.addressColumn, narrow && styles.addressColumnNarrow]}>
+              Address
+            </Text>
             {anyStatus ? <Text style={[tableStyles.headCell, styles.statusColumn]}>Status</Text> : null}
-            <View style={arranging && onReorder ? styles.moveColumn : styles.menuColumn} />
+            <View style={styles.menuColumn} />
           </View>
 
           {doors.map((door, index) => {
             const stop = door[0];
             const open = openDoor === (stop.customer_id || stop.id);
-            const status = doorStatusOf(door);
+            const statuses = [...new Set(door.map((s) => s.status))];
+            const status = statuses.length === 1 ? statuses[0] : 'part done';
             const hasPin = Number.isFinite(stop.lat) && Number.isFinite(stop.lng) && (stop.lat !== 0 || stop.lng !== 0);
+            const hasAddress = !!(stop.customer_address || '').trim();
             return (
               <View key={stop.customer_id || stop.id}>
-                <View style={[tableStyles.row, tableStyles.rule, open && styles.rowOpen]}>
-                  <Text style={[tableStyles.cell, tableStyles.figure, styles.numColumn, styles.numText]}>
-                    {index + 1}
-                  </Text>
-                  <View style={[styles.nameColumn, narrow && styles.nameColumnNarrow]}>
-                    <Text style={styles.nameText} numberOfLines={1}>
-                      {stop.customer_name}
-                    </Text>
-                    {/* The address earns its line only when there is one,
-                        and a door with no pin says so here rather than
-                        making somebody open the row to find out. */}
-                    {hasPin ? (
-                      stop.customer_address && !narrow ? (
-                        <Text style={styles.addressText} numberOfLines={1}>
-                          {stop.customer_address}
-                        </Text>
-                      ) : null
-                    ) : (
-                      <Text style={styles.noPinText} numberOfLines={1}>
-                        no pin yet
-                      </Text>
-                    )}
-                  </View>
-                  {columns.map((column) => {
-                    const quantity = quantityOf(door, column.id);
-                    const key = `${stop.customer_id}:${column.id}`;
-                    return (
-                      <View key={column.id} style={styles.qtyColumn}>
-                        <NumberCell
-                          value={quantity === null ? '' : String(quantity)}
-                          empty="—"
-                          width={QTY_WIDTH - 12}
-                          busy={busyCell === key}
-                          ariaLabel={`${column.group} ${column.label} for ${stop.customer_name}`}
-                          onCommit={(raw) => commit(door, column.id, raw)}
-                        />
+                <View
+                  style={[
+                    tableStyles.row,
+                    tableStyles.rule,
+                    styles.bodyRow,
+                    // Amber says "this one cannot be put in order" — the
+                    // router places a stop by its pin, so a door without
+                    // one falls to the end of the round wherever its
+                    // address happens to be.
+                    !hasPin && styles.rowNoPin,
+                    open && styles.rowOpen,
+                  ]}
+                >
+                  <View style={styles.posColumn}>
+                    <Text style={styles.posNumber}>{index + 1}</Text>
+                    {/* On the left, always. Reordering a round is done
+                        while reading it — hiding the arrows behind a
+                        mode meant seeing the list and changing it were
+                        two different screens. */}
+                    {onReorder && doors.length > 1 ? (
+                      <View style={styles.moveStack}>
+                        <Pressable
+                          onPress={() => onReorder(door[0].id, door[0].sequence - 1)}
+                          disabled={index === 0}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Move ${stop.customer_name} earlier`}
+                          style={({ pressed }) => [styles.moveButton, pressed && styles.pressed]}
+                        >
+                          <Text style={[styles.moveGlyph, index === 0 && styles.moveGlyphOff]}>▲</Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => onReorder(door[door.length - 1].id, door[door.length - 1].sequence + 1)}
+                          disabled={index === doors.length - 1}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Move ${stop.customer_name} later`}
+                          style={({ pressed }) => [styles.moveButton, pressed && styles.pressed]}
+                        >
+                          <Text style={[styles.moveGlyph, index === doors.length - 1 && styles.moveGlyphOff]}>▼</Text>
+                        </Pressable>
                       </View>
-                    );
-                  })}
+                    ) : null}
+                  </View>
+
+                  <Text
+                    style={[styles.nameText, styles.nameColumn, narrow && styles.nameColumnNarrow]}
+                    numberOfLines={2}
+                  >
+                    {stop.customer_name}
+                  </Text>
+
+                  <View style={[styles.orderColumn, narrow && styles.orderColumnNarrow]}>
+                    {door.map((item) => (
+                      <Text
+                        key={item.id}
+                        style={[styles.orderText, item.status === 'skipped' && styles.orderSkipped]}
+                        numberOfLines={1}
+                      >
+                        {formatQuantity(item.quantity)} × {item.product_name}
+                      </Text>
+                    ))}
+                  </View>
+
+                  {/* Nothing written down and no pin either is a door
+                      nobody can be sent to, which is a different problem
+                      from a door that merely has not been placed on the
+                      map yet. */}
+                  <View
+                    style={[
+                      styles.addressColumn,
+                      narrow && styles.addressColumnNarrow,
+                      styles.addressCell,
+                      !hasAddress && styles.addressMissing,
+                    ]}
+                  >
+                    {hasAddress ? (
+                      <Text style={styles.addressText} numberOfLines={2}>
+                        {stop.customer_address}
+                      </Text>
+                    ) : (
+                      <Text style={styles.addressMissingText}>No address</Text>
+                    )}
+                    {!hasPin ? <Text style={styles.noPinText}>no pin</Text> : null}
+                  </View>
+
                   {anyStatus ? (
                     <View style={styles.statusColumn}>
                       {status === 'pending' ? null : (
@@ -198,53 +229,22 @@ export default function DayOrderTable({
                       )}
                     </View>
                   ) : null}
-                  {/* While the order is being changed, every row needs
-                      its own handles — that is the whole job, and
-                      opening a row to find them would make moving
-                      twenty doors twenty round trips. The rest of the
-                      time they are not there at all. Docs/DESIGN.md,
-                      rule 3. */}
-                  {arranging && onReorder ? (
-                    <View style={styles.moveColumn}>
-                      <Pressable
-                        onPress={() => onReorder(door[0].id, door[0].sequence - 1)}
-                        disabled={index === 0}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Move ${stop.customer_name} earlier`}
-                        style={({ pressed }) => [styles.moveButton, index === 0 && styles.moveOff, pressed && styles.pressed]}
-                      >
-                        <Text style={[styles.moveGlyph, index === 0 && styles.moveGlyphOff]}>↑</Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => onReorder(door[door.length - 1].id, door[door.length - 1].sequence + 1)}
-                        disabled={index === doors.length - 1}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Move ${stop.customer_name} later`}
-                        style={({ pressed }) => [
-                          styles.moveButton,
-                          index === doors.length - 1 && styles.moveOff,
-                          pressed && styles.pressed,
-                        ]}
-                      >
-                        <Text style={[styles.moveGlyph, index === doors.length - 1 && styles.moveGlyphOff]}>↓</Text>
-                      </Pressable>
-                    </View>
-                  ) : (
-                    <Pressable
-                      onPress={() => setOpenDoor(open ? null : stop.customer_id || stop.id)}
-                      accessibilityRole="button"
-                      accessibilityState={{ expanded: open }}
-                      accessibilityLabel={`${open ? 'Close' : 'Open'} ${stop.customer_name}`}
-                      style={({ pressed }) => [styles.menuColumn, styles.menuButton, pressed && styles.pressed]}
-                    >
-                      <Text style={styles.menuGlyph}>{open ? '▾' : '⋯'}</Text>
-                    </Pressable>
-                  )}
+
+                  <Pressable
+                    onPress={() => setOpenDoor(open ? null : stop.customer_id || stop.id)}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: open }}
+                    accessibilityLabel={`${open ? 'Close' : 'Open'} ${stop.customer_name}`}
+                    style={({ pressed }) => [styles.menuColumn, styles.menuButton, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.menuGlyph}>{open ? '▾' : '⋯'}</Text>
+                  </Pressable>
                 </View>
 
-                {/* The card, unchanged, under its own row. Skipping,
-                    reasons, the pin and a one-off extra are all forms,
-                    and a form does not belong in a cell. */}
+                {/* The card, unchanged, under its own row. Changing a
+                    quantity, skipping, dropping a pin and adding a
+                    one-off are all forms, and a form does not belong in
+                    a cell. */}
                 {open ? (
                   <View style={styles.expanded}>
                     <StopCard
@@ -265,26 +265,22 @@ export default function DayOrderTable({
             );
           })}
 
-          {/* What to put in the van. It was only ever worked out on the
+          {/* What to put in the van. It was worked out only on the
               driver's own screen, after they asked to check in — an
-              admin loading the crates had to add the column up
-              themselves. */}
-          {columns.length > 0 ? (
+              admin filling crates had to add the round up by hand. */}
+          {loadLines.length > 0 ? (
             <View style={[tableStyles.row, styles.totalsRow]}>
-              <Text style={[tableStyles.cell, styles.numColumn]} />
-              <Text style={[tableStyles.cell, styles.nameColumn, narrow && styles.nameColumnNarrow, styles.totalsLabel]}>
+              <View style={styles.posColumn} />
+              <Text style={[styles.totalsLabel, styles.nameColumn, narrow && styles.nameColumnNarrow]}>
                 {doors.length} {doors.length === 1 ? 'door' : 'doors'}
               </Text>
-              {totals.map((total, i) => (
-                <Text
-                  key={columns[i].id}
-                  style={[tableStyles.cell, tableStyles.figure, styles.qtyColumn, styles.totalsFigure]}
-                >
-                  {total || '—'}
-                </Text>
-              ))}
-              {anyStatus ? <View style={styles.statusColumn} /> : null}
-              <View style={arranging && onReorder ? styles.moveColumn : styles.menuColumn} />
+              <View style={styles.totalsLoad}>
+                {loadLines.map((line) => (
+                  <Text key={line.id} style={styles.totalsText}>
+                    {formatQuantity(line.quantity)} × {line.name}
+                  </Text>
+                ))}
+              </View>
             </View>
           ) : null}
         </View>
@@ -295,47 +291,63 @@ export default function DayOrderTable({
 
 const STATUS_TONE = { delivered: 'success', failed: 'error', skipped: 'warning', 'part done': 'warning' };
 
-const QTY_WIDTH = 84;
-
 const styles = StyleSheet.create({
   wrap: { marginTop: spacing.sm },
-  // The row is wider than a phone, so the scroller has to be allowed to
-  // grow past it rather than being told to fill it.
+  toggleRow: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: spacing.xs },
+  // The rows are wider than a phone, so the scroller has to be allowed
+  // to grow past it rather than being told to fill it.
   scroller: { flexGrow: 1 },
   headRow: { borderTopLeftRadius: radius.sm, borderTopRightRadius: radius.sm },
-  numColumn: { width: 34 },
-  numText: { color: colors.hint, fontSize: 12 },
-  nameColumn: { width: 190, paddingHorizontal: spacing.xs, minWidth: 0 },
-  nameColumnNarrow: { width: 132 },
+  bodyRow: { minHeight: 46, alignItems: 'stretch' },
+
+  posColumn: { width: 70, flexDirection: 'row', alignItems: 'center', gap: 3, paddingLeft: spacing.xs },
+  posNumber: { fontSize: 14, fontWeight: '700', color: colors.subtitle, width: 20, textAlign: 'right' },
+  // Two arrows stacked in the height of one row is tight, so they get
+  // the width instead: a wide, easy target either side of a small
+  // glyph, rather than a small target around a small glyph.
+  moveStack: { justifyContent: 'center' },
+  moveButton: { paddingHorizontal: 7, paddingVertical: 2 },
+  moveGlyph: { fontSize: 12, lineHeight: 13, color: colors.link, fontWeight: '700' },
+  moveGlyphOff: { color: colors.border },
+
+  nameColumn: { width: 160, paddingHorizontal: spacing.xs, minWidth: 0, alignSelf: 'center' },
+  nameColumnNarrow: { width: 118 },
   nameText: { fontSize: 14, fontWeight: '700', color: colors.text },
-  addressText: { fontSize: 11, color: colors.subtitle, marginTop: 1 },
-  noPinText: { fontSize: 11, color: colors.warning, fontWeight: '600', marginTop: 1 },
-  qtyColumn: { width: QTY_WIDTH, alignItems: 'flex-end', paddingHorizontal: spacing.xs },
-  statusColumn: { width: 96, paddingHorizontal: spacing.xs, alignItems: 'flex-start' },
+
+  orderColumn: { width: 190, paddingHorizontal: spacing.xs, minWidth: 0, justifyContent: 'center' },
+  orderColumnNarrow: { width: 140 },
+  orderText: { fontSize: 13, color: colors.label, fontVariant: ['tabular-nums'] },
+  orderSkipped: { textDecorationLine: 'line-through', color: colors.hint },
+
+  addressColumn: { width: 250, minWidth: 0 },
+  addressColumnNarrow: { width: 170 },
+  addressCell: { paddingHorizontal: spacing.xs, justifyContent: 'center', alignSelf: 'stretch' },
+  addressText: { fontSize: 12, color: colors.subtitle },
+  addressMissing: { backgroundColor: colors.errorBg },
+  addressMissingText: { fontSize: 12, fontWeight: '700', color: colors.error },
+  noPinText: { fontSize: 11, fontWeight: '700', color: colors.warning, marginTop: 1 },
+
+  statusColumn: { width: 96, paddingHorizontal: spacing.xs, justifyContent: 'center' },
   menuColumn: { width: 40 },
-  moveColumn: { width: 68, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 2 },
-  moveButton: {
-    width: 30,
-    height: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  moveOff: { opacity: 0.35 },
-  moveGlyph: { fontSize: 14, lineHeight: 16, fontWeight: '700', color: colors.link },
-  moveGlyphOff: { color: colors.hint },
   menuButton: { alignItems: 'center', justifyContent: 'center', alignSelf: 'stretch' },
   menuGlyph: { fontSize: 18, lineHeight: 20, color: colors.link, fontWeight: '700' },
+
   pressed: { opacity: 0.6 },
+  rowNoPin: { backgroundColor: colors.warningBg },
   rowOpen: { backgroundColor: colors.surfaceAlt },
   // The card sits inside the scroller, which is as wide as the widest
-  // row — so it is pinned to the width of the screen rather than
-  // stretching off the side of it.
-  expanded: { width: '100%', maxWidth: 640, paddingVertical: spacing.xs },
-  totalsRow: { borderTopWidth: 2, borderTopColor: colors.border, backgroundColor: colors.surfaceAlt },
+  // row — so it is pinned to a readable width rather than stretching off
+  // the side of it.
+  expanded: { width: '100%', maxWidth: 620, paddingVertical: spacing.xs },
+
+  totalsRow: {
+    borderTopWidth: 2,
+    borderTopColor: colors.border,
+    backgroundColor: colors.surfaceAlt,
+    alignItems: 'flex-start',
+    paddingVertical: spacing.xs,
+  },
   totalsLabel: { fontSize: 12, fontWeight: '700', color: colors.subtitle },
-  totalsFigure: { fontSize: 14, fontWeight: '800', color: colors.text },
+  totalsLoad: { paddingHorizontal: spacing.xs },
+  totalsText: { fontSize: 13, fontWeight: '700', color: colors.text, fontVariant: ['tabular-nums'] },
 });
