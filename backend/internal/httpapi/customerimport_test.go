@@ -3,6 +3,7 @@ package httpapi
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -390,5 +391,57 @@ func TestImportRefusesAnUnknownRoute(t *testing.T) {
 	body := admin.mustDo(http.MethodGet, "/api/v1/customers", nil, http.StatusOK)
 	if list, _ := body["customers"].([]any); len(list) != 0 {
 		t.Errorf("a bad route id created %d customers, want none", len(list))
+	}
+}
+
+// The same household twice in one file is not the same fact as a
+// household that is already on the list, and against an empty roster
+// only one of those sentences is true.
+func TestRepeatWithinAFileIsNotCalledAlreadyHere(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+
+	preview := admin.mustDo(http.MethodPost, "/api/v1/customers/import", map[string]any{
+		"dry_run": true,
+		"rows": []any{
+			map[string]any{"name": "M kiran kumar", "phone": "9000000001"},
+			map[string]any{"name": "M kiran kumar", "phone": "9000000001"},
+		},
+	}, http.StatusOK)
+
+	if got := num(preview, "skipped"); got != 1 {
+		t.Fatalf("skipped = %v, want 1", got)
+	}
+	results := preview["results"].([]any)
+	second := results[1].(map[string]any)
+	if str(second, "verdict") != "duplicate" {
+		t.Fatalf("verdict = %q, want duplicate", str(second, "verdict"))
+	}
+	if in, _ := second["in_file"].(bool); !in {
+		t.Error("in_file is not set — the screen cannot tell a repeat from somebody already on the list")
+	}
+	if problem := str(second, "problem"); strings.Contains(problem, "already on the list") {
+		t.Errorf("problem = %q, but nobody is on the list yet", problem)
+	}
+}
+
+// And the other way round: a row matching somebody who really is on the
+// list still says so, and is not mistaken for a repeat.
+func TestExistingCustomerIsStillCalledAlreadyOnTheList(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+	createCustomer(t, admin, "Anita", 17.05, 79.26)
+
+	preview := admin.mustDo(http.MethodPost, "/api/v1/customers/import", map[string]any{
+		"dry_run": true,
+		"rows":    []any{map[string]any{"name": "Anita", "phone": "+919000000000"}},
+	}, http.StatusOK)
+
+	first := preview["results"].([]any)[0].(map[string]any)
+	if str(first, "verdict") != "duplicate" {
+		t.Fatalf("verdict = %q, want duplicate", str(first, "verdict"))
+	}
+	if in, _ := first["in_file"].(bool); in {
+		t.Error("in_file is set for somebody who was already on the list")
 	}
 }

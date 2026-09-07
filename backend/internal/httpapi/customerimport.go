@@ -75,6 +75,11 @@ type importResult struct {
 	// "new", "duplicate" or "error".
 	Verdict string `json:"verdict"`
 	Problem string `json:"problem,omitempty"`
+	// A duplicate of an earlier row in this same file, rather than of
+	// somebody already on the list. Both are skipped and both are
+	// right to skip, but they are different facts about the file and
+	// reading "already here" against an empty roster is bewildering.
+	InFile bool `json:"in_file,omitempty"`
 	// The products this row's items matched, for the preview to show
 	// back — matching by name is a guess and deserves to be visible.
 	Matched []string `json:"matched,omitempty"`
@@ -127,7 +132,12 @@ func (s *Server) handleImportCustomers(w http.ResponseWriter, r *http.Request) {
 	// Who is already here. Name and phone together, because a list of
 	// households has two people called "Jyothi" more often than it has
 	// one person twice, and a name on its own would refuse the second.
-	seen := map[string]bool{}
+	//
+	// Kept apart from the keys this file contributes, so the preview can
+	// tell somebody which of the two it means. Against an empty roster,
+	// "already here" is not something anybody can act on.
+	onList := map[string]bool{}
+	inFile := map[string]bool{}
 	// The order this file arrives in is the order the business drives.
 	// A delivery list is numbered 1..N because somebody worked out that
 	// round, often years ago, and importing it as an unordered bag threw
@@ -137,7 +147,7 @@ func (s *Server) handleImportCustomers(w http.ResponseWriter, r *http.Request) {
 	// interleaved through it.
 	rank := 0
 	for _, c := range existing {
-		seen[customerKey(c.Name, c.Phone)] = true
+		onList[customerKey(c.Name, c.Phone)] = true
 		if c.Rank > rank {
 			rank = c.Rank
 		}
@@ -156,9 +166,14 @@ func (s *Server) handleImportCustomers(w http.ResponseWriter, r *http.Request) {
 			result.Verdict = "error"
 			result.Problem = problem
 			failed++
-		case seen[customerKey(row.Name, row.Phone)]:
+		case onList[customerKey(row.Name, row.Phone)]:
 			result.Verdict = "duplicate"
 			result.Problem = "already on the list — this row will be skipped"
+			skipped++
+		case inFile[customerKey(row.Name, row.Phone)]:
+			result.Verdict = "duplicate"
+			result.InFile = true
+			result.Problem = "the same name and number appear earlier in this file — they go in once"
 			skipped++
 		default:
 			result.Verdict = "new"
@@ -169,7 +184,7 @@ func (s *Server) handleImportCustomers(w http.ResponseWriter, r *http.Request) {
 			// the preview promised thirty-eight and the import made
 			// thirty-seven — the one number the preview exists to get
 			// right.
-			seen[customerKey(row.Name, row.Phone)] = true
+			inFile[customerKey(row.Name, row.Phone)] = true
 		}
 
 		if !req.DryRun && result.Verdict == "new" {
@@ -182,7 +197,7 @@ func (s *Server) handleImportCustomers(w http.ResponseWriter, r *http.Request) {
 				failed++
 				// They are not on the list after all, so a later row for
 				// the same household should still be tried.
-				delete(seen, customerKey(row.Name, row.Phone))
+				delete(inFile, customerKey(row.Name, row.Phone))
 			} else {
 				result.CustomerID = id
 			}

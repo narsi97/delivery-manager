@@ -176,6 +176,12 @@ export default function ImportCustomersDialog({
   };
 
   const byVerdict = (verdict) => (preview?.results || []).filter((r) => r.verdict === verdict);
+  // Two different facts, one verdict. A row skipped because the file
+  // lists the household twice is not a row skipped because the household
+  // is already a customer — and against an empty roster, only one of
+  // those two sentences can be true. See customerimport.go.
+  const alreadyOnList = byVerdict('duplicate').filter((r) => !r.in_file);
+  const repeatedInFile = byVerdict('duplicate').filter((r) => r.in_file);
   // Only the rows actually going in. Warning about a missing pin on a
   // customer who is already here — and already has one — is a warning
   // about nothing, which is how people learn to ignore them.
@@ -252,7 +258,12 @@ export default function ImportCustomersDialog({
               below is for the rows that need a person. */}
           <View style={styles.tallies}>
             <Tally n={preview.new} label={done ? 'added' : 'will be added'} tone="good" />
-            {preview.skipped > 0 ? <Tally n={preview.skipped} label="already here" tone="quiet" /> : null}
+            {alreadyOnList.length > 0 ? (
+              <Tally n={alreadyOnList.length} label="already here" tone="quiet" />
+            ) : null}
+            {repeatedInFile.length > 0 ? (
+              <Tally n={repeatedInFile.length} label="twice in the file" tone="quiet" />
+            ) : null}
             {preview.failed > 0 ? <Tally n={preview.failed} label={done ? 'failed' : "can't be added"} tone="bad" /> : null}
           </View>
 
@@ -286,13 +297,24 @@ export default function ImportCustomersDialog({
             </View>
           ) : null}
 
-          {byVerdict('duplicate').length > 0 ? (
+          {alreadyOnList.length > 0 ? (
             <View style={styles.block}>
               <Text style={styles.heading}>Already on the list</Text>
               <Text style={styles.note}>
                 Skipped, not doubled — so running the same file again finishes it rather than repeating it.
               </Text>
-              <Text style={styles.names}>{byVerdict('duplicate').map((r) => r.name).join(', ')}</Text>
+              <Text style={styles.names}>{alreadyOnList.map((r) => r.name).join(', ')}</Text>
+            </View>
+          ) : null}
+
+          {repeatedInFile.length > 0 ? (
+            <View style={styles.block}>
+              <Text style={styles.heading}>Listed twice in this file</Text>
+              <Text style={styles.note}>
+                The same name and number appear more than once, so they go in once. Nothing to fix unless they are
+                genuinely two different people — then give them different numbers.
+              </Text>
+              <Text style={styles.names}>{repeatedInFile.map((r) => r.name).join(', ')}</Text>
             </View>
           ) : null}
 
