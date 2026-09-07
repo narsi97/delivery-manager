@@ -388,6 +388,35 @@ export function importCustomers(token, rows, dryRun, serviceAreaId) {
   });
 }
 
+// Opening this person's delete window, or closing it with 0. See
+// backend deletemode.go — the app hides the buttons, the server is what
+// actually refuses.
+export function setDeleteMode(token, hours) {
+  return request('/api/v1/account/delete-mode', {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ hours }),
+  });
+}
+
+// What deleting this customer would take with it, counted server-side so
+// the confirmation states a fact rather than a guess.
+export function customerDeletePreview(token, id) {
+  return request(`/api/v1/customers/${id}/delete-preview`, { token });
+}
+
+export function deleteCustomer(token, id) {
+  return request(`/api/v1/customers/${id}`, { method: 'DELETE', token });
+}
+
+export function deleteDriver(token, id) {
+  return request(`/api/v1/drivers/${id}`, { method: 'DELETE', token });
+}
+
+export function deleteServiceArea(token, id) {
+  return request(`/api/v1/service-areas/${id}`, { method: 'DELETE', token });
+}
+
 // The driver dropping a pin from the doorstep. Scoped to their own
 // round server-side — see handleDriverStopPin.
 export function driverPinStop(token, stopId, lat, lng) {

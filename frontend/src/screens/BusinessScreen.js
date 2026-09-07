@@ -5,9 +5,11 @@ import * as api from '../api';
 import { AddButton, Banner, Button, Card, Disclosure, Empty, Field, FieldRow, Pill, SectionTitle } from '../components';
 import LocationPicker, { InlineLocationEditor } from '../LocationPicker';
 import AddCustomerDialog from '../AddCustomerDialog';
+import DeleteButton from '../DeleteButton';
 import ImportCustomersDialog from '../ImportCustomersDialog';
 import { customFieldsFor, labelsFor, lower } from '../labels';
 import { serviceRouteFor } from '../serviceAreas';
+import { useDeleteMode } from '../deleteMode';
 import { usePageStyle } from '../layout';
 import { colors, radius, spacing } from '../theme';
 
@@ -16,8 +18,9 @@ import { colors, radius, spacing } from '../theme';
 // Today's route start point) scopes its default view to what's set up
 // here, instead of opening on an India-wide view — see MapPicker.web.js's
 // home/areas props.
-export default function BusinessScreen({ token, business, onBusinessUpdated }) {
+export default function BusinessScreen({ token, business, user, onBusinessUpdated }) {
   const pageStyle = usePageStyle(720);
+  const { open: canDelete } = useDeleteMode(user);
   // "Service route" borrows the business's own word for a round, so a
   // school reads "Service runs" — see labels.js. The daily thing a
   // driver drives is a route; a service route is the standing list that
@@ -222,6 +225,7 @@ export default function BusinessScreen({ token, business, onBusinessUpdated }) {
               customerCount={customers.filter((c) => serviceRouteFor(c, areas)?.id === area.id).length}
               onAddCustomer={setAddingTo}
               onImportInto={setImportingTo}
+              canDelete={canDelete}
               onChanged={refresh}
               onError={setError}
             />
@@ -710,7 +714,7 @@ function SuggestedAreas({ suggestions, onAccept }) {
   );
 }
 
-function ServiceAreaRow({ area, home, token, labels, customerCount, onAddCustomer, onImportInto, onChanged, onError }) {
+function ServiceAreaRow({ area, home, token, labels, customerCount, canDelete, onAddCustomer, onImportInto, onChanged, onError }) {
   const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState(area.name);
   const [lat, setLat] = useState(area.lat);
@@ -818,6 +822,23 @@ function ServiceAreaRow({ area, home, token, labels, customerCount, onAddCustome
               style={styles.flexButton}
             />
           </View>
+          {/* Pausing is the everyday answer and stays first. Deleting is
+              for a route somebody drew by mistake, and only appears
+              while the window is open — see deleteMode.js. */}
+          <DeleteButton
+            armed={canDelete}
+            label={`Delete this ${lower(labels.route)}`}
+            describe={async () =>
+              `Deleting "${area.name}" also removes the ${lower(
+                labels.route,
+              )}s built for it today. ${customerCount} ${
+                customerCount === 1 ? lower(labels.customer) : lower(labels.customer_plural)
+              } go back to being placed by their pin.`
+            }
+            onDelete={() => api.deleteServiceArea(token, area.id)}
+            onDone={onChanged}
+            onError={onError}
+          />
         </View>
       ) : null}
     </View>

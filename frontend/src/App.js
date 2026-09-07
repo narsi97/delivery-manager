@@ -262,20 +262,24 @@ function AppShell() {
         ) : tab === 'today' ? (
           <TodayScreen token={token} business={business} />
         ) : tab === 'customers' ? (
-          <CustomersScreen token={token} business={business} />
+          <CustomersScreen token={token} business={business} user={user} />
         ) : tab === 'team' ? (
-          <DriversScreen token={token} business={business} currentUserId={user.id} />
+          <DriversScreen token={token} business={business} user={user} currentUserId={user.id} />
         ) : tab === 'account' ? (
           <AccountScreen
             token={token}
             business={business}
             user={user}
             onBusinessUpdated={(updated) => setSession((prev) => ({ ...prev, business: updated }))}
+            // Arming the delete window has to reach the screens that
+            // draw the buttons, not just the page that turned it on.
+            onUserUpdated={(updated) => setSession((prev) => ({ ...prev, user: updated }))}
           />
         ) : (
           <BusinessScreen
             token={token}
             business={business}
+            user={user}
             onBusinessUpdated={(updated) => setSession((prev) => ({ ...prev, business: updated }))}
           />
         )}

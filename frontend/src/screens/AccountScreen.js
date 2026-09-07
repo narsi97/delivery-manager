@@ -2,9 +2,10 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import * as api from '../api';
-import { Banner, Button, Card, Field, SectionTitle } from '../components';
+import { Banner, Button, Card, Disclosure, Field, SectionTitle } from '../components';
 import { useLanguage } from '../i18n';
 import LocationPicker from '../LocationPicker';
+import { arm, describeUntil, disarm, useDeleteMode, WINDOWS } from '../deleteMode';
 import { usePageStyle } from '../layout';
 import { colors, spacing } from '../theme';
 
@@ -20,8 +21,9 @@ import { colors, spacing } from '../theme';
 // So they are together here, in one place called what it is, and the
 // Business tab is products and routes: the things a dairy actually
 // works on.
-export default function AccountScreen({ token, business, user, onBusinessUpdated }) {
+export default function AccountScreen({ token, business, user, onBusinessUpdated, onUserUpdated }) {
   const pageStyle = usePageStyle(720);
+  const [changingPassword, setChangingPassword] = useState(false);
   const { t } = useLanguage();
   const [drivers, setDrivers] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -78,12 +80,105 @@ export default function AccountScreen({ token, business, user, onBusinessUpdated
         onError={setError}
       />
 
+      {/* Closed. Three password boxes and a button, standing open on a
+          page somebody opened to change their business name, is a form
+          for a thing done twice a year taking up the room of the things
+          done weekly. See Docs/DESIGN.md. */}
       <Card>
-        <SectionTitle>{t('change_password')}</SectionTitle>
-        <View style={styles.headingDivider} />
-        <ChangePasswordForm token={token} user={user} onNotice={setNotice} onError={setError} />
+        <Disclosure open={changingPassword} onToggle={() => setChangingPassword((prev) => !prev)}>
+          {t('change_password')}
+        </Disclosure>
+        {changingPassword ? (
+          <ChangePasswordForm token={token} user={user} onNotice={setNotice} onError={setError} />
+        ) : null}
       </Card>
+
+      <DeleteModeCard token={token} user={user} onUserUpdated={onUserUpdated} onNotice={setNotice} onError={setError} />
     </ScrollView>
+  );
+}
+
+// Turning the delete buttons on, for a while.
+//
+// Off is the resting state, and the card says so plainly rather than
+// warning about it: somebody who came here to tidy up does not need
+// talking out of it, and somebody who did not is not going to switch it
+// on by accident. What it does need to say is that the window closes by
+// itself, because that is the part that makes leaving it on harmless.
+function DeleteModeCard({ token, user, onUserUpdated, onNotice, onError }) {
+  const [me, setMe] = useState(user);
+  const [busy, setBusy] = useState(0);
+  const { open, until } = useDeleteMode(me);
+  // Opened by hand, or already open because the window is running — a
+  // card that hides the fact that deleting is switched on would be the
+  // one thing this card must never do.
+  const [shown, setShown] = useState(open);
+
+  const set = async (hours) => {
+    setBusy(hours || -1);
+    try {
+      const updated = await (hours ? arm(token, hours) : disarm(token));
+      setMe(updated);
+      if (onUserUpdated) {
+        onUserUpdated(updated);
+      }
+      onNotice(hours ? 'Delete buttons are on.' : 'Delete buttons are off.');
+    } catch (err) {
+      onError(err.message);
+    } finally {
+      setBusy(0);
+    }
+  };
+
+  return (
+    <Card style={open ? styles.dangerCard : null}>
+      {/* Named and coloured for what it is, and shut until asked for.
+          Everything else on this page is reversible; this is the one
+          card where a wrong press costs something that cannot be got
+          back, so it neither shouts at somebody who came here to change
+          their business name nor hides from somebody who came to tidy
+          up. Open, it is red, because then it is armed. */}
+      <Pressable
+        onPress={() => setShown((prev) => !prev)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: shown }}
+        style={({ pressed }) => [styles.dangerHead, pressed && styles.pressed]}
+      >
+        <View style={styles.dangerHeadText}>
+          <Text style={styles.dangerTitle}>Deleting</Text>
+          <Text style={styles.dangerSub}>Danger zone</Text>
+        </View>
+        {open ? <Text style={styles.dangerOnPill}>on</Text> : null}
+        <Text style={[styles.dangerChevron, open && styles.dangerTitleArmed]}>{shown ? '▾' : '▸'}</Text>
+      </Pressable>
+      {!shown ? null : open ? (
+        <View>
+          <Text style={styles.deleteOn}>Delete buttons are on until {describeUntil(until)}.</Text>
+          <Text style={styles.deleteNote}>
+            They turn off by themselves. Deleting takes a customer&apos;s whole history with them, and cannot be undone.
+          </Text>
+          <Button title="Turn them off now" variant="secondary" onPress={() => set(0)} busy={busy === -1} />
+        </View>
+      ) : (
+        <View>
+          <Text style={styles.deleteNote}>
+            Nothing can be deleted while this is off. Turn it on to tidy up, and it turns itself back off.
+          </Text>
+          <View style={styles.deleteWindows}>
+            {WINDOWS.map((window) => (
+              <Button
+                key={window.hours}
+                title={window.label}
+                variant="secondary"
+                onPress={() => set(window.hours)}
+                busy={busy === window.hours}
+                style={styles.deleteWindow}
+              />
+            ))}
+          </View>
+        </View>
+      )}
+    </Card>
   );
 }
 
@@ -295,6 +390,29 @@ function BusinessDetailsCard({ token, business, drivers, customers, areas, onSav
 }
 
 const styles = StyleSheet.create({
+  dangerCard: { borderColor: colors.error },
+  dangerHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
+  dangerHeadText: { flex: 1 },
+  dangerTitle: { fontSize: 17, fontWeight: '700', color: colors.text },
+  // Says what kind of card this is without taking the heading's job.
+  dangerSub: { fontSize: 12, fontWeight: '700', color: colors.error, marginTop: 1 },
+  dangerTitleArmed: { color: colors.error },
+  dangerChevron: { fontSize: 20, fontWeight: '700', color: colors.link, width: 20, textAlign: 'center' },
+  dangerOnPill: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.error,
+    backgroundColor: colors.errorBg,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  pressed: { opacity: 0.6 },
+  deleteOn: { fontSize: 14, fontWeight: '700', color: colors.error, marginBottom: spacing.xs },
+  deleteNote: { fontSize: 13, color: colors.subtitle, lineHeight: 18, marginBottom: spacing.md },
+  deleteWindows: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
+  deleteWindow: { flexGrow: 1, minWidth: 96 },
   loader: { marginTop: spacing.xl * 2 },
   headingDivider: {
     borderBottomWidth: 1,

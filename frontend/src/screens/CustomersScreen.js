@@ -4,6 +4,8 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import AddCustomerDialog from '../AddCustomerDialog';
 import ImportCustomersDialog from '../ImportCustomersDialog';
 import CustomerTimeline from '../CustomerTimeline';
+import DeleteButton from '../DeleteButton';
+import { useDeleteMode } from '../deleteMode';
 import * as api from '../api';
 import {
   AddButton,
@@ -31,9 +33,10 @@ import { EVERY_DAY, daysFromMask, describeDays } from '../frequency';
 import { useNarrow, usePageStyle, useTouchOnly } from '../layout';
 import { UndoBar, useUndoStack } from '../undo';
 
-export default function CustomersScreen({ token, business }) {
+export default function CustomersScreen({ token, business, user }) {
   const pageStyle = usePageStyle(720);
   const labels = labelsFor(business);
+  const { open: canDelete } = useDeleteMode(user);
   const fieldSpecs = customFieldsFor(business, 'customer');
   const [customers, setCustomers] = useState([]);
   const [products, setProducts] = useState([]);
@@ -260,6 +263,7 @@ export default function CustomersScreen({ token, business }) {
                   empty={group.empty}
                   customers={group.customers}
                   matching={matching}
+                  canDelete={canDelete}
                   defaultExpanded={group.defaultExpanded}
                   forceExpanded={words.length > 0}
                   products={products}
@@ -462,6 +466,7 @@ function CustomerGroup({
   // Only which rows are drawn depends on this; the round underneath them
   // does not.
   matching,
+  canDelete,
   defaultExpanded,
   forceExpanded,
   products,
@@ -641,6 +646,7 @@ function CustomerGroup({
               home={home}
               areas={areas}
               onRecord={onRecord}
+              canDelete={canDelete}
               reorder={
                 canReorder
                   ? {
@@ -878,6 +884,7 @@ function CustomerCard({
   home,
   areas = [],
   onRecord,
+  canDelete = false,
   reorder = null,
   onChanged,
   onError,
@@ -1204,6 +1211,34 @@ function CustomerCard({
               style={styles.flexButton}
             />
           </View>
+
+          {/* Pausing keeps the customer and stops the deliveries, which
+              is what "they've gone away for a month" means. Deleting is
+              for a row that should never have existed — and it takes
+              their whole history, so the confirmation says how much,
+              counted by the server at the moment it is read. */}
+          <DeleteButton
+            armed={canDelete}
+            label={`Delete ${customer.name}`}
+            describe={async () => {
+              const it = await api.customerDeletePreview(token, customer.id);
+              const parts = [];
+              if (it.standing_orders > 0) {
+                parts.push(`${it.standing_orders} standing order${it.standing_orders === 1 ? '' : 's'}`);
+              }
+              if (it.deliveries > 0) {
+                parts.push(`${it.deliveries} deliver${it.deliveries === 1 ? 'y' : 'ies'}`);
+              }
+              return parts.length === 0
+                ? `Delete ${customer.name}? Nothing else goes with them.`
+                : `Deleting ${customer.name} also removes ${parts.join(' and ')}${
+                    it.delivered > 0 ? `, ${it.delivered} of which already happened` : ''
+                  }. This cannot be undone.`;
+            }}
+            onDelete={() => api.deleteCustomer(token, customer.id)}
+            onDone={onChanged}
+            onError={onError}
+          />
 
           {fieldSpecs.length > 0 ? (
             <View style={styles.subForm}>

@@ -5,11 +5,16 @@ import * as api from '../api';
 import { AddButton, Banner, Button, Card, Disclosure, Empty, Field, Pill, SectionTitle, ViewToggle } from '../components';
 import EntityMapPanel from '../EntityMapPanel';
 import LocationPicker, { InlineLocationEditor } from '../LocationPicker';
+import DeleteButton from '../DeleteButton';
+import { useDeleteMode } from '../deleteMode';
+import { labelsFor, lower } from '../labels';
 import { usePageStyle } from '../layout';
 import { colors, radius, spacing } from '../theme';
 
-export default function DriversScreen({ token, currentUserId, business }) {
+export default function DriversScreen({ token, currentUserId, business, user }) {
   const pageStyle = usePageStyle(720);
+  const labels = labelsFor(business);
+  const { open: canDelete } = useDeleteMode(user);
   const [drivers, setDrivers] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [areas, setAreas] = useState([]);
@@ -140,6 +145,8 @@ export default function DriversScreen({ token, currentUserId, business }) {
               business={business}
               isSelf={driver.id === currentUserId}
               isFirst={index === 0}
+              labels={labels}
+              canDelete={canDelete}
               onChanged={refresh}
               onError={setError}
               onNotice={setNotice}
@@ -200,7 +207,7 @@ function NewDriverForm({ token, onCreated, onError }) {
 // A divider stands in for the border every separate Card used to draw,
 // so three drivers still read as three distinct records without three
 // boxes of whitespace between them.
-function DriverRow({ driver, today, token, business, isSelf, isFirst, onChanged, onError, onNotice }) {
+function DriverRow({ driver, today, token, business, labels, isSelf, isFirst, canDelete, onChanged, onError, onNotice }) {
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [editingHome, setEditingHome] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -472,6 +479,24 @@ function DriverRow({ driver, today, token, business, isSelf, isFirst, onChanged,
                   Deactivated drivers are signed out immediately, including on a phone they still have in their
                   hand.
                 </Text>
+              )}
+
+              {/* Deactivating is the everyday answer — it keeps the
+                  record of who drove what. Deleting is for somebody
+                  added by mistake, and only while the window is open. */}
+              {isSelf ? null : (
+                <DeleteButton
+                  armed={canDelete}
+                  label={`Delete ${driver.name}`}
+                  describe={async () =>
+                    `Deleting ${driver.name} removes their account and their start-of-day counts. Any ${lower(
+                      labels.route,
+                    )} they are on today stays, with nobody driving it.`
+                  }
+                  onDelete={() => api.deleteDriver(token, driver.id)}
+                  onDone={onChanged}
+                  onError={onError}
+                />
               )}
           </View>
         </View>
