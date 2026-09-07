@@ -193,69 +193,85 @@ function AppShell() {
                 ))
               : null}
 
-            <Pressable
-              onPress={() => setAccountOpen((prev) => !prev)}
-              accessibilityRole="button"
-              accessibilityLabel={accountOpen ? 'Close account menu' : 'Account menu'}
-              accessibilityState={{ expanded: accountOpen }}
-              style={[styles.avatar, accountOpen && styles.avatarOpen]}
-            >
-              <Text style={[styles.avatarText, accountOpen && styles.avatarTextOpen]}>{initialOf(user.name)}</Text>
-            </Pressable>
+            <View style={styles.accountAnchor}>
+              <Pressable
+                onPress={() => setAccountOpen((prev) => !prev)}
+                accessibilityRole="button"
+                accessibilityLabel={accountOpen ? 'Close account menu' : 'Account menu'}
+                accessibilityState={{ expanded: accountOpen }}
+                style={[styles.avatar, accountOpen && styles.avatarOpen]}
+              >
+                <Text style={[styles.avatarText, accountOpen && styles.avatarTextOpen]}>{initialOf(user.name)}</Text>
+              </Pressable>
+
+              {/* Hangs off the avatar rather than pushing the page down.
+                  A strip the width of the screen for four short items
+                  read as another band of chrome, and it moved whatever
+                  the admin was looking at. See Docs/DESIGN.md. */}
+              {accountOpen ? (
+                <View style={styles.accountMenu}>
+                  <View style={styles.accountRow}>
+                    <Text style={styles.accountLabel}>{t('language')}</Text>
+                    <LanguageSwitcher />
+                  </View>
+
+                  {/* A menu is the right shape for "sign out" and the
+                      wrong shape for a form with three fields in it, so
+                      the password and the business's own details live on
+                      a screen and this is the way in. Admins only: a
+                      driver has no business details to manage, and their
+                      password is on their own account screen. */}
+                  {isAdmin && !showDriverView ? (
+                    <Pressable
+                      onPress={() => {
+                        setTab('account');
+                        setAccountOpen(false);
+                      }}
+                      accessibilityRole="button"
+                      style={({ pressed }) => [styles.accountItem, pressed && styles.accountItemPressed]}
+                    >
+                      <Text style={styles.accountItemText}>{t('manage_account')}</Text>
+                    </Pressable>
+                  ) : null}
+
+                  {isAdmin && canDrive ? (
+                    <Pressable
+                      onPress={() => {
+                        setDriving((prev) => !prev);
+                        setAccountOpen(false);
+                      }}
+                      accessibilityRole="button"
+                      style={({ pressed }) => [styles.accountItem, pressed && styles.accountItemPressed]}
+                    >
+                      <Text style={styles.accountItemText}>
+                        {showDriverView ? t('switch_to_admin_console') : t('switch_to_driver_mode')}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+
+                  <Pressable
+                    onPress={signOut}
+                    accessibilityRole="button"
+                    style={({ pressed }) => [styles.accountItem, styles.accountItemLast, pressed && styles.accountItemPressed]}
+                  >
+                    <Text style={[styles.accountItemText, styles.signOut]}>{t('sign_out')}</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+            </View>
           </View>
         </View>
       </View>
 
-      {/* Opens in place under the bar rather than floating over it: this
-          stack has no measure/portal precedent, and an inline panel is
-          the same disclosure shape used everywhere else in the app. */}
+
+      {/* Anywhere else closes it. A dropdown that only shuts on its own
+          button is one a person leaves open by accident. */}
       {accountOpen ? (
-        <View style={styles.accountMenu}>
-          <View style={styles.accountMenuInner}>
-            <View style={styles.accountRow}>
-              <Text style={styles.accountLabel}>{t('language')}</Text>
-              <LanguageSwitcher />
-            </View>
-
-            {/* A menu is the right shape for "sign out" and the wrong
-                shape for a form with three fields in it, so the password
-                and the business's own details live on a screen and this
-                is the way in. Admins only: a driver has no business
-                details to manage, and their password is on their own
-                account screen — which they reach the same way. */}
-            {isAdmin && !showDriverView ? (
-              <Pressable
-                onPress={() => {
-                  setTab('account');
-                  setAccountOpen(false);
-                }}
-                accessibilityRole="button"
-                style={styles.accountItem}
-              >
-                <Text style={styles.accountItemText}>{t('manage_account')}</Text>
-              </Pressable>
-            ) : null}
-
-            {isAdmin && canDrive ? (
-              <Pressable
-                onPress={() => {
-                  setDriving((prev) => !prev);
-                  setAccountOpen(false);
-                }}
-                accessibilityRole="button"
-                style={styles.accountItem}
-              >
-                <Text style={styles.accountItemText}>
-                  {showDriverView ? t('switch_to_admin_console') : t('switch_to_driver_mode')}
-                </Text>
-              </Pressable>
-            ) : null}
-
-            <Pressable onPress={signOut} accessibilityRole="button" style={styles.accountItem}>
-              <Text style={[styles.accountItemText, styles.signOut]}>{t('sign_out')}</Text>
-            </Pressable>
-          </View>
-        </View>
+        <Pressable
+          style={styles.accountBackdrop}
+          onPress={() => setAccountOpen(false)}
+          accessibilityLabel="Close account menu"
+        />
       ) : null}
 
       <View style={styles.body}>
@@ -317,6 +333,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+    // The account menu hangs out of this bar, and React Native Web gives
+    // every View position:relative — so without a z-index here the bar
+    // is just an earlier sibling of the page, and the page paints over
+    // the menu.
+    zIndex: 50,
   },
   // The horizontal padding lives here rather than on the bar, so the
   // account and the tabs line up with the *edges of the cards* below
@@ -361,18 +382,31 @@ const styles = StyleSheet.create({
   avatarText: { fontSize: 14, fontWeight: '700', color: colors.accent },
   avatarTextOpen: { color: colors.accentText },
   accountChevron: { fontSize: 11, color: colors.subtitle, flexShrink: 0 },
+  // Anchored to the avatar. zIndex so it sits over the page rather than
+  // between the bar and it; the backdrop below catches the click that
+  // closes it.
+  accountAnchor: { position: 'relative', zIndex: 30 },
   accountMenu: {
+    position: 'absolute',
+    top: 44,
+    right: 0,
+    minWidth: 220,
     backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    paddingBottom: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingVertical: spacing.xs,
+    // A menu floats, so it is the one place in this app that casts a
+    // shadow — that is what says it is over the page and not part of it.
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
   },
-  accountMenuInner: {
-    width: '100%',
-    maxWidth: CONTENT_WIDTH,
-    alignSelf: 'center',
-    paddingHorizontal: spacing.lg,
-  },
+  accountBackdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 20 },
+  // Inside a menu now, so the rows are menu rows: padded to the menu's
+  // own edge, divided from each other rather than boxed.
   accountRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -380,17 +414,19 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     flexWrap: 'wrap',
     paddingVertical: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
+    paddingHorizontal: spacing.md,
   },
   accountLabel: { fontSize: 13, fontWeight: '600', color: colors.label },
   accountItem: {
     paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
     borderTopWidth: 1,
     borderTopColor: colors.border,
     minHeight: 44,
     justifyContent: 'center',
   },
+  accountItemLast: {},
+  accountItemPressed: { backgroundColor: colors.surfaceAlt },
   accountItemText: { fontSize: 15, fontWeight: '600', color: colors.link },
   topBarText: { paddingRight: spacing.xs, flexShrink: 1 },
   businessName: { fontSize: 16, fontWeight: '800', color: colors.text },
