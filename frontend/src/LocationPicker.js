@@ -1,6 +1,7 @@
-import React, { useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import * as api from './api';
 import { Banner, Button, Field } from './components';
 import MapPicker from './MapPicker';
 import { mapLinkError, parseMapLink } from './mapLinks';
@@ -50,8 +51,19 @@ export default function LocationPicker({
   label = 'Location',
   hint,
   onSelectReference,
+  // The address already written down for this door, and the token to
+  // look it up with. Shown, and used to open the map near it — an
+  // Indian delivery address ("Beside S.B.I Bank") will not geocode to a
+  // doorstep, but it will usually reach the right neighbourhood, which
+  // turns placing a pin from a hunt across a state into a drag of two
+  // streets.
+  address = '',
+  token,
 }) {
   const [link, setLink] = useState('');
+  const [lookAt, setLookAt] = useState(null);
+  const [looking, setLooking] = useState(false);
+  const [noSuchPlace, setNoSuchPlace] = useState(false);
   const [error, setError] = useState('');
   const [pasting, setPasting] = useState(false);
   // What is in the coordinate boxes while they are being typed in.
@@ -99,6 +111,43 @@ export default function LocationPicker({
     onChange(nextLat, nextLng);
   };
 
+  // Looked up on opening, for a door that has an address and no pin —
+  // which is exactly the "Needs coordinates" list. Never for a pin that
+  // already exists, and never saved: it moves the view, and the person
+  // still places the pin. If the lookup finds nothing the map opens
+  // where it always did.
+  const findAddress = async () => {
+    if (!token || !address.trim()) {
+      return;
+    }
+    setLooking(true);
+    setNoSuchPlace(false);
+    try {
+      const found = await api.geocode(token, address);
+      const first = (found.places || [])[0];
+      if (first) {
+        setLookAt({ lat: first.lat, lng: first.lng });
+      } else {
+        setNoSuchPlace(true);
+      }
+    } catch {
+      // A lookup is a convenience. Failing it silently leaves the map
+      // exactly as useful as it was before this existed.
+      setNoSuchPlace(true);
+    } finally {
+      setLooking(false);
+    }
+  };
+
+  useEffect(() => {
+    if (token && address.trim() && !hasPin) {
+      findAddress();
+    }
+    // Only when the door changes — re-running on every render would be a
+    // request per keystroke somewhere else on the screen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address, token]);
+
   const useMyLocation = async () => {
     setError('');
     const position = await currentPosition();
@@ -136,6 +185,33 @@ export default function LocationPicker({
         </Text>
       </View>
       {hint ? <Text style={styles.hint}>{hint}</Text> : null}
+
+      {/* What is already written down for this door. It is the thing
+          somebody reads to work out where to put the pin, and it was
+          only on the card above — one scroll away from the map it
+          explains. */}
+      {address ? (
+        <View style={styles.addressRow}>
+          <Text style={styles.addressText}>{address}</Text>
+          {token && !hasPin ? (
+            <Pressable
+              onPress={findAddress}
+              disabled={looking}
+              accessibilityRole="button"
+              accessibilityLabel="Move the map to this address"
+              style={({ pressed }) => [styles.findButton, pressed && styles.findPressed]}
+            >
+              <Text style={styles.findText}>{looking ? 'Looking…' : 'Find it'}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+
+      {noSuchPlace ? (
+        <Text style={styles.notFound}>
+          Couldn&apos;t place that address — put the pin down by hand.
+        </Text>
+      ) : null}
 
       <Banner message={error} />
 
@@ -237,6 +313,7 @@ export default function LocationPicker({
         drivers={drivers}
         customers={customers}
         focusAreas={focusAreas}
+        lookAt={lookAt}
         previewRadiusMeters={previewRadiusMeters}
         height={height}
         onSelectReference={onSelectReference}
@@ -257,7 +334,7 @@ export default function LocationPicker({
 // already uses; LocationPicker itself fires onChange per click/drag,
 // which is right for a form field but wrong here, where committing a
 // customer's door to a new spot deserves a deliberate action.
-export function InlineLocationEditor({ lat, lng, onSave, home, areas, drivers, customers, focusAreas, height = 240 }) {
+export function InlineLocationEditor({ lat, lng, onSave, home, areas, drivers, customers, focusAreas, address, token, height = 240 }) {
   const [draft, setDraft] = useState({ lat, lng });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -288,6 +365,8 @@ export function InlineLocationEditor({ lat, lng, onSave, home, areas, drivers, c
         drivers={drivers}
         customers={customers}
         focusAreas={focusAreas}
+        address={address}
+        token={token}
         height={height}
       />
       <Button title="Save location" onPress={save} busy={busy} disabled={!dirty} />
@@ -319,6 +398,24 @@ const styles = StyleSheet.create({
   status: { fontSize: 13, fontWeight: '700' },
   statusSet: { color: colors.success },
   statusUnset: { color: colors.hint },
+  addressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+    flexWrap: 'wrap',
+  },
+  addressText: { flex: 1, minWidth: 160, fontSize: 13, color: colors.subtitle, lineHeight: 18 },
+  findButton: {
+    paddingVertical: 5,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.accent,
+  },
+  findPressed: { opacity: 0.7 },
+  findText: { fontSize: 13, fontWeight: '700', color: colors.accent },
+  notFound: { fontSize: 12, color: colors.subtitle, marginBottom: spacing.sm },
   hint: { fontSize: 12, color: colors.hint, marginTop: spacing.xs, lineHeight: 17 },
   buttonRow: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
   flexButton: { flex: 1, minWidth: 150 },

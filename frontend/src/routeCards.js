@@ -267,9 +267,12 @@ export function StopCard({
           is untouched on the driver's own screen. */}
       {showingDoor ? (
         <View style={styles.doorPanel}>
-          {/* The written address is already the second line of this
-              card, so it is not repeated here — printing it twice is
-              what made a card about one delivery look like two. */}
+          {/* The address comes down here with the map now. It used to
+              be left to the card's own second line, on the grounds that
+              printing it twice was repetition — but this is the one
+              place it is not decoration: it is what somebody reads
+              while deciding where the pin goes, and it belongs next to
+              the thing they are deciding on. */}
           <InlineLocationEditor
             lat={stop.lat}
             lng={stop.lng}
@@ -277,6 +280,10 @@ export function StopCard({
             home={home}
             drivers={drivers}
             focusAreas={focusAreas}
+            // The address is already written down for this door, and it
+            // is what somebody reads to work out where the pin goes.
+            address={stop.customer_address}
+            token={token}
             height={200}
           />
           {/* Nothing to navigate to until the pin exists. */}

@@ -442,6 +442,13 @@ export function setAllProductStock(token, date, stock) {
   });
 }
 
+// Where a written address roughly is, so a map opens near it. Never a
+// saved location — the answer moves the view and a person still places
+// the pin. See geocode.go.
+export function geocode(token, query) {
+  return request(`/api/v1/geocode?q=${encodeURIComponent(query)}`, { method: 'GET', token });
+}
+
 export function deleteProduct(token, id) {
   return request(`/api/v1/products/${id}`, { method: 'DELETE', token });
 }

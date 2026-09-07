@@ -110,6 +110,8 @@ export default function EntityMapPanel({
             home={home}
             drivers={drivers}
             customers={customers}
+            address={selected.kind === 'customer' ? selected.data.address : ''}
+            token={token}
           />
           <Button title="Done" variant="secondary" onPress={() => setSelected(null)} style={styles.spaced} />
         </View>

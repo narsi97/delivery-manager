@@ -122,6 +122,15 @@ func (s *Server) handleSetAreaDrivers(w http.ResponseWriter, r *http.Request) {
 		if !given || limit == driver.MaxStops {
 			continue
 		}
+		// The other door into the same field — see
+		// handleSetDriverMaxStops, which is where the ceiling is
+		// explained. Both are checked, because a rule enforced on one
+		// of two paths is not enforced.
+		if limit < 0 || limit > maxStopsCeiling {
+			writeError(w, http.StatusBadRequest,
+				fmt.Sprintf("a limit has to be between 0 and %d", maxStopsCeiling), "invalid_max_stops")
+			return
+		}
 		updated, err := s.store.SetUserMaxStops(r.Context(), sess.Business.ID, driver.ID, limit)
 		if err != nil {
 			writeStoreError(w, err, "driver")

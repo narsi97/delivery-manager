@@ -240,9 +240,12 @@ export default function AreaRoutesCard({
                     value={caps[driverId] !== undefined ? caps[driverId] || '' : driver?.max_stops || ''}
                     placeholder="all"
                     aria-label={`Most stops for ${driver ? driver.name : 'this driver'}`}
+                    max={100}
                     onChange={(event) => {
                       const raw = Number(event.target.value);
-                      const limit = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
+                      // A hundred doors is already a long morning, and
+                      // the server refuses more — see maxStopsCeiling.
+                      const limit = Number.isFinite(raw) && raw > 0 ? Math.min(100, Math.floor(raw)) : 0;
                       setCaps((prev) => ({ ...prev, [driverId]: limit }));
                     }}
                     style={capInputStyle}

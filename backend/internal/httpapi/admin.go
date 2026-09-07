@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"math"
 	"net/http"
@@ -795,6 +796,9 @@ func (s *Server) reorderRoutesForDriver(r *http.Request, sess session, driver do
 	return nil
 }
 
+// The most deliveries a limit can say. See handleSetDriverMaxStops.
+const maxStopsCeiling = 100
+
 // handleSetDriverMaxStops records how many deliveries fit in this
 // driver's van.
 //
@@ -814,6 +818,17 @@ func (s *Server) handleSetDriverMaxStops(w http.ResponseWriter, r *http.Request)
 	}
 	if req.MaxStops < 0 {
 		writeError(w, http.StatusBadRequest, "a limit cannot be negative", "invalid_max_stops")
+		return
+	}
+	// A van is not a fleet. The column is a 32-bit int, so a number
+	// somebody leans on the keyboard for reached the database and came
+	// back as "something went wrong" — a 500 for a typo. The real limit
+	// is a person's morning: a hundred doors is already a long round,
+	// and anything past it means "no limit", which is what blank is for.
+	if req.MaxStops > maxStopsCeiling {
+		writeError(w, http.StatusBadRequest,
+			fmt.Sprintf("that is more than one round — %d at most, or leave it blank for no limit", maxStopsCeiling),
+			"invalid_max_stops")
 		return
 	}
 

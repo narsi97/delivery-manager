@@ -46,6 +46,12 @@ export default function MapPicker({
   // farm twenty kilometres out of town — both make the first job be
   // "find the town again".
   focusAreas = [],
+  // Somewhere to look, found from the written address — see geocode.go.
+  // Moves the view and nothing else: no marker is placed, because a
+  // geocoder's guess at an Indian landmark address is a neighbourhood,
+  // not a doorstep, and a pin nobody put there would be built into a
+  // round.
+  lookAt = null,
   // Fires when a reference marker (a customer or driver drawn as
   // backdrop, not the pin this picker exists to place) is tapped. Optional
   // — most callers just want the backdrop for orientation, but the
@@ -75,6 +81,9 @@ export default function MapPicker({
   customersRef.current = customers;
   const focusAreasRef = useRef(focusAreas);
   focusAreasRef.current = focusAreas;
+  // Which lookup has already moved the map, so panning away and typing
+  // nothing new does not drag the view back.
+  const lookedAtRef = useRef(null);
 
   const placeMarker = (map, latlng) => {
     if (markerRef.current) {
@@ -236,6 +245,23 @@ export default function MapPicker({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // A found address moves the view, once. Only ever when there is no
+  // pin yet: an existing pin is a fact somebody established, and a
+  // geocoder's opinion must not pull the map off it.
+  useEffect(() => {
+    const map = mapRef.current;
+    const hasPin = Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0);
+    if (!map || !lookAt || hasPin) {
+      return;
+    }
+    const key = `${lookAt.lat},${lookAt.lng}`;
+    if (lookedAtRef.current === key) {
+      return;
+    }
+    lookedAtRef.current = key;
+    map.setView([lookAt.lat, lookAt.lng], 15);
+  }, [lookAt, lat, lng]);
 
   // Keep the marker in sync when lat/lng arrive from outside the map
   // itself (typed coordinates, "pin my current location"). Guarded

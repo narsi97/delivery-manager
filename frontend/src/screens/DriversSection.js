@@ -346,13 +346,21 @@ function DriverRow({ driver, today, token, business, labels, isSelf, isFirst, ca
                   and shows on Today as not going out. */}
               <Text style={[styles.finishLabel, styles.spacedLabel]}>How many deliveries can they take?</Text>
               <View style={styles.maxRow}>
+                {/* Capped here as well as on the server. A round of a
+                    hundred doors is already a long morning, and the
+                    field is what somebody leans on a keypad in. */}
                 <input
                   type="number"
                   min={1}
+                  max={100}
                   value={maxStops}
                   placeholder="no limit"
                   aria-label={`Most deliveries for ${driver.name} in one round`}
-                  onChange={(event) => setMaxStops(event.target.value)}
+                  onChange={(event) => {
+                    const digits = event.target.value.replace(/[^0-9]/g, '').slice(0, 3);
+                    const capped = Number(digits) > 100 ? '100' : digits;
+                    setMaxStops(capped);
+                  }}
                   onBlur={saveMaxStops}
                   style={maxInputStyle}
                 />
