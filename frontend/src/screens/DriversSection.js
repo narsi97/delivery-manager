@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import * as api from '../api';
 import { AddButton, Banner, Button, Card, Disclosure, Empty, Field, Pill, SectionTitle, ViewToggle } from '../components';
@@ -8,11 +8,9 @@ import LocationPicker, { InlineLocationEditor } from '../LocationPicker';
 import DeleteButton from '../DeleteButton';
 import { useDeleteMode } from '../deleteMode';
 import { labelsFor, lower } from '../labels';
-import { usePageStyle } from '../layout';
 import { colors, radius, spacing } from '../theme';
 
-export default function DriversScreen({ token, currentUserId, business, user }) {
-  const pageStyle = usePageStyle(720);
+export default function DriversSection({ token, currentUserId, business, user }) {
   const labels = labelsFor(business);
   const { open: canDelete } = useDeleteMode(user);
   const [drivers, setDrivers] = useState([]);
@@ -80,7 +78,7 @@ export default function DriversScreen({ token, currentUserId, business, user }) 
   }
 
   return (
-    <ScrollView contentContainerStyle={pageStyle}>
+    <>
       <Banner message={error} />
       <Banner message={notice} tone="success" />
 
@@ -136,7 +134,8 @@ export default function DriversScreen({ token, currentUserId, business, user }) 
         ) : drivers.length === 0 ? (
           <Empty>No drivers yet. Add the first one with the + above.</Empty>
         ) : (
-          drivers.map((driver, index) => (
+          <View style={styles.driverTiles}>
+          {drivers.map((driver, index) => (
             <DriverRow
               key={driver.id}
               driver={driver}
@@ -151,10 +150,11 @@ export default function DriversScreen({ token, currentUserId, business, user }) 
               onError={setError}
               onNotice={setNotice}
             />
-          ))
+          ))}
+          </View>
         )}
       </Card>
-    </ScrollView>
+    </>
   );
 }
 
@@ -271,8 +271,11 @@ function DriverRow({ driver, today, token, business, labels, isSelf, isFirst, ca
     );
   };
 
+  // A tile while shut, the whole row once open — the options panel holds
+  // a map and a form, which do not fit in a third of a phone. Same
+  // treatment as a service route. See Docs/DESIGN.md.
   return (
-    <View style={[styles.driverRow, !isFirst && styles.driverRowDivider]}>
+    <View style={[styles.driverTile, optionsOpen && styles.driverTileOpen]}>
       <View style={styles.driverHeader}>
         <View style={styles.driverHeaderText}>
           <Text style={styles.driverName}>{driver.name}</Text>
@@ -574,6 +577,18 @@ const styles = StyleSheet.create({
   // does this driver finish?" row, which made a roster of identical
   // horizontal lines where nothing grouped and no line meant anything in
   // particular.
+  driverTiles: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  driverTile: {
+    flexGrow: 1,
+    flexBasis: 200,
+    minWidth: 0,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: spacing.sm,
+  },
+  driverTileOpen: { flexBasis: '100%' },
   driverRow: { paddingVertical: spacing.md },
   driverRowDivider: { borderTopWidth: 1, borderTopColor: colors.border },
   driverHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },

@@ -11,7 +11,6 @@ import AccountScreen from './screens/AccountScreen';
 import BusinessScreen from './screens/BusinessScreen';
 import CustomersScreen from './screens/CustomersScreen';
 import DriverScreen from './screens/DriverScreen';
-import DriversScreen from './screens/DriversScreen';
 import SignInScreen from './screens/SignInScreen';
 import TodayScreen from './screens/TodayScreen';
 import { colors, radius, spacing } from './theme';
@@ -32,11 +31,14 @@ const CONTENT_WIDTH = 720;
 // otherwise, and duplicated most of Today to do it. What was genuinely
 // only there — the stops outside every area, and the rare destructive
 // actions — moved onto Today, where the day already lives.
+// Three, not four. Today and Customers are what a dairy opens every
+// morning; drivers, products and rounds are all things set up once and
+// changed rarely, so they live together on Business. See
+// Docs/DESIGN.md.
 function adminTabs(labels, t) {
   return [
     { key: 'today', label: t('nav_today') },
     { key: 'customers', label: labels.customer_plural },
-    { key: 'team', label: labels.driver + 's' },
     { key: 'business', label: t('nav_business') },
   ];
 }
@@ -263,8 +265,6 @@ function AppShell() {
           <TodayScreen token={token} business={business} />
         ) : tab === 'customers' ? (
           <CustomersScreen token={token} business={business} user={user} />
-        ) : tab === 'team' ? (
-          <DriversScreen token={token} business={business} user={user} currentUserId={user.id} />
         ) : tab === 'account' ? (
           <AccountScreen
             token={token}
@@ -280,6 +280,7 @@ function AppShell() {
             token={token}
             business={business}
             user={user}
+            currentUserId={user.id}
             onBusinessUpdated={(updated) => setSession((prev) => ({ ...prev, business: updated }))}
           />
         )}
