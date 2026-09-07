@@ -37,6 +37,9 @@ export default function BusinessScreen({ token, business, user, currentUserId, o
   // away, so the number is in both places and says which day it means.
   const [demand, setDemand] = useState({});
   const [stock, setStock] = useState({});
+  // Yesterday's figures, offered for a day nobody has stocked yet. Kept
+  // apart from `stock` on purpose: a suggestion is not milk.
+  const [suggested, setSuggested] = useState({});
   const [stockDate, setStockDate] = useState('');
   const [products, setProducts] = useState([]);
   const [drivers, setDrivers] = useState([]);
@@ -75,6 +78,7 @@ export default function BusinessScreen({ token, business, user, currentUserId, o
       setProducts(productResponse.products || []);
       setDemand(demandResponse.needed || {});
       setStock(demandResponse.stock || {});
+      setSuggested(demandResponse.suggested || {});
       setStockDate(demandResponse.date || '');
       setDrivers(driverResponse.drivers || []);
       setCustomers(customerResponse.customers || []);
@@ -134,6 +138,7 @@ export default function BusinessScreen({ token, business, user, currentUserId, o
         products={products}
         demand={demand}
         stock={stock}
+        suggested={suggested}
         date={stockDate}
         canDelete={canDelete}
         onChanged={refresh}
@@ -548,7 +553,7 @@ const radiusSliderStyle = {
 // storage/store.go), no update or deactivate path yet — that's a
 // backend addition to make when editing an existing product is actually
 // needed, not something to fake client-side.
-function ProductCatalogCard({ token, products, demand, stock, date, canDelete, onChanged, onCreated, onError }) {
+function ProductCatalogCard({ token, products, demand, stock, suggested, date, canDelete, onChanged, onCreated, onError }) {
   const [expanded, setExpanded] = useState(false);
   // Which product the new thing joins, or '' for a product of its own.
   // A sixth size of milk and a first jar of paneer are the same act from
@@ -666,6 +671,7 @@ function ProductCatalogCard({ token, products, demand, stock, date, canDelete, o
           products={products}
           demand={demand}
           stock={stock}
+          suggested={suggested}
           date={date}
           token={token}
           canDelete={canDelete}

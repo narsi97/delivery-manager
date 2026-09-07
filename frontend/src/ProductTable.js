@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import * as api from './api';
 import DeleteButton from './DeleteButton';
@@ -26,20 +26,59 @@ export default function ProductTable({
   // missing from it has none — every day starts empty, so this is a
   // fact about a date and never about the product.
   stock = {},
+  // Yesterday's figures, for anything nobody has entered today. Shown
+  // muted and never counted — see handleProductDemand.
+  suggested = {},
   date,
   token,
   canDelete,
   onChanged,
   onError,
 }) {
+  const [busy, setBusy] = useState(false);
+  const offered = Object.keys(suggested).filter((id) => products.some((p) => p.id === id));
+
+  const acceptAll = async () => {
+    setBusy(true);
+    try {
+      await api.setAllProductStock(token, date, suggested);
+      await onChanged();
+    } catch (err) {
+      onError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
+      {/* One press for a dairy that fills the same amount most mornings.
+          It writes today's figures rather than counting yesterday's, so
+          what the app then believes is something a person said. */}
+      {offered.length > 0 ? (
+        <View style={styles.carryRow}>
+          <Text style={styles.carryText}>
+            Nothing entered for this day. Yesterday&apos;s figures are shown faintly.
+          </Text>
+          <Pressable
+            onPress={acceptAll}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel="Use yesterday's stock for this day"
+            style={({ pressed }) => [styles.carryButton, pressed && styles.carryPressed]}
+          >
+            <Text style={styles.carryButtonText}>{busy ? 'Saving…' : 'Same as yesterday'}</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       {groupProducts(products).map((group) => (
         <ProductGroup
           key={group.key}
           group={group}
           demand={demand}
           stock={stock}
+          suggested={suggested}
           date={date}
           token={token}
           canDelete={canDelete}
@@ -60,7 +99,7 @@ export default function ProductTable({
 //
 // A product with one size gets no heading. A heading above a single row
 // is a heading about nothing.
-function ProductGroup({ group, demand, stock, date, token, canDelete, onChanged, onError }) {
+function ProductGroup({ group, demand, stock, suggested, date, token, canDelete, onChanged, onError }) {
   // One size is not a group. A heading, a count of "1 size" and four
   // column labels over a single row is more chrome than content — it
   // reads as its own name, the way it always did.
@@ -102,6 +141,8 @@ function ProductGroup({ group, demand, stock, date, token, canDelete, onChanged,
           label={lone ? product.name : product.size || product.name}
           neededToday={demand[product.id] || 0}
           inStock={stock[product.id] || 0}
+          suggestedStock={suggested[product.id]}
+          entered={product.id in stock}
           date={date}
           token={token}
           canDelete={canDelete}
@@ -131,7 +172,7 @@ function ProductGroup({ group, demand, stock, date, token, canDelete, onChanged,
 //
 // Stock is written against the date this table is showing, not onto the
 // product: a churn that came in on Monday is Monday's.
-function ProductRow({ product, label, neededToday, inStock, date, token, canDelete, onChanged, onError }) {
+function ProductRow({ product, label, neededToday, inStock, suggestedStock, entered, date, token, canDelete, onChanged, onError }) {
   const [busy, setBusy] = useState(false);
 
   const have = Number(inStock) || 0;
@@ -169,7 +210,9 @@ function ProductRow({ product, label, neededToday, inStock, date, token, canDele
           }}
         />
         <NumberCell
-          value={String(have)}
+          value={entered ? String(have) : ''}
+          empty="0"
+          suggestion={suggestedStock === undefined ? '' : String(suggestedStock)}
           busy={busy}
           warn={short}
           ariaLabel={`Stock of ${product.name}`}
@@ -216,6 +259,24 @@ function ProductRow({ product, label, neededToday, inStock, date, token, canDele
 
 
 const styles = StyleSheet.create({
+  carryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  carryText: { flex: 1, minWidth: 160, fontSize: 12, color: colors.subtitle },
+  carryButton: {
+    paddingVertical: 7,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    backgroundColor: colors.surface,
+  },
+  carryPressed: { opacity: 0.7 },
+  carryButtonText: { fontSize: 13, fontWeight: '700', color: colors.accent },
   productGroup: { marginBottom: spacing.md },
   productGroupHead: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm, marginBottom: 2 },
   productGroupName: { fontSize: 16, fontWeight: '700', color: colors.text },

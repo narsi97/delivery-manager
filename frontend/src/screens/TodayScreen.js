@@ -38,6 +38,9 @@ export default function TodayScreen({ token, business }) {
   // What is in the cold room on the day being shown. Absent means none:
   // every date starts empty and fills when the churns come in.
   const [stock, setStock] = useState({});
+  // Yesterday's figures, offered for a day nobody has stocked yet. Kept
+  // apart from `stock` on purpose: a suggestion is not milk.
+  const [suggested, setSuggested] = useState({});
   const [areas, setAreas] = useState([]);
   const [checkins, setCheckins] = useState([]);
   const [error, setError] = useState('');
@@ -70,6 +73,7 @@ export default function TodayScreen({ token, business }) {
       setProducts(productResponse.products || []);
       setDemand(demandResponse.needed || {});
       setStock(demandResponse.stock || {});
+      setSuggested(demandResponse.suggested || {});
       setAreas(areaResponse.service_areas || []);
       setCheckins(checkinResponse.checkins || []);
       setError('');
@@ -324,6 +328,7 @@ export default function TodayScreen({ token, business }) {
                   products={products}
                   demand={demand}
                   stock={stock}
+                  suggested={suggested}
                   date={day?.date}
                   token={token}
                   onChanged={refresh}
@@ -437,6 +442,7 @@ export default function TodayScreen({ token, business }) {
             products={products}
             demand={demand}
             stock={stock}
+            suggested={suggested}
             date={day?.date}
             token={token}
             onChanged={refresh}

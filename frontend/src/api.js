@@ -432,6 +432,16 @@ export function resetEntities(token, kinds) {
   return request('/api/v1/account/reset', { method: 'POST', token, body: JSON.stringify(kinds) });
 }
 
+// Every size's stock for one day in one call — what "same as yesterday"
+// presses. One request so a morning cannot end up half written.
+export function setAllProductStock(token, date, stock) {
+  return request('/api/v1/products/stock', {
+    method: 'PUT',
+    token,
+    body: JSON.stringify({ date: date || undefined, stock }),
+  });
+}
+
 export function deleteProduct(token, id) {
   return request(`/api/v1/products/${id}`, { method: 'DELETE', token });
 }

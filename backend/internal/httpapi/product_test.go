@@ -166,3 +166,86 @@ func TestProductDemandIgnoresCompletedDeliveries(t *testing.T) {
 		t.Fatalf("needed = %v after the delivery was made, want nothing left", got)
 	}
 }
+
+// Yesterday's figure is offered for today, and offering is all it does.
+// Milk does not carry over — that is why stock is per day — so the
+// suggestion must never read as stock somebody has.
+func TestYesterdaysStockIsSuggestedButNotCounted(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+	id := firstProductID(t, admin)
+
+	admin.mustDo(http.MethodPut, "/api/v1/products/"+id+"/stock",
+		map[string]any{"date": "2026-09-08", "quantity": 40}, http.StatusOK)
+
+	today := admin.mustDo(http.MethodGet, "/api/v1/products/demand?date=2026-09-09", nil, http.StatusOK)
+	if stock, _ := today["stock"].(map[string]any); len(stock) != 0 {
+		t.Errorf("stock = %v, want nothing — yesterday's milk is not today's", stock)
+	}
+	if got := num(today["suggested"].(map[string]any), id); got != 40 {
+		t.Errorf("suggested = %v, want 40", got)
+	}
+}
+
+// Once today has a figure of its own, there is nothing to suggest.
+func TestNothingIsSuggestedOnceTheDayIsStocked(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+	id := firstProductID(t, admin)
+
+	admin.mustDo(http.MethodPut, "/api/v1/products/"+id+"/stock",
+		map[string]any{"date": "2026-09-08", "quantity": 40}, http.StatusOK)
+	admin.mustDo(http.MethodPut, "/api/v1/products/"+id+"/stock",
+		map[string]any{"date": "2026-09-09", "quantity": 12}, http.StatusOK)
+
+	day := admin.mustDo(http.MethodGet, "/api/v1/products/demand?date=2026-09-09", nil, http.StatusOK)
+	if got := num(day["stock"].(map[string]any), id); got != 12 {
+		t.Errorf("stock = %v, want 12", got)
+	}
+	if suggested, _ := day["suggested"].(map[string]any); len(suggested) != 0 {
+		t.Errorf("suggested = %v, want nothing once the day has its own figure", suggested)
+	}
+}
+
+// "Same as yesterday" is one call, so a morning cannot end up half
+// written.
+func TestStockCanBeSetForEverySizeAtOnce(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+	listed := admin.mustDo(http.MethodGet, "/api/v1/products", nil, http.StatusOK)
+	products := listed["products"].([]any)
+
+	want := map[string]any{}
+	for _, raw := range products {
+		want[str(raw.(map[string]any), "id")] = 7
+	}
+	admin.mustDo(http.MethodPut, "/api/v1/products/stock",
+		map[string]any{"date": "2026-09-08", "stock": want}, http.StatusOK)
+
+	day := admin.mustDo(http.MethodGet, "/api/v1/products/demand?date=2026-09-08", nil, http.StatusOK)
+	stock := day["stock"].(map[string]any)
+	if len(stock) != len(products) {
+		t.Fatalf("stocked %d of %d products", len(stock), len(products))
+	}
+	for id := range want {
+		if got := num(stock, id); got != 7 {
+			t.Errorf("stock[%s] = %v, want 7", id, got)
+		}
+	}
+}
+
+// A batch naming somebody else's product writes nothing at all.
+func TestBulkStockIsScopedToTheBusiness(t *testing.T) {
+	server := newTestServer(t)
+	first := adminClient(t, server)
+	second := secondBusinessAdminClient(t, server)
+	theirs := firstProductID(t, second)
+
+	first.mustDo(http.MethodPut, "/api/v1/products/stock",
+		map[string]any{"date": "2026-09-08", "stock": map[string]any{theirs: 9}}, http.StatusNotFound)
+
+	day := second.mustDo(http.MethodGet, "/api/v1/products/demand?date=2026-09-08", nil, http.StatusOK)
+	if stock, _ := day["stock"].(map[string]any); len(stock) != 0 {
+		t.Errorf("stock = %v, want nothing — another business wrote into it", stock)
+	}
+}

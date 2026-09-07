@@ -474,7 +474,85 @@ func (s *Server) handleProductDemand(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err, "stock")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"date": date, "needed": needed, "stock": stock})
+	// What yesterday held, for anything nobody has entered today.
+	//
+	// Milk does not carry over — that is why stock is per day at all —
+	// so this is offered rather than counted. A dairy that fills the same
+	// forty litres every morning should not have to type forty every
+	// morning, but the app must not claim there are forty litres in a
+	// cold room nobody has looked in. So it is a suggestion, and it
+	// becomes stock only when somebody says so.
+	suggested := map[string]float64{}
+	if day, err := time.Parse(domain.DateLayout, date); err == nil {
+		before, err := s.store.ListProductStock(r.Context(), sess.Business.ID,
+			day.AddDate(0, 0, -1).Format(domain.DateLayout))
+		if err != nil {
+			writeStoreError(w, err, "stock")
+			return
+		}
+		for id, quantity := range before {
+			if _, entered := stock[id]; !entered && quantity > 0 {
+				suggested[id] = quantity
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"date": date, "needed": needed, "stock": stock, "suggested": suggested,
+	})
+}
+
+// handleSetAllProductStock writes a whole morning's figures at once.
+//
+// What "same as yesterday" presses. One call rather than one per size,
+// so a half-written morning cannot happen: five separate requests, two
+// of which fail, leaves a cold room the screen disagrees with.
+func (s *Server) handleSetAllProductStock(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r.Context())
+
+	var req struct {
+		Date  string             `json:"date"`
+		Stock map[string]float64 `json:"stock"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	date := strings.TrimSpace(req.Date)
+	if date == "" {
+		date = sess.Business.Today()
+	} else if _, err := time.Parse(domain.DateLayout, date); err != nil {
+		writeError(w, http.StatusBadRequest, "date must be YYYY-MM-DD", "invalid_date")
+		return
+	}
+
+	products, err := s.store.ListProducts(r.Context(), sess.Business.ID)
+	if err != nil {
+		writeStoreError(w, err, "products")
+		return
+	}
+	mine := map[string]bool{}
+	for _, p := range products {
+		mine[p.ID] = true
+	}
+
+	for id, quantity := range req.Stock {
+		if !mine[id] {
+			writeError(w, http.StatusNotFound, "that product was not found", "not_found")
+			return
+		}
+		if quantity < 0 {
+			writeError(w, http.StatusBadRequest, "stock cannot be negative", "invalid_stock")
+			return
+		}
+	}
+	for id, quantity := range req.Stock {
+		if err := s.store.SetProductStock(r.Context(), sess.Business.ID, id, date, quantity); err != nil {
+			writeStoreError(w, err, "stock")
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"date": date, "stock": req.Stock})
 }
 
 // handleSetProductStock records what came in for one product on one day.

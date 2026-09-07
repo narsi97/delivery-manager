@@ -7,7 +7,12 @@ import { colors, radius, spacing } from './theme';
 // Bare until touched, then a box — so a column of them reads as figures
 // rather than as a form. Commits on blur or Enter, abandons on Escape,
 // and says nothing when the value has not actually changed.
-export function NumberCell({ value, empty, warn, busy, width, ariaLabel, onCommit }) {
+// `suggestion` is a figure the app is offering rather than one somebody
+// has entered — yesterday's stock, for a day nobody has stocked yet. It
+// shows muted, and touching the cell loads it as though it had been
+// typed, so accepting it is a focus and an Enter rather than typing the
+// same number again.
+export function NumberCell({ value, empty, suggestion, warn, busy, width, ariaLabel, onCommit }) {
   const [typed, setTyped] = useState(null);
   const [focused, setFocused] = useState(false);
   // The blur handler closes over state as it was when the input last
@@ -27,14 +32,15 @@ export function NumberCell({ value, empty, warn, busy, width, ariaLabel, onCommi
 
   return (
     <input
-      value={typed === null ? value || (empty ?? '') : typed}
+      value={typed === null ? value || suggestion || (empty ?? '') : typed}
       inputMode="decimal"
       disabled={busy}
       aria-label={ariaLabel}
       onFocus={(event) => {
         setFocused(true);
-        setTyped(value);
-        typedRef.current = value;
+        const start = value || (suggestion ?? '');
+        setTyped(start);
+        typedRef.current = start;
         event.target.select();
       }}
       onChange={(event) => {
@@ -56,6 +62,7 @@ export function NumberCell({ value, empty, warn, busy, width, ariaLabel, onCommi
         ...numberCellStyle,
         ...(focused ? numberCellFocusStyle : null),
         ...(warn && !focused ? numberCellWarnStyle : null),
+        ...(!value && suggestion && !focused ? numberCellSuggestedStyle : null),
         ...(width ? { width } : null),
       }}
     />
@@ -91,6 +98,10 @@ export const numberCellFocusStyle = {
 };
 
 export const numberCellWarnStyle = { color: colors.warning, fontWeight: '700' };
+
+// Offered, not entered. Faint enough that a column of suggestions does
+// not read as a column of facts.
+export const numberCellSuggestedStyle = { color: colors.hint, fontStyle: 'italic' };
 
 // The shape a table of figures wants around those cells: fixed-width
 // columns so digits stack, a tinted head, and a hairline under every
