@@ -12,7 +12,6 @@ import { labelsFor, lower } from '../labels';
 import { serviceRouteOfRoute } from '../serviceAreas';
 import { CauseStops, notGoingOutCauses, OneOffRoute } from '../NotGoingOut';
 import { usePageStyle } from '../layout';
-import { formatQuantity } from '../productGroups';
 import ProductTable from '../ProductTable';
 import { colors, spacing } from '../theme';
 
@@ -171,33 +170,50 @@ export default function TodayScreen({ token, business }) {
   // the reader to scroll past the whole round to find it again under a
   // second heading. See Docs/DESIGN.md and notGoingOutCauses.
   const causes = notGoingOutCauses(allStops, areas);
+
+  // What is missing, rather than a sentence about what that means. Each
+  // of these was a line of explanation read every morning — "we don't
+  // know where some of them lives, so they can't be put in order" — and
+  // an explanation on its third reading is furniture. The count is on
+  // the badge, the deliveries are one press away, and the label is the
+  // two words that say which of them to open. Docs/DESIGN.md, rule 1.
+  //
+  // Two states, not one, and the same two the day's table colours: a
+  // door with an address but no pin can still be driven to, and a door
+  // with neither cannot be found at all.
+  const noPin = allStops.filter((stop) => stop.status === 'pending' && !stop.lat && !stop.lng);
+  const needsAddress = noPin.filter((stop) => !(stop.customer_address || '').trim());
+  const needsCoordinates = noPin.filter((stop) => (stop.customer_address || '').trim());
+
   const exceptions = [];
   if (needsDriver.length > 0) {
     exceptions.push({
       key: 'no-driver',
-      message:
-        needsDriver.length === 1
-          ? `${needsDriver[0].name} has nobody driving it yet.`
-          : `${needsDriver.length} ${lower(labels.route)}s have nobody driving them yet.`,
+      count: needsDriver.length,
+      message: `Needs a ${lower(labels.driver)}`,
     });
   }
-  if (causes.unpinned.length > 0) {
+  if (needsAddress.length > 0) {
     exceptions.push({
-      key: 'no-pin',
-      count: causes.unpinned.length,
-      message: `We don't know where ${
-        causes.unpinned.length === 1 ? 'somebody' : 'some of them'
-      } lives, so they can't be put in order.`,
-      stops: causes.unpinned,
+      key: 'needs-address',
+      count: needsAddress.length,
+      message: 'Needs address',
+      stops: needsAddress,
+    });
+  }
+  if (needsCoordinates.length > 0) {
+    exceptions.push({
+      key: 'needs-coordinates',
+      count: needsCoordinates.length,
+      message: 'Needs coordinates',
+      stops: needsCoordinates,
     });
   }
   if (causes.outside.length > 0) {
     exceptions.push({
       key: 'outside',
       count: causes.outside.length,
-      message: `${causes.outside.length} ${
-        causes.outside.length === 1 ? 'delivery sits' : 'deliveries sit'
-      } outside every service ${lower(labels.route)} you deliver to.`,
+      message: `Outside every service ${lower(labels.route)}`,
       stops: causes.outside,
       // The one cause with a fix that is not per-customer: a round built
       // for today only, so they go out while the area gets sorted.
@@ -221,9 +237,7 @@ export default function TodayScreen({ token, business }) {
     exceptions.push({
       key: 'waiting',
       count: causes.waiting.length,
-      message: `${causes.waiting.length} ${
-        causes.waiting.length === 1 ? 'delivery is' : 'deliveries are'
-      } waiting for a ${lower(labels.route)} to pick them up.`,
+      message: `Waiting for a ${lower(labels.route)}`,
       stops: causes.waiting,
     });
   }
@@ -231,9 +245,8 @@ export default function TodayScreen({ token, business }) {
   //
   // This used to be a column on the Business page, which could only ever
   // answer it about today — and a business looks at tomorrow the night
-  // before. Here it follows the date picker, and it says the shortfall
-  // in words rather than leaving two numbers side by side for somebody
-  // to subtract.
+  // before. Here it follows the date picker, and opens onto the table
+  // where the stock number is changed.
   const shortSizes = products
     .map((product) => ({
       name: product.name,
@@ -245,26 +258,10 @@ export default function TodayScreen({ token, business }) {
     exceptions.push({
       key: 'short-stock',
       count: shortSizes.length,
-      message:
-        shortSizes.length === 1
-          ? `${shortSizes[0].name}: ${formatQuantity(shortSizes[0].short)} short of what this day needs.`
-          : `${shortSizes.length} things are short of what this day needs.`,
+      message: 'Needs restock',
       // The table itself, not a summary of it: the answer to being short
       // is to change the number, and it is right there to change.
       products: true,
-    });
-  }
-
-  // On a round, but nobody has found the door yet. Not a problem to
-  // solve from a desk — the driver is the one who will be standing
-  // there — so it reads as a note about today rather than as a fault.
-  if (summary.needs_pin > 0) {
-    exceptions.push({
-      key: 'needs-pin',
-      message:
-        summary.needs_pin === 1
-          ? `1 ${lower(labels.customer)} on a ${lower(labels.route)} still has no pin — the ${lower(labels.driver)} can drop it at the door.`
-          : `${summary.needs_pin} ${lower(labels.customer_plural)} on a ${lower(labels.route)} still have no pin — the ${lower(labels.driver)} can drop them at the door.`,
     });
   }
 

@@ -56,9 +56,19 @@ export default function AreaRoutesCard({
   // request omits them entirely rather than sending a zero that would
   // clear it. See handleSetAreaDrivers.
   const [caps, setCaps] = useState({});
+  // Whether the driver picker is out. Only while somebody is changing
+  // it — a round that already has a driver shows the name, not a vote.
+  const [choosing, setChoosing] = useState(false);
+  // Whether the per-driver limits are out. Shut: a round is shared
+  // evenly unless somebody says otherwise, and almost nobody does.
+  const [showCaps, setShowCaps] = useState(false);
 
   const activeDrivers = drivers.filter((driver) => driver.active);
   const assigned = routes.map((route) => route.driver_id).filter(Boolean);
+  const assignedNames = assigned
+    .map((id) => drivers.find((driver) => driver.id === id))
+    .map((driver) => (driver ? driver.name : 'Somebody'))
+    .join(' · ');
   const areaStops = stops.filter((stop) => routes.some((route) => route.id === stop.route_id));
 
   // One list per route, each in the order that route's driver would work
@@ -144,29 +154,73 @@ export default function AreaRoutesCard({
 
       <Banner message={error} />
 
-      <Text style={styles.label}>Who&apos;s driving?</Text>
+      {/* A round keeps the same driver for months at a time, so once
+          somebody is on it this is a fact, not a question: one line
+          saying who, and a way in when it does change. The row of every
+          driver's name belongs to the moment somebody is choosing —
+          which is the empty round, and the press of "Change". See
+          Docs/DESIGN.md, rule 3. */}
       {activeDrivers.length === 0 ? (
-        <Text style={styles.note}>No drivers yet — add one on the Drivers tab.</Text>
-      ) : (
-        <View style={styles.chipRow}>
-          {activeDrivers.map((driver) => {
-            const on = assigned.includes(driver.id);
-            return (
-              <Pressable
-                key={driver.id}
-                onPress={() => toggleDriver(driver.id)}
-                disabled={busy}
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: on }}
-                style={[styles.chip, on && styles.chipOn, busy && styles.chipBusy]}
-              >
-                <Text style={[styles.chipText, on && styles.chipTextOn]}>{driver.name}</Text>
-              </Pressable>
-            );
-          })}
+        <>
+          <Text style={styles.label}>Who&apos;s driving?</Text>
+          <Text style={styles.note}>No {lower(labels.driver)}s yet — add one under Manage business.</Text>
+        </>
+      ) : assigned.length > 0 && !choosing ? (
+        <View style={styles.drivingRow}>
+          <Text style={styles.drivingName} numberOfLines={1}>
+            {assignedNames}
+          </Text>
+          <Pressable
+            onPress={() => setChoosing(true)}
+            accessibilityRole="button"
+            accessibilityLabel={`Change who is driving ${area.name}`}
+            style={({ pressed }) => [styles.changeButton, pressed && styles.pressed]}
+          >
+            <Text style={styles.changeText}>Change</Text>
+          </Pressable>
         </View>
+      ) : (
+        <>
+          <Text style={styles.label}>Who&apos;s driving?</Text>
+          <View style={styles.chipRow}>
+            {activeDrivers.map((driver) => {
+              const on = assigned.includes(driver.id);
+              return (
+                <Pressable
+                  key={driver.id}
+                  onPress={() => toggleDriver(driver.id)}
+                  disabled={busy}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: on }}
+                  style={[styles.chip, on && styles.chipOn, busy && styles.chipBusy]}
+                >
+                  <Text style={[styles.chipText, on && styles.chipTextOn]}>{driver.name}</Text>
+                </Pressable>
+              );
+            })}
+            {assigned.length > 0 ? (
+              <Pressable
+                onPress={() => setChoosing(false)}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.changeButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.changeText}>Done</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </>
       )}
+
+      {/* Shut. A limit is set once, if ever — the round is shared evenly
+          without one — so three boxes, an Apply and a paragraph
+          explaining them was a form standing open on a screen nobody
+          opened to fill one in. */}
       {assigned.length > 0 ? (
+        <Disclosure compact open={showCaps} onToggle={() => setShowCaps((prev) => !prev)}>
+          How many each
+        </Disclosure>
+      ) : null}
+      {assigned.length > 0 && showCaps ? (
         <View style={styles.capList}>
           {assigned.map((driverId) => {
             const driver = drivers.find((d) => d.id === driverId);
@@ -481,6 +535,12 @@ const styles = StyleSheet.create({
   optionsGlyph: { fontSize: 18, color: colors.label, fontWeight: '700', lineHeight: 20 },
   label: { fontSize: 13, fontWeight: '600', color: colors.label, marginTop: spacing.md, marginBottom: spacing.xs },
   note: { fontSize: 12, color: colors.hint, marginTop: spacing.xs, lineHeight: 17 },
+  // The everyday state: a name, and a way in. Sized like the chips it
+  // replaces so the card does not jump when somebody presses Change.
+  drivingRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 36, flexWrap: 'wrap' },
+  drivingName: { fontSize: 15, fontWeight: '700', color: colors.text, flexShrink: 1 },
+  changeButton: { paddingVertical: 6, paddingHorizontal: 4 },
+  changeText: { fontSize: 13, fontWeight: '700', color: colors.link },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   chip: {
     paddingHorizontal: spacing.md,
