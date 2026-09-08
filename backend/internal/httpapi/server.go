@@ -145,6 +145,19 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/v1/products/{id}", s.withAdmin(s.handleDeleteProduct))
 	s.mux.HandleFunc("GET /api/v1/products/demand", s.withAdmin(s.handleProductDemand))
 	s.mux.HandleFunc("GET /api/v1/geocode", s.withAdmin(s.handleGeocode))
+
+	// ---------- the herd ----------
+	s.mux.HandleFunc("GET /api/v1/animals", s.withAdmin(s.handleListAnimals))
+	s.mux.HandleFunc("POST /api/v1/animals", s.withAdmin(s.handleCreateAnimal))
+	s.mux.HandleFunc("PATCH /api/v1/animals/{id}", s.withAdmin(s.handleUpdateAnimal))
+	s.mux.HandleFunc("DELETE /api/v1/animals/{id}", s.withAdmin(s.handleDeleteAnimal))
+	s.mux.HandleFunc("GET /api/v1/animals/{id}/breedings", s.withAdmin(s.handleListBreedings))
+	s.mux.HandleFunc("POST /api/v1/animals/{id}/breedings", s.withAdmin(s.handleCreateBreeding))
+	s.mux.HandleFunc("PATCH /api/v1/breedings/{id}", s.withAdmin(s.handleUpdateBreeding))
+	s.mux.HandleFunc("DELETE /api/v1/breedings/{id}", s.withAdmin(s.handleDeleteBreeding))
+	s.mux.HandleFunc("GET /api/v1/animals/{id}/yields", s.withAdmin(s.handleAnimalYields))
+	s.mux.HandleFunc("PUT /api/v1/animals/{id}/yield", s.withAdmin(s.handleSetMilkYield))
+	s.mux.HandleFunc("GET /api/v1/herd/day", s.withAdmin(s.handleHerdDay))
 	s.mux.HandleFunc("PUT /api/v1/products/{id}/stock", s.withAdmin(s.handleSetProductStock))
 	s.mux.HandleFunc("PUT /api/v1/products/stock", s.withAdmin(s.handleSetAllProductStock))
 

@@ -183,6 +183,35 @@ type Store interface {
 	UpdateServiceArea(ctx context.Context, sa domain.ServiceArea) (domain.ServiceArea, error)
 	DeleteServiceArea(ctx context.Context, businessID string, id string) error
 
+	// ---------- the herd ----------
+	//
+	// Animals are identified by their ear tag, which the business owns
+	// and this app never invents. CreateAnimal returns ErrConflict when
+	// the tag is already on the farm — see domain.TagKey, which decides
+	// what "already" means.
+	CreateAnimal(ctx context.Context, a domain.Animal) (domain.Animal, error)
+	GetAnimal(ctx context.Context, businessID string, id string) (domain.Animal, error)
+	ListAnimals(ctx context.Context, businessID string) ([]domain.Animal, error)
+	UpdateAnimal(ctx context.Context, a domain.Animal) (domain.Animal, error)
+	DeleteAnimal(ctx context.Context, businessID string, id string) error
+
+	// Crossings, newest first. Scoped to one animal because that is the
+	// only way anybody reads them.
+	CreateBreeding(ctx context.Context, b domain.Breeding) (domain.Breeding, error)
+	ListBreedings(ctx context.Context, businessID string, animalID string) ([]domain.Breeding, error)
+	// ListAllBreedings is the herd's, for working out what is due.
+	ListAllBreedings(ctx context.Context, businessID string) ([]domain.Breeding, error)
+	UpdateBreeding(ctx context.Context, b domain.Breeding) (domain.Breeding, error)
+	DeleteBreeding(ctx context.Context, businessID string, id string) error
+
+	// What every animal gave on one day, keyed by animal id. An animal
+	// missing from the map has no record for that day, which is not the
+	// same as having given nothing.
+	ListMilkYields(ctx context.Context, businessID string, date string) (map[string]domain.MilkYield, error)
+	// ListAnimalYields is one animal's history, newest first.
+	ListAnimalYields(ctx context.Context, businessID string, animalID string, from, to string) ([]domain.MilkYield, error)
+	SetMilkYield(ctx context.Context, y domain.MilkYield) error
+
 	CreateRecurringOrder(ctx context.Context, r domain.RecurringOrder) (domain.RecurringOrder, error)
 	ListRecurringOrders(ctx context.Context, businessID string) ([]domain.RecurringOrder, error)
 	SetRecurringOrderActive(ctx context.Context, businessID string, id string, active bool) (domain.RecurringOrder, error)

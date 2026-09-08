@@ -9,6 +9,7 @@ import { LanguageProvider, useLanguage } from './i18n';
 import LanguageSwitcher from './LanguageSwitcher';
 import AccountScreen from './screens/AccountScreen';
 import BusinessScreen from './screens/BusinessScreen';
+import CattleScreen from './screens/CattleScreen';
 import CustomersScreen from './screens/CustomersScreen';
 import DriverScreen from './screens/DriverScreen';
 import SignInScreen from './screens/SignInScreen';
@@ -42,6 +43,10 @@ function adminTabs(labels, t) {
   return [
     { key: 'today', label: t('nav_today') },
     { key: 'customers', label: labels.customer_plural },
+    // The herd earns a tab because milk is entered against it twice a
+    // day — it is a screen somebody comes back to, which is the only
+    // test a tab has to pass. See CattleScreen.
+    { key: 'cattle', label: t('nav_cattle') },
   ];
 }
 
@@ -309,6 +314,8 @@ function AppShell() {
           <TodayScreen token={token} business={business} />
         ) : tab === 'customers' ? (
           <CustomersScreen token={token} business={business} user={user} />
+        ) : tab === 'cattle' ? (
+          <CattleScreen token={token} user={user} />
         ) : tab === 'account' ? (
           <AccountScreen
             token={token}

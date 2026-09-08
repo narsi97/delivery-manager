@@ -449,6 +449,62 @@ export function geocode(token, query) {
   return request(`/api/v1/geocode?q=${encodeURIComponent(query)}`, { method: 'GET', token });
 }
 
+// ---------- the herd ----------
+//
+// One request draws the whole page for a day: every animal, what each
+// gave that morning and evening, and what is due to calve. See
+// handleHerdDay — a call per animal would be forty requests to draw a
+// table on a forty-head farm.
+export function getHerdDay(token, date) {
+  return request(`/api/v1/herd/day${date ? `?date=${date}` : ''}`, { method: 'GET', token });
+}
+
+export function createAnimal(token, animal) {
+  return request('/api/v1/animals', { method: 'POST', token, body: JSON.stringify(animal) });
+}
+
+export function updateAnimal(token, id, changes) {
+  return request(`/api/v1/animals/${id}`, { method: 'PATCH', token, body: JSON.stringify(changes) });
+}
+
+export function deleteAnimal(token, id) {
+  return request(`/api/v1/animals/${id}`, { method: 'DELETE', token });
+}
+
+// Only what is sent changes: the two milkings are entered hours apart,
+// and an evening figure must not wipe the morning's.
+export function setMilkYield(token, id, date, sessions) {
+  return request(`/api/v1/animals/${id}/yield`, {
+    method: 'PUT',
+    token,
+    body: JSON.stringify({ date: date || undefined, ...sessions }),
+  });
+}
+
+export function listBreedings(token, animalId) {
+  return request(`/api/v1/animals/${animalId}/breedings`, { method: 'GET', token });
+}
+
+export function createBreeding(token, animalId, breeding) {
+  return request(`/api/v1/animals/${animalId}/breedings`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify(breeding),
+  });
+}
+
+export function updateBreeding(token, id, changes) {
+  return request(`/api/v1/breedings/${id}`, { method: 'PATCH', token, body: JSON.stringify(changes) });
+}
+
+export function deleteBreeding(token, id) {
+  return request(`/api/v1/breedings/${id}`, { method: 'DELETE', token });
+}
+
+export function listAnimalYields(token, id) {
+  return request(`/api/v1/animals/${id}/yields`, { method: 'GET', token });
+}
+
 export function deleteProduct(token, id) {
   return request(`/api/v1/products/${id}`, { method: 'DELETE', token });
 }

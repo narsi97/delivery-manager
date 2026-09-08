@@ -1226,3 +1226,220 @@ func (s *PostgresStore) SetProductStock(ctx context.Context, businessID string, 
 		businessID, productID, date, quantity)
 	return err
 }
+
+// ---------- the herd ----------
+
+const animalColumns = `id, business_id, tag, name, species, breed, sex, born_on, arrived_on, source, stage, notes, active`
+
+func scanAnimal(row pgx.Row) (domain.Animal, error) {
+	var a domain.Animal
+	if err := row.Scan(&a.ID, &a.BusinessID, &a.Tag, &a.Name, &a.Species, &a.Breed, &a.Sex,
+		&a.BornOn, &a.ArrivedOn, &a.Source, &a.Stage, &a.Notes, &a.Active); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Animal{}, ErrNotFound
+		}
+		return domain.Animal{}, err
+	}
+	return a, nil
+}
+
+func (s *PostgresStore) CreateAnimal(ctx context.Context, a domain.Animal) (domain.Animal, error) {
+	_, err := s.pool.Exec(ctx,
+		`insert into animals (`+animalColumns+`, tag_key, created_at)
+		 values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+		a.ID, a.BusinessID, a.Tag, a.Name, a.Species, a.Breed, a.Sex,
+		a.BornOn, a.ArrivedOn, a.Source, a.Stage, a.Notes, a.Active,
+		domain.TagKey(a.Tag), time.Now().UTC())
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return domain.Animal{}, ErrConflict
+		}
+		return domain.Animal{}, err
+	}
+	return a, nil
+}
+
+func (s *PostgresStore) GetAnimal(ctx context.Context, businessID string, id string) (domain.Animal, error) {
+	row := s.pool.QueryRow(ctx,
+		`select `+animalColumns+` from animals where id=$1 and business_id=$2`, id, businessID)
+	return scanAnimal(row)
+}
+
+func (s *PostgresStore) ListAnimals(ctx context.Context, businessID string) ([]domain.Animal, error) {
+	rows, err := s.pool.Query(ctx,
+		`select `+animalColumns+` from animals where business_id=$1 order by tag_key`, businessID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	animals := []domain.Animal{}
+	for rows.Next() {
+		a, err := scanAnimal(rows)
+		if err != nil {
+			return nil, err
+		}
+		animals = append(animals, a)
+	}
+	return animals, rows.Err()
+}
+
+func (s *PostgresStore) UpdateAnimal(ctx context.Context, a domain.Animal) (domain.Animal, error) {
+	tag, err := s.pool.Exec(ctx,
+		`update animals set tag=$3, tag_key=$4, name=$5, species=$6, breed=$7, sex=$8,
+		 born_on=$9, arrived_on=$10, source=$11, stage=$12, notes=$13, active=$14
+		 where id=$1 and business_id=$2`,
+		a.ID, a.BusinessID, a.Tag, domain.TagKey(a.Tag), a.Name, a.Species, a.Breed, a.Sex,
+		a.BornOn, a.ArrivedOn, a.Source, a.Stage, a.Notes, a.Active)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return domain.Animal{}, ErrConflict
+		}
+		return domain.Animal{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.Animal{}, ErrNotFound
+	}
+	return a, nil
+}
+
+func (s *PostgresStore) DeleteAnimal(ctx context.Context, businessID string, id string) error {
+	tag, err := s.pool.Exec(ctx, `delete from animals where id=$1 and business_id=$2`, id, businessID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+const breedingColumns = `id, business_id, animal_id, crossed_on, method, sire, result, checked_on, calved_on, calf_id, notes`
+
+func scanBreeding(row pgx.Row) (domain.Breeding, error) {
+	var b domain.Breeding
+	if err := row.Scan(&b.ID, &b.BusinessID, &b.AnimalID, &b.CrossedOn, &b.Method, &b.Sire,
+		&b.Result, &b.CheckedOn, &b.CalvedOn, &b.CalfID, &b.Notes); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Breeding{}, ErrNotFound
+		}
+		return domain.Breeding{}, err
+	}
+	return b, nil
+}
+
+func (s *PostgresStore) CreateBreeding(ctx context.Context, b domain.Breeding) (domain.Breeding, error) {
+	_, err := s.pool.Exec(ctx,
+		`insert into breedings (`+breedingColumns+`) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+		b.ID, b.BusinessID, b.AnimalID, b.CrossedOn, b.Method, b.Sire,
+		b.Result, b.CheckedOn, b.CalvedOn, b.CalfID, b.Notes)
+	if err != nil {
+		return domain.Breeding{}, err
+	}
+	return b, nil
+}
+
+func (s *PostgresStore) listBreedings(ctx context.Context, where string, args ...any) ([]domain.Breeding, error) {
+	rows, err := s.pool.Query(ctx, `select `+breedingColumns+` from breedings `+where, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []domain.Breeding{}
+	for rows.Next() {
+		b, err := scanBreeding(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+func (s *PostgresStore) ListBreedings(ctx context.Context, businessID string, animalID string) ([]domain.Breeding, error) {
+	return s.listBreedings(ctx, `where business_id=$1 and animal_id=$2 order by crossed_on desc`, businessID, animalID)
+}
+
+func (s *PostgresStore) ListAllBreedings(ctx context.Context, businessID string) ([]domain.Breeding, error) {
+	return s.listBreedings(ctx, `where business_id=$1 order by crossed_on desc`, businessID)
+}
+
+func (s *PostgresStore) UpdateBreeding(ctx context.Context, b domain.Breeding) (domain.Breeding, error) {
+	tag, err := s.pool.Exec(ctx,
+		`update breedings set crossed_on=$3, method=$4, sire=$5, result=$6,
+		 checked_on=$7, calved_on=$8, calf_id=$9, notes=$10
+		 where id=$1 and business_id=$2`,
+		b.ID, b.BusinessID, b.CrossedOn, b.Method, b.Sire, b.Result,
+		b.CheckedOn, b.CalvedOn, b.CalfID, b.Notes)
+	if err != nil {
+		return domain.Breeding{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.Breeding{}, ErrNotFound
+	}
+	return b, nil
+}
+
+func (s *PostgresStore) DeleteBreeding(ctx context.Context, businessID string, id string) error {
+	tag, err := s.pool.Exec(ctx, `delete from breedings where id=$1 and business_id=$2`, id, businessID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *PostgresStore) ListMilkYields(ctx context.Context, businessID string, date string) (map[string]domain.MilkYield, error) {
+	rows, err := s.pool.Query(ctx,
+		`select business_id, animal_id, yield_date, morning, evening
+		 from milk_yields where business_id=$1 and yield_date=$2`, businessID, date)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := map[string]domain.MilkYield{}
+	for rows.Next() {
+		var y domain.MilkYield
+		if err := rows.Scan(&y.BusinessID, &y.AnimalID, &y.Date, &y.Morning, &y.Evening); err != nil {
+			return nil, err
+		}
+		out[y.AnimalID] = y
+	}
+	return out, rows.Err()
+}
+
+func (s *PostgresStore) ListAnimalYields(ctx context.Context, businessID string, animalID string, from, to string) ([]domain.MilkYield, error) {
+	rows, err := s.pool.Query(ctx,
+		`select business_id, animal_id, yield_date, morning, evening
+		 from milk_yields where business_id=$1 and animal_id=$2 and yield_date >= $3 and yield_date <= $4
+		 order by yield_date desc`, businessID, animalID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []domain.MilkYield{}
+	for rows.Next() {
+		var y domain.MilkYield
+		if err := rows.Scan(&y.BusinessID, &y.AnimalID, &y.Date, &y.Morning, &y.Evening); err != nil {
+			return nil, err
+		}
+		out = append(out, y)
+	}
+	return out, rows.Err()
+}
+
+func (s *PostgresStore) SetMilkYield(ctx context.Context, y domain.MilkYield) error {
+	_, err := s.pool.Exec(ctx,
+		`insert into milk_yields (business_id, animal_id, yield_date, morning, evening)
+		 values ($1,$2,$3,$4,$5)
+		 on conflict (animal_id, yield_date) do update set morning=excluded.morning, evening=excluded.evening`,
+		y.BusinessID, y.AnimalID, y.Date, y.Morning, y.Evening)
+	return err
+}

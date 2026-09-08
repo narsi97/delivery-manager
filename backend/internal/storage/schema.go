@@ -302,4 +302,60 @@ var schemaStatements = []string{
 		business_type text not null default '',
 		owner_name text not null default ''
 	)`,
+	// ---------- the herd ----------
+	//
+	// A dairy knows its animals by the number on the yellow ear tag. The
+	// tag is unique within a business and never generated here: it is
+	// written on an animal that existed before this app did.
+	`create table if not exists animals (
+		id text primary key,
+		business_id text not null references businesses(id) on delete cascade,
+		tag text not null,
+		tag_key text not null,
+		name text not null default '',
+		species text not null default 'buffalo',
+		breed text not null default '',
+		sex text not null default 'female',
+		born_on text not null default '',
+		arrived_on text not null default '',
+		source text not null default '',
+		stage text not null default 'milking',
+		notes text not null default '',
+		active boolean not null default true,
+		created_at timestamptz not null default now()
+	)`,
+	// Two animals cannot share a tag on one farm, however the tag was
+	// spelled — see domain.TagKey, which is what tag_key holds.
+	`create unique index if not exists animals_business_tag_idx on animals(business_id, tag_key)`,
+
+	// One crossing and what came of it. A log rather than columns on the
+	// animal: an animal is served many times over its life, and last
+	// year's crossing is how anybody works out whether this one is late.
+	`create table if not exists breedings (
+		id text primary key,
+		business_id text not null references businesses(id) on delete cascade,
+		animal_id text not null references animals(id) on delete cascade,
+		crossed_on text not null,
+		method text not null default 'ai',
+		sire text not null default '',
+		result text not null default 'pending',
+		checked_on text not null default '',
+		calved_on text not null default '',
+		calf_id text not null default '',
+		notes text not null default ''
+	)`,
+	`create index if not exists breedings_animal_idx on breedings(animal_id, crossed_on)`,
+
+	// What one animal gave on one day, measured the way it is measured:
+	// twice, into a can. Absent means nobody wrote it down, which is not
+	// the same fact as a cow that gave nothing.
+	`create table if not exists milk_yields (
+		business_id text not null references businesses(id) on delete cascade,
+		animal_id text not null references animals(id) on delete cascade,
+		yield_date text not null,
+		morning double precision not null default 0,
+		evening double precision not null default 0,
+		primary key (animal_id, yield_date)
+	)`,
+	`create index if not exists milk_yields_business_date_idx on milk_yields(business_id, yield_date)`,
 }

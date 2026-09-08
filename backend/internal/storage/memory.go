@@ -30,12 +30,22 @@ type MemoryStore struct {
 	products     map[string]domain.Product
 	// Stock is per product per day — see the product_stock table.
 	productStock map[stockKey]float64
+	animals      map[string]domain.Animal
+	breedings    map[string]domain.Breeding
+	yields       map[yieldKey]domain.MilkYield
 	recurring    map[string]domain.RecurringOrder
 	daily        map[string]domain.DailyOrder
 	routes       map[string]domain.Route
 	events       []domain.DeliveryEvent
 	otps         map[string]domain.OTPChallenge
 	checkins     map[string]domain.Checkin
+}
+
+// One animal on one day.
+type yieldKey struct {
+	businessID string
+	animalID   string
+	date       string
 }
 
 // One product on one day.
@@ -53,6 +63,9 @@ func NewMemoryStore() *MemoryStore {
 		passwords:    map[string]string{},
 		customers:    map[string]domain.Customer{},
 		productStock: map[stockKey]float64{},
+		animals:      map[string]domain.Animal{},
+		breedings:    map[string]domain.Breeding{},
+		yields:       map[yieldKey]domain.MilkYield{},
 		serviceAreas: map[string]domain.ServiceArea{},
 		products:     map[string]domain.Product{},
 		recurring:    map[string]domain.RecurringOrder{},
@@ -998,5 +1011,183 @@ func (s *MemoryStore) SetProductStock(_ context.Context, businessID string, prod
 	defer s.mu.Unlock()
 
 	s.productStock[stockKey{businessID: businessID, productID: productID, date: date}] = quantity
+	return nil
+}
+
+// ---------- the herd ----------
+
+func (s *MemoryStore) CreateAnimal(_ context.Context, a domain.Animal) (domain.Animal, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	key := domain.TagKey(a.Tag)
+	for _, existing := range s.animals {
+		if existing.BusinessID == a.BusinessID && domain.TagKey(existing.Tag) == key {
+			return domain.Animal{}, ErrConflict
+		}
+	}
+	s.animals[a.ID] = a
+	return a, nil
+}
+
+func (s *MemoryStore) GetAnimal(_ context.Context, businessID string, id string) (domain.Animal, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	a, ok := s.animals[id]
+	if !ok || a.BusinessID != businessID {
+		return domain.Animal{}, ErrNotFound
+	}
+	return a, nil
+}
+
+func (s *MemoryStore) ListAnimals(_ context.Context, businessID string) ([]domain.Animal, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := []domain.Animal{}
+	for _, a := range s.animals {
+		if a.BusinessID == businessID {
+			out = append(out, a)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return domain.TagKey(out[i].Tag) < domain.TagKey(out[j].Tag) })
+	return out, nil
+}
+
+func (s *MemoryStore) UpdateAnimal(_ context.Context, a domain.Animal) (domain.Animal, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existing, ok := s.animals[a.ID]
+	if !ok || existing.BusinessID != a.BusinessID {
+		return domain.Animal{}, ErrNotFound
+	}
+	key := domain.TagKey(a.Tag)
+	for id, other := range s.animals {
+		if id != a.ID && other.BusinessID == a.BusinessID && domain.TagKey(other.Tag) == key {
+			return domain.Animal{}, ErrConflict
+		}
+	}
+	s.animals[a.ID] = a
+	return a, nil
+}
+
+func (s *MemoryStore) DeleteAnimal(_ context.Context, businessID string, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	a, ok := s.animals[id]
+	if !ok || a.BusinessID != businessID {
+		return ErrNotFound
+	}
+	delete(s.animals, id)
+	// Postgres cascades these; here it has to be written out, or the two
+	// stores disagree about what a delete leaves behind.
+	for bid, b := range s.breedings {
+		if b.AnimalID == id {
+			delete(s.breedings, bid)
+		}
+	}
+	for key := range s.yields {
+		if key.animalID == id {
+			delete(s.yields, key)
+		}
+	}
+	return nil
+}
+
+func (s *MemoryStore) CreateBreeding(_ context.Context, b domain.Breeding) (domain.Breeding, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.breedings[b.ID] = b
+	return b, nil
+}
+
+func (s *MemoryStore) ListBreedings(_ context.Context, businessID string, animalID string) ([]domain.Breeding, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := []domain.Breeding{}
+	for _, b := range s.breedings {
+		if b.BusinessID == businessID && b.AnimalID == animalID {
+			out = append(out, b)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CrossedOn > out[j].CrossedOn })
+	return out, nil
+}
+
+func (s *MemoryStore) ListAllBreedings(_ context.Context, businessID string) ([]domain.Breeding, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := []domain.Breeding{}
+	for _, b := range s.breedings {
+		if b.BusinessID == businessID {
+			out = append(out, b)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CrossedOn > out[j].CrossedOn })
+	return out, nil
+}
+
+func (s *MemoryStore) UpdateBreeding(_ context.Context, b domain.Breeding) (domain.Breeding, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existing, ok := s.breedings[b.ID]
+	if !ok || existing.BusinessID != b.BusinessID {
+		return domain.Breeding{}, ErrNotFound
+	}
+	s.breedings[b.ID] = b
+	return b, nil
+}
+
+func (s *MemoryStore) DeleteBreeding(_ context.Context, businessID string, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	b, ok := s.breedings[id]
+	if !ok || b.BusinessID != businessID {
+		return ErrNotFound
+	}
+	delete(s.breedings, id)
+	return nil
+}
+
+func (s *MemoryStore) ListMilkYields(_ context.Context, businessID string, date string) (map[string]domain.MilkYield, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := map[string]domain.MilkYield{}
+	for key, y := range s.yields {
+		if key.businessID == businessID && key.date == date {
+			out[key.animalID] = y
+		}
+	}
+	return out, nil
+}
+
+func (s *MemoryStore) ListAnimalYields(_ context.Context, businessID string, animalID string, from, to string) ([]domain.MilkYield, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := []domain.MilkYield{}
+	for key, y := range s.yields {
+		if key.businessID == businessID && key.animalID == animalID && key.date >= from && key.date <= to {
+			out = append(out, y)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Date > out[j].Date })
+	return out, nil
+}
+
+func (s *MemoryStore) SetMilkYield(_ context.Context, y domain.MilkYield) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.yields[yieldKey{businessID: y.BusinessID, animalID: y.AnimalID, date: y.Date}] = y
 	return nil
 }
