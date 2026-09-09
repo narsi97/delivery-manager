@@ -65,6 +65,6 @@ if [ ! -d node_modules ]; then
   npm install
 fi
 EXPO_PUBLIC_APP_ENV=local \
-EXPO_PUBLIC_API_URL="http://localhost:8087" \
+EXPO_PUBLIC_API_URL="${EXPO_PUBLIC_API_URL:-http://localhost:8087}" \
 EXPO_PUBLIC_GOOGLE_CLIENT_ID="${EXPO_PUBLIC_GOOGLE_CLIENT_ID:-}" \
   npm run web:8104

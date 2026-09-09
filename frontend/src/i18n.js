@@ -62,9 +62,19 @@ const STRINGS = {
     switch_to_admin_console: 'Switch to admin console',
     switch_to_driver_mode: 'Switch to driver mode',
     language: 'Language',
+    // nav_deliveries names the admin tab; nav_today is the driver's own
+    // round heading when their route has no name. Two keys because the
+    // two read differently: an admin is picking between deliveries and
+    // the herd, while a driver is looking at one day's work.
+    nav_deliveries: 'Deliveries',
     nav_today: 'Today',
     nav_business: 'Business',
     nav_cattle: 'Cattle',
+    // The two halves of the livestock book: the sheet that is filled in
+    // twice a day, and the register behind it that is read when
+    // something changes.
+    nav_milking: 'Milking',
+    nav_herd: 'Herd',
     no_route_assigned: 'No {route} assigned to you yet. Check back once your manager has planned the day.',
     stops_label: 'Stops',
     done_label: 'Done',
@@ -150,9 +160,12 @@ const STRINGS = {
     switch_to_admin_console: 'అడ్మిన్ కన్సోల్‌కు మారండి',
     switch_to_driver_mode: 'డ్రైవర్ మోడ్‌కు మారండి',
     language: 'భాష',
+    nav_deliveries: 'డెలివరీలు',
     nav_today: 'ఈరోజు',
     nav_business: 'వ్యాపారం',
     nav_cattle: 'పశువులు',
+    nav_milking: 'పాలు',
+    nav_herd: 'మంద',
     no_route_assigned: 'మీకు ఇంకా {route} కేటాయించలేదు. మీ మేనేజర్ రోజును ప్లాన్ చేసిన తర్వాత మళ్లీ చూడండి.',
     stops_label: 'స్టాప్‌లు',
     done_label: 'పూర్తయింది',

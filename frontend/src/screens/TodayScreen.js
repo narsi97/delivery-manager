@@ -24,7 +24,7 @@ import { colors, spacing } from '../theme';
 // Routes tab uniquely had beyond that was the stops outside every area
 // (NotGoingOut, below) and a handful of rare destructive actions, which
 // now live behind each route's options button.
-export default function TodayScreen({ token, business }) {
+export default function TodayScreen({ token, business, onScroll }) {
   const pageStyle = usePageStyle(720);
   const labels = labelsFor(business);
   const [day, setDay] = useState(null);
@@ -279,7 +279,7 @@ export default function TodayScreen({ token, business }) {
   const mappableStops = allStops.filter((stop) => stop.lat || stop.lng);
 
   return (
-    <ScrollView contentContainerStyle={pageStyle}>
+    <ScrollView contentContainerStyle={pageStyle} onScroll={onScroll} scrollEventThrottle={16}>
       <Banner message={error} />
       <Banner message={notice} tone="success" />
 

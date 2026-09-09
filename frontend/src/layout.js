@@ -1,7 +1,20 @@
-import { useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import { useWindowDimensions } from 'react-native';
 
 import { spacing } from './theme';
+
+// How much of the top of the screen the app header is covering.
+//
+// The header floats over the page rather than sitting above it, so that
+// it can slide out of the way as somebody scrolls down a long round or a
+// long shed (see App.js). Floating means it no longer takes up space of
+// its own, so every page has to start below where it is — and rather
+// than teach eight screens to do that, the one thing they all already
+// call for their padding does it for them.
+//
+// Zero by default, which is what the sign-in screen wants: there is no
+// header until somebody is signed in.
+export const HeaderInsetContext = createContext(0);
 
 // What the screen can actually hold.
 //
@@ -62,8 +75,10 @@ export function useTouchOnly() {
 // keeps it where there is width to spare.
 export function usePageStyle(maxWidth = 720) {
   const narrow = useNarrow();
+  const headerInset = useContext(HeaderInsetContext);
   return {
-    paddingVertical: spacing.lg,
+    paddingTop: spacing.lg + headerInset,
+    paddingBottom: spacing.lg,
     paddingHorizontal: narrow ? spacing.sm : spacing.lg,
     maxWidth,
     width: '100%',

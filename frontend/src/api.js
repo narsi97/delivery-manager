@@ -505,6 +505,68 @@ export function listAnimalYields(token, id) {
   return request(`/api/v1/animals/${id}/yields`, { method: 'GET', token });
 }
 
+// Alerts raised against the herd — today, a milk yield down against an
+// animal's own recent average. Open only: a resolved alert is history,
+// not something the day board needs to keep asking about.
+export function getHerdAlerts(token) {
+  return request('/api/v1/herd/alerts', { method: 'GET', token });
+}
+
+export function updateHerdAlert(token, id, changes) {
+  return request(`/api/v1/herd/alerts/${id}`, { method: 'PATCH', token, body: JSON.stringify(changes) });
+}
+
+// A farmer raising one themselves. The detector only knows what the milk
+// says; somebody in the shed can see a limp a day earlier.
+export function createHerdAlert(token, animalId, note) {
+  return request('/api/v1/herd/alerts', {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ animal_id: animalId, note }),
+  });
+}
+
+// The health book: jabs, drenches, treatments and vet visits.
+export function listHealthEvents(token, animalId) {
+  return request(`/api/v1/animals/${animalId}/health`, { method: 'GET', token });
+}
+
+export function createHealthEvent(token, animalId, event) {
+  return request(`/api/v1/animals/${animalId}/health`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify(event),
+  });
+}
+
+export function deleteHealthEvent(token, id) {
+  return request(`/api/v1/health/${id}`, { method: 'DELETE', token });
+}
+
+// One jab, many animals. A vaccination round is a herd event — the vet
+// comes on a Tuesday and does the farm — and recording it one animal at
+// a time is why herd books stop being kept.
+export function vaccinateHerd(token, round) {
+  return request('/api/v1/herd/vaccinate', { method: 'POST', token, body: JSON.stringify(round) });
+}
+
+// What the farm produced over a span of days. Milk under a drug
+// withdrawal comes back separately: it was produced but cannot be sold.
+export function getHerdSummary(token, from, to) {
+  const query = new URLSearchParams();
+  if (from) query.set('from', from);
+  if (to) query.set('to', to);
+  const suffix = query.toString();
+  return request(`/api/v1/herd/summary${suffix ? `?${suffix}` : ''}`, { method: 'GET', token });
+}
+
+// What the herd owes: jabs coming up or overdue, and whose milk is
+// currently being held back. Derived server-side from the health book —
+// recording the next dose is what clears it.
+export function getHealthDue(token) {
+  return request('/api/v1/herd/health-due', { method: 'GET', token });
+}
+
 export function deleteProduct(token, id) {
   return request(`/api/v1/products/${id}`, { method: 'DELETE', token });
 }

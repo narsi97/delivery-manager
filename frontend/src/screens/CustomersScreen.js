@@ -20,7 +20,7 @@ import { EVERY_DAY, daysFromMask, describeDays } from '../frequency';
 import { useNarrow, usePageStyle, useTouchOnly } from '../layout';
 import { UndoBar, useUndoStack } from '../undo';
 
-export default function CustomersScreen({ token, business, user }) {
+export default function CustomersScreen({ token, business, user, onScroll }) {
   const pageStyle = usePageStyle(720);
   const labels = labelsFor(business);
   const { open: canDelete } = useDeleteMode(user);
@@ -129,7 +129,7 @@ export default function CustomersScreen({ token, business, user }) {
   const offRoute = customers.filter((c) => c.active !== false && !serviceRouteFor(c, areas)).length;
 
   return (
-    <ScrollView contentContainerStyle={pageStyle}>
+    <ScrollView contentContainerStyle={pageStyle} onScroll={onScroll} scrollEventThrottle={16}>
       <Banner message={error} />
       <Banner message={notice} tone="success" />
       <UndoBar
