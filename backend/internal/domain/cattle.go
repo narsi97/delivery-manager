@@ -68,6 +68,64 @@ var animalStages = map[string]bool{
 // to draw would silently drop an animal out of every count on the page.
 func ValidStage(stage string) bool { return animalStages[strings.ToLower(strings.TrimSpace(stage))] }
 
+// Half these stages are facts about a female animal.
+//
+// A bull is never milking, dry or a heifer, and a cow is never a bull —
+// these are not preferences a farm can hold differently, they are what
+// the words mean. Offering "milking" for a male is how a herd ends up
+// with a bull carrying a lactation record, which then quietly joins
+// every total on the milking sheet.
+//
+// Calf, sold and died are common to both: the first is a young animal of
+// either sex, and the last two are ways of leaving rather than stages of
+// life.
+var (
+	femaleStages = []string{StageCalf, StageHeifer, StageMilking, StageDry, StageSold, StageDied}
+	maleStages   = []string{StageCalf, StageBull, StageSold, StageDied}
+)
+
+// StagesFor lists the stages an animal of this sex can be in. Anything
+// not "male" is treated as female, matching the field's own default —
+// an animal whose sex was never recorded is far more likely to be a cow
+// on a dairy than a bull.
+func StagesFor(sex string) []string {
+	if strings.EqualFold(strings.TrimSpace(sex), "male") {
+		return maleStages
+	}
+	return femaleStages
+}
+
+// StageAllowedForSex reports whether an animal of this sex can be in this
+// stage.
+func StageAllowedForSex(stage, sex string) bool {
+	stage = strings.ToLower(strings.TrimSpace(stage))
+	for _, allowed := range StagesFor(sex) {
+		if allowed == stage {
+			return true
+		}
+	}
+	return false
+}
+
+// DefaultStageFor is where an animal starts when nobody said. A dairy
+// adding females is adding milking animals; a male defaults to calf
+// rather than bull, because most males born on a dairy are calves and
+// promoting one is a deliberate act.
+func DefaultStageFor(sex string) string {
+	if strings.EqualFold(strings.TrimSpace(sex), "male") {
+		return StageCalf
+	}
+	return StageMilking
+}
+
+// Lactates reports whether this animal can have milk recorded against
+// it at all. Milk from a male is not a data-entry mistake worth
+// tolerating — it is impossible, and letting it through corrupts every
+// total on the day it is entered.
+func (a Animal) Lactates() bool {
+	return !strings.EqualFold(strings.TrimSpace(a.Sex), "male")
+}
+
 // OnTheFarm is whether this animal is still part of the herd. Sold and
 // died animals keep their records and leave the counts.
 func (a Animal) OnTheFarm() bool {
@@ -184,3 +242,206 @@ type MilkYield struct {
 }
 
 func (m MilkYield) Total() float64 { return m.Morning + m.Evening }
+
+// Something done to an animal on a day: a jab, a drench, a treatment, a
+// vet's visit.
+//
+// One log rather than a table per kind, because they are the same record
+// with different words on it — a date, what was given, by whom, what it
+// cost, and when the next one is due. Kind is what the screens sort by.
+//
+// Two fields carry the weight and are worth reading twice:
+//
+//   - NextDueOn turns a log into a schedule. FMD is every six months in
+//     India, HS and BQ annually; nobody remembers that per animal across
+//     forty of them, and a vaccination missed is the whole point of
+//     keeping the book.
+//   - MilkWithheldUntil is a safety interlock. Milk from a treated
+//     animal must not reach the churn — withdrawal is three days for
+//     oxytetracycline, six for ciprofloxacin, seventy-two to ninety-six
+//     hours for most intramammary mastitis tubes. Getting this wrong
+//     contaminates a whole collection, not one animal's can.
+type HealthEvent struct {
+	ID         string `json:"id"`
+	BusinessID string `json:"business_id"`
+	AnimalID   string `json:"animal_id"`
+	// Kind is vaccination, deworming, treatment or checkup.
+	Kind string `json:"kind"`
+	// What was given or found: "FMD", "Ivermectin", "mastitis".
+	Name string `json:"name"`
+	Date string `json:"date"`
+	// Batch and Dose matter for a vaccine and are why a vaccination
+	// record exists at all in an audit — see the cold-chain guidance any
+	// dairy board publishes.
+	Batch string `json:"batch"`
+	Dose  string `json:"dose"`
+	Vet   string `json:"vet"`
+	// CostRupees is whole rupees. A dairy counting paise on a vet bill
+	// is not a thing anybody asked for.
+	CostRupees        int    `json:"cost_rupees"`
+	NextDueOn         string `json:"next_due_on"`
+	MilkWithheldUntil string `json:"milk_withheld_until"`
+	Notes             string `json:"notes"`
+}
+
+const (
+	HealthVaccination = "vaccination"
+	HealthDeworming   = "deworming"
+	HealthTreatment   = "treatment"
+	HealthCheckup     = "checkup"
+)
+
+var healthKinds = map[string]bool{
+	HealthVaccination: true, HealthDeworming: true,
+	HealthTreatment: true, HealthCheckup: true,
+}
+
+func ValidHealthKind(kind string) bool {
+	return healthKinds[strings.ToLower(strings.TrimSpace(kind))]
+}
+
+// How long until the same thing is due again, for the jabs an Indian
+// dairy actually gives.
+//
+// Defaults, not rules: a business can type any next-due date it likes,
+// and a vet who says otherwise wins. They exist so that recording "FMD"
+// does not also mean doing arithmetic on a phone in a shed. Brucellosis
+// is absent on purpose — it is given once in a female calf's life, so
+// there is no next one to schedule.
+var vaccineIntervalDays = map[string]int{
+	"fmd":           182,
+	"hs":            365,
+	"bq":            365,
+	"hs-bq":         365,
+	"theileria":     365,
+	"deworming":     182,
+	"anthrax":       365,
+	"black quarter": 365,
+}
+
+// SuggestedNextDue is when a jab of this name would normally come round
+// again, or "" when it is a one-off or unknown.
+func SuggestedNextDue(name, on string) string {
+	days, known := vaccineIntervalDays[strings.ToLower(strings.TrimSpace(name))]
+	if !known {
+		return ""
+	}
+	given, err := time.Parse(DateLayout, on)
+	if err != nil {
+		return ""
+	}
+	return given.AddDate(0, 0, days).Format(DateLayout)
+}
+
+// WithholdingOn reports whether this event still bars the animal's milk
+// on the given date. The last day is inclusive: "withheld until the
+// 12th" is milk you throw away on the 12th.
+func (h HealthEvent) WithholdingOn(date string) bool {
+	return h.MilkWithheldUntil != "" && date <= h.MilkWithheldUntil
+}
+
+// A warning raised about an animal, not a diagnosis.
+//
+// The one built-in kind is a milk yield falling against the animal's own
+// recent average — the earliest sign a farmer normally works from ("she's
+// usually ten litres, today it's seven"). Kind is a string rather than a
+// closed set: an overdue vaccination or a missed heat is the same shape
+// of fact — something worth a farmer's attention, raised once, cleared
+// once dealt with — and should slot in later without a schema change.
+//
+// This app does not know *why* a yield dropped: heat stress, mastitis, a
+// missed feed, coming into heat, or nothing at all. Note is where that
+// knowledge lives, in the farmer's own words, once they have worked out
+// what happened — the same trade this app already made with Animal.Notes
+// and Breeding.Notes rather than a fixed taxonomy it would get wrong.
+type HerdAlert struct {
+	ID         string  `json:"id"`
+	BusinessID string  `json:"business_id"`
+	AnimalID   string  `json:"animal_id"`
+	Kind       string  `json:"kind"`
+	RaisedOn   string  `json:"raised_on"`
+	Baseline   float64 `json:"baseline"`
+	Actual     float64 `json:"actual"`
+	Status     string  `json:"status"`
+	Note       string  `json:"note"`
+	ResolvedOn string  `json:"resolved_on"`
+}
+
+const (
+	AlertYieldDrop = "yield_drop"
+	// AlertManual is one a farmer raised themselves — "watch this one,
+	// she was off her feed". The app cannot detect everything somebody
+	// standing in the shed can see, and the honest answer to that is a
+	// way to write it down rather than a cleverer detector.
+	AlertManual = "manual"
+
+	AlertOpen         = "open"
+	AlertAcknowledged = "acknowledged"
+	AlertResolved     = "resolved"
+)
+
+var alertKinds = map[string]bool{AlertYieldDrop: true, AlertManual: true}
+
+func ValidAlertKind(kind string) bool {
+	return alertKinds[strings.ToLower(strings.TrimSpace(kind))]
+}
+
+var alertStatuses = map[string]bool{
+	AlertOpen: true, AlertAcknowledged: true, AlertResolved: true,
+}
+
+// ValidAlertStatus keeps the set closed, same reasoning as ValidStage.
+func ValidAlertStatus(status string) bool {
+	return alertStatuses[strings.ToLower(strings.TrimSpace(status))]
+}
+
+// DropPct is how far Actual fell below Baseline, as the number a farmer
+// actually reads ("down 30%") rather than the two litres it takes to
+// compute it.
+func (a HerdAlert) DropPct() float64 {
+	if a.Baseline <= 0 {
+		return 0
+	}
+	return (a.Baseline - a.Actual) / a.Baseline * 100
+}
+
+// Yield-drop detection: how far back a baseline looks, how many of those
+// days need an actual record before the baseline is trusted, and how far
+// below it counts as a drop worth raising.
+const (
+	YieldAlertWindowDays = 14
+	YieldAlertMinDays    = 5
+	YieldAlertThreshold  = 0.20
+)
+
+// YieldBaseline is the trailing average of an animal's own recent days,
+// counting only days that were actually recorded — a day nobody milked
+// and wrote down is not a zero, and must not drag the average toward
+// one, same reasoning as MilkYield's own doc comment. ok is false until
+// there are enough recorded days to trust the number: a freshly-calved
+// animal's first low day is not a drop, it is the only data point there
+// is yet.
+func YieldBaseline(recent []MilkYield) (baseline float64, ok bool) {
+	if len(recent) < YieldAlertMinDays {
+		return 0, false
+	}
+	sum := 0.0
+	for _, y := range recent {
+		sum += y.Total()
+	}
+	return sum / float64(len(recent)), true
+}
+
+// IsYieldDrop reports whether actual is far enough below baseline to be
+// worth a farmer's attention. Everything past the threshold is the
+// farmer's own judgement, recorded in the alert's Note once they have
+// looked at the animal.
+//
+// threshold is a fraction; zero or nonsense falls back to the default,
+// so a business that never set one behaves as it always did.
+func IsYieldDrop(baseline, actual, threshold float64) bool {
+	if threshold <= 0 || threshold >= 1 {
+		threshold = YieldAlertThreshold
+	}
+	return baseline > 0 && actual < baseline*(1-threshold)
+}

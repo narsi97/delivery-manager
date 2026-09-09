@@ -64,7 +64,9 @@ func PresetFor(businessType BusinessType) Preset {
 // pretending to be part of the daily round.
 func dairyPreset() Preset {
 	return Preset{
-		Config: BusinessConfig{}.WithDefaults(),
+		// The only preset that keeps a herd: a dairy is the one vertical
+		// here that produces what it delivers.
+		Config: BusinessConfig{Herd: true}.WithDefaults(),
 		Products: []ProductSpec{
 			{Name: "Milk 500ml", Unit: "packet"},
 			{Name: "Milk 750ml", Unit: "packet"},

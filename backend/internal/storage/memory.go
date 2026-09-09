@@ -33,6 +33,8 @@ type MemoryStore struct {
 	animals      map[string]domain.Animal
 	breedings    map[string]domain.Breeding
 	yields       map[yieldKey]domain.MilkYield
+	herdAlerts   map[string]domain.HerdAlert
+	healthEvents map[string]domain.HealthEvent
 	recurring    map[string]domain.RecurringOrder
 	daily        map[string]domain.DailyOrder
 	routes       map[string]domain.Route
@@ -66,6 +68,8 @@ func NewMemoryStore() *MemoryStore {
 		animals:      map[string]domain.Animal{},
 		breedings:    map[string]domain.Breeding{},
 		yields:       map[yieldKey]domain.MilkYield{},
+		herdAlerts:   map[string]domain.HerdAlert{},
+		healthEvents: map[string]domain.HealthEvent{},
 		serviceAreas: map[string]domain.ServiceArea{},
 		products:     map[string]domain.Product{},
 		recurring:    map[string]domain.RecurringOrder{},
@@ -1094,6 +1098,16 @@ func (s *MemoryStore) DeleteAnimal(_ context.Context, businessID string, id stri
 			delete(s.yields, key)
 		}
 	}
+	for aid, a := range s.herdAlerts {
+		if a.AnimalID == id {
+			delete(s.herdAlerts, aid)
+		}
+	}
+	for eid, e := range s.healthEvents {
+		if e.AnimalID == id {
+			delete(s.healthEvents, eid)
+		}
+	}
 	return nil
 }
 
@@ -1184,10 +1198,130 @@ func (s *MemoryStore) ListAnimalYields(_ context.Context, businessID string, ani
 	return out, nil
 }
 
+func (s *MemoryStore) ListYieldsBetween(_ context.Context, businessID string, from, to string) ([]domain.MilkYield, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := []domain.MilkYield{}
+	for key, y := range s.yields {
+		if key.businessID == businessID && key.date >= from && key.date <= to {
+			out = append(out, y)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Date > out[j].Date })
+	return out, nil
+}
+
+func (s *MemoryStore) CreateHealthEvent(_ context.Context, e domain.HealthEvent) (domain.HealthEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.healthEvents[e.ID] = e
+	return e, nil
+}
+
+func (s *MemoryStore) ListHealthEvents(_ context.Context, businessID string, animalID string) ([]domain.HealthEvent, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := []domain.HealthEvent{}
+	for _, e := range s.healthEvents {
+		if e.BusinessID == businessID && e.AnimalID == animalID {
+			out = append(out, e)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Date > out[j].Date })
+	return out, nil
+}
+
+func (s *MemoryStore) ListAllHealthEvents(_ context.Context, businessID string) ([]domain.HealthEvent, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := []domain.HealthEvent{}
+	for _, e := range s.healthEvents {
+		if e.BusinessID == businessID {
+			out = append(out, e)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Date > out[j].Date })
+	return out, nil
+}
+
+func (s *MemoryStore) UpdateHealthEvent(_ context.Context, e domain.HealthEvent) (domain.HealthEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existing, ok := s.healthEvents[e.ID]
+	if !ok || existing.BusinessID != e.BusinessID {
+		return domain.HealthEvent{}, ErrNotFound
+	}
+	s.healthEvents[e.ID] = e
+	return e, nil
+}
+
+func (s *MemoryStore) DeleteHealthEvent(_ context.Context, businessID string, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	e, ok := s.healthEvents[id]
+	if !ok || e.BusinessID != businessID {
+		return ErrNotFound
+	}
+	delete(s.healthEvents, id)
+	return nil
+}
+
 func (s *MemoryStore) SetMilkYield(_ context.Context, y domain.MilkYield) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.yields[yieldKey{businessID: y.BusinessID, animalID: y.AnimalID, date: y.Date}] = y
 	return nil
+}
+
+func (s *MemoryStore) CreateHerdAlert(_ context.Context, a domain.HerdAlert) (domain.HerdAlert, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.herdAlerts[a.ID] = a
+	return a, nil
+}
+
+func (s *MemoryStore) ListOpenHerdAlerts(_ context.Context, businessID string) ([]domain.HerdAlert, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := []domain.HerdAlert{}
+	for _, a := range s.herdAlerts {
+		if a.BusinessID == businessID && a.Status != domain.AlertResolved {
+			out = append(out, a)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].RaisedOn > out[j].RaisedOn })
+	return out, nil
+}
+
+func (s *MemoryStore) OpenHerdAlert(_ context.Context, businessID, animalID, kind string) (domain.HerdAlert, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, a := range s.herdAlerts {
+		if a.BusinessID == businessID && a.AnimalID == animalID && a.Kind == kind && a.Status != domain.AlertResolved {
+			return a, nil
+		}
+	}
+	return domain.HerdAlert{}, ErrNotFound
+}
+
+func (s *MemoryStore) UpdateHerdAlert(_ context.Context, a domain.HerdAlert) (domain.HerdAlert, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existing, ok := s.herdAlerts[a.ID]
+	if !ok || existing.BusinessID != a.BusinessID {
+		return domain.HerdAlert{}, ErrNotFound
+	}
+	s.herdAlerts[a.ID] = a
+	return a, nil
 }

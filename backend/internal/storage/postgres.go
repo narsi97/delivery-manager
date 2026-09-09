@@ -1435,6 +1435,107 @@ func (s *PostgresStore) ListAnimalYields(ctx context.Context, businessID string,
 	return out, rows.Err()
 }
 
+func (s *PostgresStore) ListYieldsBetween(ctx context.Context, businessID string, from, to string) ([]domain.MilkYield, error) {
+	rows, err := s.pool.Query(ctx,
+		`select business_id, animal_id, yield_date, morning, evening
+		 from milk_yields where business_id=$1 and yield_date >= $2 and yield_date <= $3
+		 order by yield_date desc`, businessID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []domain.MilkYield{}
+	for rows.Next() {
+		var y domain.MilkYield
+		if err := rows.Scan(&y.BusinessID, &y.AnimalID, &y.Date, &y.Morning, &y.Evening); err != nil {
+			return nil, err
+		}
+		out = append(out, y)
+	}
+	return out, rows.Err()
+}
+
+const healthEventColumns = `id, business_id, animal_id, kind, name, event_date, batch, dose, vet, cost_rupees, next_due_on, milk_withheld_until, notes`
+
+func scanHealthEvent(row pgx.Row) (domain.HealthEvent, error) {
+	var e domain.HealthEvent
+	if err := row.Scan(&e.ID, &e.BusinessID, &e.AnimalID, &e.Kind, &e.Name, &e.Date,
+		&e.Batch, &e.Dose, &e.Vet, &e.CostRupees, &e.NextDueOn, &e.MilkWithheldUntil, &e.Notes); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.HealthEvent{}, ErrNotFound
+		}
+		return domain.HealthEvent{}, err
+	}
+	return e, nil
+}
+
+func (s *PostgresStore) CreateHealthEvent(ctx context.Context, e domain.HealthEvent) (domain.HealthEvent, error) {
+	_, err := s.pool.Exec(ctx,
+		`insert into health_events (`+healthEventColumns+`)
+		 values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+		e.ID, e.BusinessID, e.AnimalID, e.Kind, e.Name, e.Date,
+		e.Batch, e.Dose, e.Vet, e.CostRupees, e.NextDueOn, e.MilkWithheldUntil, e.Notes)
+	if err != nil {
+		return domain.HealthEvent{}, err
+	}
+	return e, nil
+}
+
+func (s *PostgresStore) listHealthEvents(ctx context.Context, where string, args ...any) ([]domain.HealthEvent, error) {
+	rows, err := s.pool.Query(ctx, `select `+healthEventColumns+` from health_events `+where, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []domain.HealthEvent{}
+	for rows.Next() {
+		e, err := scanHealthEvent(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+func (s *PostgresStore) ListHealthEvents(ctx context.Context, businessID string, animalID string) ([]domain.HealthEvent, error) {
+	return s.listHealthEvents(ctx,
+		`where business_id=$1 and animal_id=$2 order by event_date desc`, businessID, animalID)
+}
+
+func (s *PostgresStore) ListAllHealthEvents(ctx context.Context, businessID string) ([]domain.HealthEvent, error) {
+	return s.listHealthEvents(ctx, `where business_id=$1 order by event_date desc`, businessID)
+}
+
+func (s *PostgresStore) UpdateHealthEvent(ctx context.Context, e domain.HealthEvent) (domain.HealthEvent, error) {
+	tag, err := s.pool.Exec(ctx,
+		`update health_events set kind=$3, name=$4, event_date=$5, batch=$6, dose=$7, vet=$8,
+		 cost_rupees=$9, next_due_on=$10, milk_withheld_until=$11, notes=$12
+		 where id=$1 and business_id=$2`,
+		e.ID, e.BusinessID, e.Kind, e.Name, e.Date, e.Batch, e.Dose, e.Vet,
+		e.CostRupees, e.NextDueOn, e.MilkWithheldUntil, e.Notes)
+	if err != nil {
+		return domain.HealthEvent{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.HealthEvent{}, ErrNotFound
+	}
+	return e, nil
+}
+
+func (s *PostgresStore) DeleteHealthEvent(ctx context.Context, businessID string, id string) error {
+	tag, err := s.pool.Exec(ctx, `delete from health_events where id=$1 and business_id=$2`, id, businessID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *PostgresStore) SetMilkYield(ctx context.Context, y domain.MilkYield) error {
 	_, err := s.pool.Exec(ctx,
 		`insert into milk_yields (business_id, animal_id, yield_date, morning, evening)
@@ -1442,4 +1543,72 @@ func (s *PostgresStore) SetMilkYield(ctx context.Context, y domain.MilkYield) er
 		 on conflict (animal_id, yield_date) do update set morning=excluded.morning, evening=excluded.evening`,
 		y.BusinessID, y.AnimalID, y.Date, y.Morning, y.Evening)
 	return err
+}
+
+const herdAlertColumns = `id, business_id, animal_id, kind, raised_on, baseline, actual, status, note, resolved_on`
+
+func scanHerdAlert(row pgx.Row) (domain.HerdAlert, error) {
+	var a domain.HerdAlert
+	if err := row.Scan(&a.ID, &a.BusinessID, &a.AnimalID, &a.Kind, &a.RaisedOn,
+		&a.Baseline, &a.Actual, &a.Status, &a.Note, &a.ResolvedOn); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.HerdAlert{}, ErrNotFound
+		}
+		return domain.HerdAlert{}, err
+	}
+	return a, nil
+}
+
+func (s *PostgresStore) CreateHerdAlert(ctx context.Context, a domain.HerdAlert) (domain.HerdAlert, error) {
+	_, err := s.pool.Exec(ctx,
+		`insert into herd_alerts (`+herdAlertColumns+`) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		a.ID, a.BusinessID, a.AnimalID, a.Kind, a.RaisedOn, a.Baseline, a.Actual, a.Status, a.Note, a.ResolvedOn)
+	if err != nil {
+		return domain.HerdAlert{}, err
+	}
+	return a, nil
+}
+
+func (s *PostgresStore) ListOpenHerdAlerts(ctx context.Context, businessID string) ([]domain.HerdAlert, error) {
+	rows, err := s.pool.Query(ctx,
+		`select `+herdAlertColumns+` from herd_alerts
+		 where business_id=$1 and status <> $2 order by raised_on desc`,
+		businessID, domain.AlertResolved)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []domain.HerdAlert{}
+	for rows.Next() {
+		a, err := scanHerdAlert(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func (s *PostgresStore) OpenHerdAlert(ctx context.Context, businessID, animalID, kind string) (domain.HerdAlert, error) {
+	row := s.pool.QueryRow(ctx,
+		`select `+herdAlertColumns+` from herd_alerts
+		 where business_id=$1 and animal_id=$2 and kind=$3 and status <> $4
+		 order by raised_on desc limit 1`,
+		businessID, animalID, kind, domain.AlertResolved)
+	return scanHerdAlert(row)
+}
+
+func (s *PostgresStore) UpdateHerdAlert(ctx context.Context, a domain.HerdAlert) (domain.HerdAlert, error) {
+	tag, err := s.pool.Exec(ctx,
+		`update herd_alerts set status=$3, note=$4, resolved_on=$5
+		 where id=$1 and business_id=$2`,
+		a.ID, a.BusinessID, a.Status, a.Note, a.ResolvedOn)
+	if err != nil {
+		return domain.HerdAlert{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.HerdAlert{}, ErrNotFound
+	}
+	return a, nil
 }

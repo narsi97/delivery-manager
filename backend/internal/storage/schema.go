@@ -358,4 +358,52 @@ var schemaStatements = []string{
 		primary key (animal_id, yield_date)
 	)`,
 	`create index if not exists milk_yields_business_date_idx on milk_yields(business_id, yield_date)`,
+
+	// A warning raised about an animal — today, a milk yield down against
+	// its own recent average. Kind is text rather than a fixed set so a
+	// second source (an overdue vaccination, say) can raise into the same
+	// table later without a schema change. Note is where a farmer's own
+	// diagnosis lives once they've looked at the animal; this app does
+	// not attempt one.
+	`create table if not exists herd_alerts (
+		id text primary key,
+		business_id text not null references businesses(id) on delete cascade,
+		animal_id text not null references animals(id) on delete cascade,
+		kind text not null,
+		raised_on text not null,
+		baseline double precision not null default 0,
+		actual double precision not null default 0,
+		status text not null default 'open',
+		note text not null default '',
+		resolved_on text not null default '',
+		created_at timestamptz not null default now()
+	)`,
+	`create index if not exists herd_alerts_business_status_idx on herd_alerts(business_id, status)`,
+
+	// Something done to an animal on a day: a jab, a drench, a
+	// treatment, a vet's visit. One table rather than one per kind —
+	// they are the same record with different words on it.
+	//
+	// next_due_on is what turns the log into a schedule (FMD every six
+	// months, HS and BQ annually). milk_withheld_until is a safety
+	// interlock: milk from a treated animal must not reach the churn
+	// until the drug has cleared her.
+	`create table if not exists health_events (
+		id text primary key,
+		business_id text not null references businesses(id) on delete cascade,
+		animal_id text not null references animals(id) on delete cascade,
+		kind text not null,
+		name text not null default '',
+		event_date text not null,
+		batch text not null default '',
+		dose text not null default '',
+		vet text not null default '',
+		cost_rupees integer not null default 0,
+		next_due_on text not null default '',
+		milk_withheld_until text not null default '',
+		notes text not null default '',
+		created_at timestamptz not null default now()
+	)`,
+	`create index if not exists health_events_animal_idx on health_events(animal_id, event_date)`,
+	`create index if not exists health_events_business_due_idx on health_events(business_id, next_due_on)`,
 }

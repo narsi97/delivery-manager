@@ -283,6 +283,23 @@ func TestEveryPresetIsValidAndComplete(t *testing.T) {
 	}
 }
 
+// Only a dairy starts with a herd. A school bus operator or a water
+// supplier has no animals, and a livestock book they never asked for is
+// furniture on every screen they do use.
+func TestOnlyTheDairyPresetKeepsAHerd(t *testing.T) {
+	for _, businessType := range []BusinessType{
+		BusinessTypeSchool, BusinessTypeWater, BusinessTypeGrocery,
+		BusinessTypeOther, BusinessType("something-new"),
+	} {
+		if PresetFor(businessType).Config.Herd {
+			t.Errorf("%s starts with a herd, want none", businessType)
+		}
+	}
+	if !PresetFor(BusinessTypeDairy).Config.Herd {
+		t.Error("the dairy preset has no herd — it is the one vertical that produces what it delivers")
+	}
+}
+
 func TestSchoolPresetRenamesNounsAndDeclaresItsFields(t *testing.T) {
 	config := PresetFor(BusinessTypeSchool).Config
 

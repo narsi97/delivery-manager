@@ -41,6 +41,31 @@ type BusinessConfig struct {
 	// Docs/ARCHITECTURE.md). It lives here from day one so that turning a
 	// bespoke request on later is a config change, not a schema change.
 	Extensions []string `json:"extensions,omitempty"`
+	// Herd turns on the livestock book: the milking sheet, the animal
+	// register, and the crossings behind it. Off by default, because a
+	// school bus operator has no animals and a tab for them is furniture
+	// (Docs/DESIGN.md, rule 3).
+	//
+	// A flag on the config rather than a check on BusinessType, per this
+	// file's own rule: the dairy preset switches it on, and a business
+	// owns it from that moment — so a goat farmer who signed up as
+	// "other" turns it on without anybody editing Go.
+	Herd bool `json:"herd,omitempty"`
+	// YieldDropPercent is how far an animal has to fall below its own
+	// recent average before the app says so. Zero means the built-in
+	// default (see domain.YieldAlertThreshold).
+	//
+	// Configurable because the right number is a property of the herd,
+	// not of this app: a farm whose animals are steady wants to hear
+	// about 15%, one with wide day-to-day swings would be buried by it
+	// and stop reading the tab at all.
+	YieldDropPercent int `json:"yield_drop_percent,omitempty"`
+}
+
+// YieldDropThreshold is YieldDropPercent as the fraction IsYieldDrop
+// wants, or 0 to mean "use the default".
+func (c BusinessConfig) YieldDropThreshold() float64 {
+	return float64(c.YieldDropPercent) / 100
 }
 
 // Terminology renames the core nouns for a vertical. A school operator
@@ -312,6 +337,12 @@ func (c BusinessConfig) Validate() error {
 	}
 	if len(c.StopCaptures) > maxSpecs {
 		return fmt.Errorf("a business can declare at most %d stop captures", maxSpecs)
+	}
+	// Bounded rather than merely positive: 1% would alert on every
+	// animal every day, and 95% would alert on none of them, and both
+	// are ways of turning the feature off while looking like it is on.
+	if c.YieldDropPercent != 0 && (c.YieldDropPercent < 5 || c.YieldDropPercent > 90) {
+		return fmt.Errorf("a milk-drop alert has to be between 5%% and 90%%, or 0 for the default")
 	}
 
 	seenFields := map[string]bool{}

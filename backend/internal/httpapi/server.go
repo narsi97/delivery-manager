@@ -147,17 +147,27 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/geocode", s.withAdmin(s.handleGeocode))
 
 	// ---------- the herd ----------
-	s.mux.HandleFunc("GET /api/v1/animals", s.withAdmin(s.handleListAnimals))
-	s.mux.HandleFunc("POST /api/v1/animals", s.withAdmin(s.handleCreateAnimal))
-	s.mux.HandleFunc("PATCH /api/v1/animals/{id}", s.withAdmin(s.handleUpdateAnimal))
-	s.mux.HandleFunc("DELETE /api/v1/animals/{id}", s.withAdmin(s.handleDeleteAnimal))
-	s.mux.HandleFunc("GET /api/v1/animals/{id}/breedings", s.withAdmin(s.handleListBreedings))
-	s.mux.HandleFunc("POST /api/v1/animals/{id}/breedings", s.withAdmin(s.handleCreateBreeding))
-	s.mux.HandleFunc("PATCH /api/v1/breedings/{id}", s.withAdmin(s.handleUpdateBreeding))
-	s.mux.HandleFunc("DELETE /api/v1/breedings/{id}", s.withAdmin(s.handleDeleteBreeding))
-	s.mux.HandleFunc("GET /api/v1/animals/{id}/yields", s.withAdmin(s.handleAnimalYields))
-	s.mux.HandleFunc("PUT /api/v1/animals/{id}/yield", s.withAdmin(s.handleSetMilkYield))
-	s.mux.HandleFunc("GET /api/v1/herd/day", s.withAdmin(s.handleHerdDay))
+	s.mux.HandleFunc("GET /api/v1/animals", s.withHerd(s.handleListAnimals))
+	s.mux.HandleFunc("POST /api/v1/animals", s.withHerd(s.handleCreateAnimal))
+	s.mux.HandleFunc("PATCH /api/v1/animals/{id}", s.withHerd(s.handleUpdateAnimal))
+	s.mux.HandleFunc("DELETE /api/v1/animals/{id}", s.withHerd(s.handleDeleteAnimal))
+	s.mux.HandleFunc("GET /api/v1/animals/{id}/breedings", s.withHerd(s.handleListBreedings))
+	s.mux.HandleFunc("POST /api/v1/animals/{id}/breedings", s.withHerd(s.handleCreateBreeding))
+	s.mux.HandleFunc("PATCH /api/v1/breedings/{id}", s.withHerd(s.handleUpdateBreeding))
+	s.mux.HandleFunc("DELETE /api/v1/breedings/{id}", s.withHerd(s.handleDeleteBreeding))
+	s.mux.HandleFunc("GET /api/v1/animals/{id}/yields", s.withHerd(s.handleAnimalYields))
+	s.mux.HandleFunc("PUT /api/v1/animals/{id}/yield", s.withHerd(s.handleSetMilkYield))
+	s.mux.HandleFunc("GET /api/v1/herd/day", s.withHerd(s.handleHerdDay))
+	s.mux.HandleFunc("GET /api/v1/herd/alerts", s.withHerd(s.handleListHerdAlerts))
+	s.mux.HandleFunc("POST /api/v1/herd/alerts", s.withHerd(s.handleCreateHerdAlert))
+	s.mux.HandleFunc("PATCH /api/v1/herd/alerts/{id}", s.withHerd(s.handleUpdateHerdAlert))
+	s.mux.HandleFunc("GET /api/v1/herd/health-due", s.withHerd(s.handleHealthDue))
+	s.mux.HandleFunc("POST /api/v1/herd/vaccinate", s.withHerd(s.handleVaccinateHerd))
+	s.mux.HandleFunc("GET /api/v1/herd/summary", s.withHerd(s.handleHerdSummary))
+	s.mux.HandleFunc("GET /api/v1/animals/{id}/health", s.withHerd(s.handleListHealthEvents))
+	s.mux.HandleFunc("POST /api/v1/animals/{id}/health", s.withHerd(s.handleCreateHealthEvent))
+	s.mux.HandleFunc("PATCH /api/v1/health/{id}", s.withHerd(s.handleUpdateHealthEvent))
+	s.mux.HandleFunc("DELETE /api/v1/health/{id}", s.withHerd(s.handleDeleteHealthEvent))
 	s.mux.HandleFunc("PUT /api/v1/products/{id}/stock", s.withAdmin(s.handleSetProductStock))
 	s.mux.HandleFunc("PUT /api/v1/products/stock", s.withAdmin(s.handleSetAllProductStock))
 
@@ -285,6 +295,25 @@ func (s *Server) withAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return s.withAuth(func(w http.ResponseWriter, r *http.Request) {
 		if !sessionFrom(r.Context()).User.Role.CanAdmin() {
 			writeError(w, http.StatusForbidden, "this action needs an admin account", "admin_required")
+			return
+		}
+		next(w, r)
+	})
+}
+
+// withHerd is withAdmin for the livestock book, refused when this
+// business has not turned the herd on.
+//
+// Hiding the tab is not enough on its own: a business with no herd would
+// still have eleven live endpoints writing animals it will never see,
+// which is how a table fills with records nobody can explain. 404 rather
+// than 403 — for a business without the herd these routes do not exist,
+// and saying "forbidden" would describe a feature it has no reason to
+// know about.
+func (s *Server) withHerd(next http.HandlerFunc) http.HandlerFunc {
+	return s.withAdmin(func(w http.ResponseWriter, r *http.Request) {
+		if !sessionFrom(r.Context()).Business.Config.Herd {
+			writeError(w, http.StatusNotFound, "this business does not keep a herd", "not_found")
 			return
 		}
 		next(w, r)

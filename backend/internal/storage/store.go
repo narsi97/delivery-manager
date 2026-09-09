@@ -210,7 +210,33 @@ type Store interface {
 	ListMilkYields(ctx context.Context, businessID string, date string) (map[string]domain.MilkYield, error)
 	// ListAnimalYields is one animal's history, newest first.
 	ListAnimalYields(ctx context.Context, businessID string, animalID string, from, to string) ([]domain.MilkYield, error)
+	// ListYieldsBetween is every animal's records across a span of days,
+	// for working out what each one normally gives. One query rather
+	// than one per animal: a forty-head farm drawing a milking sheet
+	// should not make forty round trips to show an average.
+	ListYieldsBetween(ctx context.Context, businessID string, from, to string) ([]domain.MilkYield, error)
 	SetMilkYield(ctx context.Context, y domain.MilkYield) error
+
+	// The health book: jabs, drenches, treatments and vet visits.
+	CreateHealthEvent(ctx context.Context, e domain.HealthEvent) (domain.HealthEvent, error)
+	ListHealthEvents(ctx context.Context, businessID string, animalID string) ([]domain.HealthEvent, error)
+	// ListAllHealthEvents is the herd's, for working out what is due and
+	// whose milk is currently being withheld.
+	ListAllHealthEvents(ctx context.Context, businessID string) ([]domain.HealthEvent, error)
+	UpdateHealthEvent(ctx context.Context, e domain.HealthEvent) (domain.HealthEvent, error)
+	DeleteHealthEvent(ctx context.Context, businessID string, id string) error
+
+	// Alerts raised against the herd — a yield drop today, an overdue
+	// vaccination tomorrow. CreateHerdAlert is called right after the
+	// record that triggered it, so an admin never has to go looking.
+	CreateHerdAlert(ctx context.Context, a domain.HerdAlert) (domain.HerdAlert, error)
+	// ListOpenHerdAlerts is what an admin needs to see, newest first.
+	ListOpenHerdAlerts(ctx context.Context, businessID string) ([]domain.HerdAlert, error)
+	// OpenHerdAlert finds an alert of this kind still open for one
+	// animal, if any, so detection does not raise a second alert on top
+	// of one already waiting for an answer. Returns ErrNotFound if none.
+	OpenHerdAlert(ctx context.Context, businessID, animalID, kind string) (domain.HerdAlert, error)
+	UpdateHerdAlert(ctx context.Context, a domain.HerdAlert) (domain.HerdAlert, error)
 
 	CreateRecurringOrder(ctx context.Context, r domain.RecurringOrder) (domain.RecurringOrder, error)
 	ListRecurringOrders(ctx context.Context, businessID string) ([]domain.RecurringOrder, error)
