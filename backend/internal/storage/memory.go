@@ -29,18 +29,20 @@ type MemoryStore struct {
 	serviceAreas map[string]domain.ServiceArea
 	products     map[string]domain.Product
 	// Stock is per product per day — see the product_stock table.
-	productStock map[stockKey]float64
-	animals      map[string]domain.Animal
-	breedings    map[string]domain.Breeding
-	yields       map[yieldKey]domain.MilkYield
-	herdAlerts   map[string]domain.HerdAlert
-	healthEvents map[string]domain.HealthEvent
-	recurring    map[string]domain.RecurringOrder
-	daily        map[string]domain.DailyOrder
-	routes       map[string]domain.Route
-	events       []domain.DeliveryEvent
-	otps         map[string]domain.OTPChallenge
-	checkins     map[string]domain.Checkin
+	productStock        map[stockKey]float64
+	animals             map[string]domain.Animal
+	breedings           map[string]domain.Breeding
+	yields              map[yieldKey]domain.MilkYield
+	milkAdjustments     map[string]domain.MilkAdjustment
+	milkAdjustmentOrder []string
+	herdAlerts          map[string]domain.HerdAlert
+	healthEvents        map[string]domain.HealthEvent
+	recurring           map[string]domain.RecurringOrder
+	daily               map[string]domain.DailyOrder
+	routes              map[string]domain.Route
+	events              []domain.DeliveryEvent
+	otps                map[string]domain.OTPChallenge
+	checkins            map[string]domain.Checkin
 }
 
 // One animal on one day.
@@ -59,24 +61,25 @@ type stockKey struct {
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		businesses:   map[string]domain.Business{},
-		users:        map[string]domain.User{},
-		pinHashes:    map[string]string{},
-		passwords:    map[string]string{},
-		customers:    map[string]domain.Customer{},
-		productStock: map[stockKey]float64{},
-		animals:      map[string]domain.Animal{},
-		breedings:    map[string]domain.Breeding{},
-		yields:       map[yieldKey]domain.MilkYield{},
-		herdAlerts:   map[string]domain.HerdAlert{},
-		healthEvents: map[string]domain.HealthEvent{},
-		serviceAreas: map[string]domain.ServiceArea{},
-		products:     map[string]domain.Product{},
-		recurring:    map[string]domain.RecurringOrder{},
-		daily:        map[string]domain.DailyOrder{},
-		routes:       map[string]domain.Route{},
-		otps:         map[string]domain.OTPChallenge{},
-		checkins:     map[string]domain.Checkin{},
+		businesses:      map[string]domain.Business{},
+		users:           map[string]domain.User{},
+		pinHashes:       map[string]string{},
+		passwords:       map[string]string{},
+		customers:       map[string]domain.Customer{},
+		productStock:    map[stockKey]float64{},
+		animals:         map[string]domain.Animal{},
+		breedings:       map[string]domain.Breeding{},
+		yields:          map[yieldKey]domain.MilkYield{},
+		milkAdjustments: map[string]domain.MilkAdjustment{},
+		herdAlerts:      map[string]domain.HerdAlert{},
+		healthEvents:    map[string]domain.HealthEvent{},
+		serviceAreas:    map[string]domain.ServiceArea{},
+		products:        map[string]domain.Product{},
+		recurring:       map[string]domain.RecurringOrder{},
+		daily:           map[string]domain.DailyOrder{},
+		routes:          map[string]domain.Route{},
+		otps:            map[string]domain.OTPChallenge{},
+		checkins:        map[string]domain.Checkin{},
 	}
 }
 
@@ -1324,4 +1327,50 @@ func (s *MemoryStore) UpdateHerdAlert(_ context.Context, a domain.HerdAlert) (do
 	}
 	s.herdAlerts[a.ID] = a
 	return a, nil
+}
+
+// ---------- milk that moved outside the herd's records ----------
+
+func (s *MemoryStore) ListMilkAdjustments(_ context.Context, businessID string, date string) ([]domain.MilkAdjustment, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := []domain.MilkAdjustment{}
+	for _, id := range s.milkAdjustmentOrder {
+		a := s.milkAdjustments[id]
+		if a.BusinessID == businessID && a.Date == date {
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+
+func (s *MemoryStore) CreateMilkAdjustment(_ context.Context, a domain.MilkAdjustment) (domain.MilkAdjustment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.milkAdjustments[a.ID] = a
+	// Kept in the order they were written, as Postgres orders by
+	// created_at: a ledger read back in a different order than it was
+	// entered reads as a different ledger.
+	s.milkAdjustmentOrder = append(s.milkAdjustmentOrder, a.ID)
+	return a, nil
+}
+
+func (s *MemoryStore) DeleteMilkAdjustment(_ context.Context, businessID string, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	a, ok := s.milkAdjustments[id]
+	if !ok || a.BusinessID != businessID {
+		return ErrNotFound
+	}
+	delete(s.milkAdjustments, id)
+	for i, existing := range s.milkAdjustmentOrder {
+		if existing == id {
+			s.milkAdjustmentOrder = append(s.milkAdjustmentOrder[:i], s.milkAdjustmentOrder[i+1:]...)
+			break
+		}
+	}
+	return nil
 }

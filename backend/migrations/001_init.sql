@@ -318,6 +318,18 @@ create table if not exists milk_yields (
 
 create index if not exists milk_yields_business_date_idx on milk_yields(business_id, yield_date);
 
+create table if not exists milk_adjustments (
+		id text primary key,
+		business_id text not null references businesses(id) on delete cascade,
+		adjust_date text not null,
+		litres double precision not null,
+		direction text not null,
+		note text not null default '',
+		created_at timestamptz not null default now()
+	);
+
+create index if not exists milk_adjustments_business_date_idx on milk_adjustments(business_id, adjust_date);
+
 create table if not exists herd_alerts (
 		id text primary key,
 		business_id text not null references businesses(id) on delete cascade,

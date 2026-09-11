@@ -359,6 +359,21 @@ var schemaStatements = []string{
 	)`,
 	`create index if not exists milk_yields_business_date_idx on milk_yields(business_id, yield_date)`,
 
+	// Milk that moved without coming out of the herd's records: bought in
+	// from outside, or kept back for the house, family, calves. Litres are
+	// always positive and direction says which way — a sign in a text box
+	// is a minus somebody forgets to type. See domain.MilkAdjustment.
+	`create table if not exists milk_adjustments (
+		id text primary key,
+		business_id text not null references businesses(id) on delete cascade,
+		adjust_date text not null,
+		litres double precision not null,
+		direction text not null,
+		note text not null default '',
+		created_at timestamptz not null default now()
+	)`,
+	`create index if not exists milk_adjustments_business_date_idx on milk_adjustments(business_id, adjust_date)`,
+
 	// A warning raised about an animal — today, a milk yield down against
 	// its own recent average. Kind is text rather than a fixed set so a
 	// second source (an overdue vaccination, say) can raise into the same

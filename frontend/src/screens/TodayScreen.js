@@ -12,6 +12,7 @@ import { labelsFor, lower } from '../labels';
 import { serviceRouteOfRoute } from '../serviceAreas';
 import { CauseStops, notGoingOutCauses, OneOffRoute } from '../NotGoingOut';
 import { usePageStyle } from '../layout';
+import MilkLedger from '../MilkLedger';
 import ProductTable from '../ProductTable';
 import { colors, spacing } from '../theme';
 
@@ -324,6 +325,16 @@ export default function TodayScreen({ token, business, onScroll }) {
                   Banner), so the table lands on the same surface it has
                   under Manage business. */}
               {exception.products ? (
+                <>
+                {business?.config?.herd ? (
+                  <MilkLedger
+                    token={token}
+                    date={day?.date}
+                    stockSignature={JSON.stringify(stock)}
+                    onChanged={refresh}
+                    onError={setError}
+                  />
+                ) : null}
                 <ProductTable
                   products={products}
                   demand={demand}
@@ -334,6 +345,7 @@ export default function TodayScreen({ token, business, onScroll }) {
                   onChanged={refresh}
                   onError={setError}
                 />
+                </>
               ) : null}
               {exception.stops ? (
                 <CauseStops
@@ -438,6 +450,18 @@ export default function TodayScreen({ token, business, onScroll }) {
         <Card>
           <SectionTitle>Stock</SectionTitle>
           <View style={styles.headingDivider} />
+          {/* With a herd, what goes on the shelf starts from the day's
+              milk — see MilkLedger. Without one there is nothing to add
+              up, and a ledger of zeros would be furniture. */}
+          {business?.config?.herd ? (
+            <MilkLedger
+              token={token}
+              date={day?.date}
+              stockSignature={JSON.stringify(stock)}
+              onChanged={refresh}
+              onError={setError}
+            />
+          ) : null}
           <ProductTable
             products={products}
             demand={demand}

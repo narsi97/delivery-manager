@@ -567,6 +567,31 @@ export function getHealthDue(token) {
   return request('/api/v1/herd/health-due', { method: 'GET', token });
 }
 
+// ---------- a day's milk, in litres ----------
+//
+// The bridge between the herd and the shelf: what the herd gave, what was
+// bought in or kept back, and what the round needs. Computed on the
+// server (milkledger.go) so no two screens add a day's milk up two ways.
+export function getMilkDay(token, date) {
+  return request(`/api/v1/milk/day${date ? `?date=${date}` : ''}`, { method: 'GET', token });
+}
+
+// Litres are always positive; direction is 'in' (bought in) or 'out'
+// (kept back for the house, family, calves).
+export function addMilkAdjustment(token, adjustment) {
+  return request('/api/v1/milk/adjustments', { method: 'POST', token, body: JSON.stringify(adjustment) });
+}
+
+export function deleteMilkAdjustment(token, id) {
+  return request(`/api/v1/milk/adjustments/${id}`, { method: 'DELETE', token });
+}
+
+// Fills each size up to what the round needs. Refuses when short rather
+// than choosing which customers go without.
+export function bottleMilk(token, date) {
+  return request('/api/v1/milk/bottle', { method: 'POST', token, body: JSON.stringify({ date: date || undefined }) });
+}
+
 export function deleteProduct(token, id) {
   return request(`/api/v1/products/${id}`, { method: 'DELETE', token });
 }

@@ -1612,3 +1612,48 @@ func (s *PostgresStore) UpdateHerdAlert(ctx context.Context, a domain.HerdAlert)
 	}
 	return a, nil
 }
+
+// ---------- milk that moved outside the herd's records ----------
+
+func (s *PostgresStore) ListMilkAdjustments(ctx context.Context, businessID string, date string) ([]domain.MilkAdjustment, error) {
+	rows, err := s.pool.Query(ctx,
+		`select id, business_id, adjust_date, litres, direction, note
+		 from milk_adjustments where business_id=$1 and adjust_date=$2
+		 order by created_at`, businessID, date)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []domain.MilkAdjustment{}
+	for rows.Next() {
+		var a domain.MilkAdjustment
+		if err := rows.Scan(&a.ID, &a.BusinessID, &a.Date, &a.Litres, &a.Direction, &a.Note); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func (s *PostgresStore) CreateMilkAdjustment(ctx context.Context, a domain.MilkAdjustment) (domain.MilkAdjustment, error) {
+	_, err := s.pool.Exec(ctx,
+		`insert into milk_adjustments (id, business_id, adjust_date, litres, direction, note)
+		 values ($1,$2,$3,$4,$5,$6)`,
+		a.ID, a.BusinessID, a.Date, a.Litres, a.Direction, a.Note)
+	if err != nil {
+		return domain.MilkAdjustment{}, err
+	}
+	return a, nil
+}
+
+func (s *PostgresStore) DeleteMilkAdjustment(ctx context.Context, businessID string, id string) error {
+	tag, err := s.pool.Exec(ctx, `delete from milk_adjustments where id=$1 and business_id=$2`, id, businessID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}

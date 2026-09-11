@@ -217,6 +217,11 @@ type Store interface {
 	ListYieldsBetween(ctx context.Context, businessID string, from, to string) ([]domain.MilkYield, error)
 	SetMilkYield(ctx context.Context, y domain.MilkYield) error
 
+	// Milk bought in or kept back on a day — see domain.MilkAdjustment.
+	ListMilkAdjustments(ctx context.Context, businessID string, date string) ([]domain.MilkAdjustment, error)
+	CreateMilkAdjustment(ctx context.Context, a domain.MilkAdjustment) (domain.MilkAdjustment, error)
+	DeleteMilkAdjustment(ctx context.Context, businessID string, id string) error
+
 	// The health book: jabs, drenches, treatments and vet visits.
 	CreateHealthEvent(ctx context.Context, e domain.HealthEvent) (domain.HealthEvent, error)
 	ListHealthEvents(ctx context.Context, businessID string, animalID string) ([]domain.HealthEvent, error)

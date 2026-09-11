@@ -158,6 +158,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/animals/{id}/yields", s.withHerd(s.handleAnimalYields))
 	s.mux.HandleFunc("PUT /api/v1/animals/{id}/yield", s.withHerd(s.handleSetMilkYield))
 	s.mux.HandleFunc("GET /api/v1/herd/day", s.withHerd(s.handleHerdDay))
+	// A day's milk in litres, and turning it into bottles — see
+	// milkledger.go. Behind the herd gate like the rest of it: without a
+	// herd there is nothing to add up.
+	s.mux.HandleFunc("GET /api/v1/milk/day", s.withHerd(s.handleMilkDay))
+	s.mux.HandleFunc("POST /api/v1/milk/adjustments", s.withHerd(s.handleCreateMilkAdjustment))
+	s.mux.HandleFunc("DELETE /api/v1/milk/adjustments/{id}", s.withHerd(s.handleDeleteMilkAdjustment))
+	s.mux.HandleFunc("POST /api/v1/milk/bottle", s.withHerd(s.handleBottleMilk))
 	s.mux.HandleFunc("GET /api/v1/herd/alerts", s.withHerd(s.handleListHerdAlerts))
 	s.mux.HandleFunc("POST /api/v1/herd/alerts", s.withHerd(s.handleCreateHerdAlert))
 	s.mux.HandleFunc("PATCH /api/v1/herd/alerts/{id}", s.withHerd(s.handleUpdateHerdAlert))
