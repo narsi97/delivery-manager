@@ -67,6 +67,14 @@ func (s *Server) handleDriverCheckin(w http.ResponseWriter, r *http.Request) {
 		id = existing.ID
 	}
 
+	// Without approval switched on, the count is recorded and settles
+	// itself: nobody is going to review it, so leaving it pending would
+	// only leave the driver waiting on nobody.
+	status := domain.CheckinPending
+	if !sess.Business.Config.LoadApproval {
+		status = domain.CheckinApproved
+	}
+
 	saved, err := s.store.PutCheckin(r.Context(), domain.Checkin{
 		ID:         id,
 		BusinessID: sess.Business.ID,
@@ -74,7 +82,7 @@ func (s *Server) handleDriverCheckin(w http.ResponseWriter, r *http.Request) {
 		RouteDate:  date,
 		Units:      req.Units,
 		Note:       strings.TrimSpace(req.Note),
-		Status:     domain.CheckinPending,
+		Status:     status,
 		CreatedAt:  time.Now().UTC(),
 	})
 	if err != nil {
@@ -162,6 +170,11 @@ func (s *Server) checkinFor(r *http.Request, sess session, date string) (domain.
 	existing, err := s.store.GetCheckin(r.Context(), sess.Business.ID, sess.User.ID, date)
 	if err != nil {
 		return domain.Checkin{}, false
+	}
+	// With approval off, having sent a count is enough — including one
+	// sent while approval was still on and left waiting when it went off.
+	if !sess.Business.Config.LoadApproval {
+		return existing, true
 	}
 	return existing, existing.Approved()
 }

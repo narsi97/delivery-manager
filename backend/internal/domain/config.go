@@ -60,6 +60,13 @@ type BusinessConfig struct {
 	// about 15%, one with wide day-to-day swings would be buried by it
 	// and stop reading the tab at all.
 	YieldDropPercent int `json:"yield_drop_percent,omitempty"`
+	// LoadApproval makes a driver's load count wait for somebody at the
+	// farm to agree with it before their stops open (see httpapi
+	// checkin.go). Off by default: the first real farm found the wait was
+	// a driver standing at the gate for an owner who trusted the count
+	// anyway, so off means the count is still taken, and sending it opens
+	// the round on the spot.
+	LoadApproval bool `json:"load_approval,omitempty"`
 }
 
 // YieldDropThreshold is YieldDropPercent as the fraction IsYieldDrop

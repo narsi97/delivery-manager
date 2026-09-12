@@ -83,6 +83,7 @@ export default function DriverScreen({ token, business }) {
           checkin={today.checkin}
           routeName={today?.route?.name}
           load={today?.load || []}
+          approval={!!business?.config?.load_approval}
           onDone={refresh}
         />
       ) : null}
@@ -90,7 +91,7 @@ export default function DriverScreen({ token, business }) {
       <Card>
         <SectionTitle>{today?.route?.name || t('nav_today')}</SectionTitle>
         {today?.checkin_required ? (
-          <Empty>{t('checkin_stops_locked')}</Empty>
+          <Empty>{t(business?.config?.load_approval ? 'checkin_stops_locked' : 'checkin_stops_locked_open')}</Empty>
         ) : stops.length === 0 ? (
           <Empty>{t('no_route_assigned', { route: lower(labels.route) })}</Empty>
         ) : (
@@ -415,7 +416,10 @@ function CustomerDetails({ fields }) {
 // going on the van and say so. Nothing about the round is visible until
 // somebody agrees with that number — see backend checkin.go for why the
 // agreement rather than the number is the point.
-function CheckinCard({ token, checkin, routeName, load = [], onDone }) {
+// Without approval switched on, the count still gets taken and sent, and
+// sending it is what opens the round — so the words stop promising a
+// wait for somebody who is not going to look.
+function CheckinCard({ token, checkin, routeName, load = [], approval, onDone }) {
   const { t } = useLanguage();
   const [units, setUnits] = useState(checkin?.units ? String(checkin.units) : '');
   const [note, setNote] = useState('');
@@ -451,7 +455,7 @@ function CheckinCard({ token, checkin, routeName, load = [], onDone }) {
           ? t('checkin_lead_waiting', { units: checkin.units, route: routeName || t('checkin_your_round') })
           : rejected
             ? checkin.review_note || t('checkin_lead_rejected')
-            : t('checkin_lead_loading')}
+            : t(approval ? 'checkin_lead_loading' : 'checkin_lead_loading_open')}
       </Text>
 
       <Banner message={error} />
@@ -503,7 +507,7 @@ function CheckinCard({ token, checkin, routeName, load = [], onDone }) {
             placeholder={t('checkin_note_placeholder')}
           />
           <Button
-            title={t(rejected ? 'checkin_resend' : 'checkin_send')}
+            title={t(rejected ? 'checkin_resend' : approval ? 'checkin_send' : 'checkin_send_open')}
             onPress={submit}
             busy={busy}
             disabled={!(Number(units) > 0)}

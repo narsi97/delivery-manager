@@ -26,6 +26,9 @@ func checkinSetup(t *testing.T) (*client, *client, string) {
 		createSubscription(t, admin, id, productID, 2)
 	}
 
+	// These tests are about the gate, which a business has to switch on.
+	setLoadApproval(t, admin, true)
+
 	driverID := makeDriver(t, admin, "Kumar", "+919876543210")
 	day := admin.mustDo(http.MethodGet, "/api/v1/day", nil, http.StatusOK)
 	admin.mustDo(http.MethodPost, "/api/v1/routes/"+routeIDs(t, day)[0]+"/assign",
@@ -161,5 +164,48 @@ func TestNoRouteMeansNoCheckinPrompt(t *testing.T) {
 	today := idle.mustDo(http.MethodGet, "/api/v1/driver/today", nil, http.StatusOK)
 	if today["checkin_required"].(bool) {
 		t.Fatal("a driver with no round was asked to check in")
+	}
+}
+
+func setLoadApproval(t *testing.T, admin *client, on bool) {
+	t.Helper()
+	resp := admin.mustDo(http.MethodGet, "/api/v1/config", nil, http.StatusOK)
+	config, _ := resp["config"].(map[string]any)
+	config["load_approval"] = on
+	admin.mustDo(http.MethodPut, "/api/v1/config", map[string]any{"config": config}, http.StatusOK)
+}
+
+// Approval is off unless a business turns it on. The driver still counts
+// and sends — the count is kept — but sending it opens the round there
+// and then, with nobody at the farm to wait for.
+func TestWithoutApprovalSendingTheCountOpensTheRound(t *testing.T) {
+	admin, driver, _ := checkinSetup(t)
+	setLoadApproval(t, admin, false)
+
+	locked := driver.mustDo(http.MethodGet, "/api/v1/driver/today", nil, http.StatusOK)
+	if !locked["checkin_required"].(bool) {
+		t.Fatal("the driver should still be asked for a count")
+	}
+
+	driver.mustDo(http.MethodPost, "/api/v1/driver/checkin", map[string]any{"units": 4}, http.StatusOK)
+	open := driver.mustDo(http.MethodGet, "/api/v1/driver/today", nil, http.StatusOK)
+	if stops, _ := open["stops"].([]any); len(stops) != 2 {
+		t.Fatalf("driver saw %d stops straight after sending, want 2", len(stops))
+	}
+	if open["checkin_required"].(bool) {
+		t.Fatal("the app is still asking for a count that has been sent")
+	}
+}
+
+// A count left waiting when approval is switched off must not strand the
+// driver who sent it.
+func TestSwitchingApprovalOffReleasesACountAlreadyWaiting(t *testing.T) {
+	admin, driver, _ := checkinSetup(t)
+	driver.mustDo(http.MethodPost, "/api/v1/driver/checkin", map[string]any{"units": 4}, http.StatusOK)
+
+	setLoadApproval(t, admin, false)
+	open := driver.mustDo(http.MethodGet, "/api/v1/driver/today", nil, http.StatusOK)
+	if stops, _ := open["stops"].([]any); len(stops) != 2 {
+		t.Fatalf("driver saw %d stops, want 2 — the waiting count should have released them", len(stops))
 	}
 }
