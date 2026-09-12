@@ -82,8 +82,10 @@ function millilitresOf(size) {
 }
 
 // Quantities are whole numbers almost always (12 packets, not 12.0), but
-// half a can is a real thing — so show a decimal only when there is one.
+// half a can is a real thing — so show decimals only when there are some,
+// and two of them: a quarter litre rounded to one place is a quantity
+// nobody ordered.
 export function formatQuantity(value) {
   const n = Number(value) || 0;
-  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+  return String(Number(n.toFixed(2)));
 }

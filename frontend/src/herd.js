@@ -76,9 +76,10 @@ export function today() {
 
 // Litres read as "10" and "7.5", never "10.0" or "7.50" — a column of
 // trailing zeros is ink spent on nothing (Docs/DESIGN.md, rule 2).
+// Up to two places, so 7.25 stays 7.25 rather than turning into 7.3.
 export function round1(value) {
   const n = Number(value) || 0;
-  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+  return String(Number(n.toFixed(2)));
 }
 
 export function shortDate(iso) {

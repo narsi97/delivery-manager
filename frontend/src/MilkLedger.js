@@ -242,9 +242,12 @@ function round(v) {
   return Math.round((Number(v) || 0) * 1000) / 1000;
 }
 
+// Two places, because packets come in quarter litres: 17 × 500 ml and
+// 5 × 750 ml is 44.25 L, and one place said 44.3 — a number no pile of
+// packets adds up to. Trailing zeros go, so 44.5 is not "44.50".
 function litresText(v) {
   const n = round(v);
-  return `${Number.isInteger(n) ? n : n.toFixed(1)} L`;
+  return `${Number(n.toFixed(2))} L`;
 }
 
 const inputStyle = {
