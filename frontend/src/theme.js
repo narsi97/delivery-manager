@@ -20,6 +20,11 @@ export const colors = {
   warningBg: '#fef3c7',
   error: '#b91c1c',
   errorBg: '#fee2e2',
+  // A door that is not being delivered today. Its own hue, because amber
+  // and red already mean "this row has a problem", and a paused household
+  // is not a problem.
+  paused: '#4338ca',
+  pausedBg: '#e0e7ff',
   muted: '#e2e8f0',
 };
 

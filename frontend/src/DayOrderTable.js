@@ -110,6 +110,11 @@ export default function DayOrderTable({
   }
 
   const anyStatus = stops.some((s) => s.status && s.status !== 'pending');
+  // A door where every item is skipped is not on the van today, so it is
+  // not counted as one of the round's doors.
+  const offToday = (door) => door.every((s) => s.status === 'skipped');
+  const offDoors = doors.filter(offToday).length;
+  const onDoors = doors.length - offDoors;
 
   return (
     <View style={styles.wrap}>
@@ -136,6 +141,10 @@ export default function DayOrderTable({
             const status = statuses.length === 1 ? statuses[0] : 'part done';
             const hasPin = Number.isFinite(stop.lat) && Number.isFinite(stop.lng) && (stop.lat !== 0 || stop.lng !== 0);
             const hasAddress = !!(stop.customer_address || '').trim();
+            const off = offToday(door);
+            // The backend marks what a pause took with this reason, so a
+            // hand skip and a paused household can be told apart.
+            const paused = off && door.some((s) => s.override_reason === 'customer paused');
             return (
               <View key={stop.customer_id || stop.id}>
                 <View
@@ -148,6 +157,9 @@ export default function DayOrderTable({
                     // one falls to the end of the round wherever its
                     // address happens to be.
                     !hasPin && styles.rowNoPin,
+                    // Not going today outranks a missing pin: nobody is
+                    // being sent there, so where it falls does not matter.
+                    off && styles.rowOff,
                     open && styles.rowOpen,
                   ]}
                 >
@@ -181,12 +193,14 @@ export default function DayOrderTable({
                     ) : null}
                   </View>
 
-                  <Text
-                    style={[styles.nameText, styles.nameColumn, narrow && styles.nameColumnNarrow]}
-                    numberOfLines={2}
-                  >
-                    {stop.customer_name}
-                  </Text>
+                  {/* Said under the name rather than in the status
+                      column, which on a phone is scrolled off the side. */}
+                  <View style={[styles.nameColumn, narrow && styles.nameColumnNarrow]}>
+                    <Text style={[styles.nameText, off && styles.nameOff]} numberOfLines={2}>
+                      {stop.customer_name}
+                    </Text>
+                    {off ? <Text style={styles.offText}>{paused ? 'paused' : 'skipped today'}</Text> : null}
+                  </View>
 
                   <View style={[styles.orderColumn, narrow && styles.orderColumnNarrow]}>
                     {door.map((item) => (
@@ -272,7 +286,8 @@ export default function DayOrderTable({
             <View style={[tableStyles.row, styles.totalsRow]}>
               <View style={styles.posColumn} />
               <Text style={[styles.totalsLabel, styles.nameColumn, narrow && styles.nameColumnNarrow]}>
-                {doors.length} {doors.length === 1 ? 'door' : 'doors'}
+                {onDoors} {onDoors === 1 ? 'door' : 'doors'}
+                {offDoors > 0 ? ` · ${offDoors} off today` : ''}
               </Text>
               <View style={styles.totalsLoad}>
                 {loadLines.map((line) => (
@@ -334,6 +349,9 @@ const styles = StyleSheet.create({
 
   pressed: { opacity: 0.6 },
   rowNoPin: { backgroundColor: colors.warningBg },
+  rowOff: { backgroundColor: colors.pausedBg },
+  nameOff: { color: colors.paused },
+  offText: { fontSize: 11, fontWeight: '700', color: colors.paused, marginTop: 1 },
   rowOpen: { backgroundColor: colors.surfaceAlt },
   // The card sits inside the scroller, which is as wide as the widest
   // row — so it is pinned to a readable width rather than stretching off
