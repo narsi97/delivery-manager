@@ -192,6 +192,27 @@ export default function ImportCustomersDialog({
   // about nothing, which is how people learn to ignore them.
   const unpinned = byVerdict('new').filter((r) => rows[r.row - 1] && !rows[r.row - 1].pinned);
 
+  // Filling in a pin is work, so the button has to offer it. A file of
+  // people who are all already customers — the same list re-imported now
+  // that their coordinates can be read — adds nobody and still has 49
+  // pins to give out, and the button read "Nothing to add" and refused
+  // to press. It was describing one half of what it does.
+  const commitLabel = (() => {
+    const adding = preview?.new || 0;
+    const pins = fillingPins.length;
+    const pinPhrase = pins === 1 ? 'the missing pin' : `${pins} missing pins`;
+    if (adding > 0 && pins > 0) {
+      return `Add ${adding} and fill in ${pinPhrase}`;
+    }
+    if (adding > 0) {
+      return `Add ${adding === 1 ? 'this one' : `these ${adding}`}`;
+    }
+    if (pins > 0) {
+      return `Fill in ${pinPhrase}`;
+    }
+    return 'Nothing to do';
+  })();
+
   return (
     <Dialog open={open} onClose={close} title={`Import ${lower(labels.customer_plural)}`}>
       <Banner message={error} />
@@ -266,20 +287,7 @@ export default function ImportCustomersDialog({
             {fillingPins.length > 0 ? (
               <Tally n={fillingPins.length} label={done ? 'given a pin' : 'will get a pin'} tone="good" />
             ) : null}
-            {fillingPins.length > 0 ? (
-            <View style={styles.block}>
-              <Text style={styles.heading}>
-                {done ? 'Given the pin they were missing' : 'Getting the pin they were missing'}
-              </Text>
-              <Text style={styles.note}>
-                Already on the list, with no location on record. This file has one, so it fills the blank — a pin
-                somebody placed by hand is never overwritten.
-              </Text>
-              <Text style={styles.names}>{fillingPins.map((r) => r.name).join(', ')}</Text>
-            </View>
-          ) : null}
-
-          {alreadyOnList.length > 0 ? (
+            {alreadyOnList.length > 0 ? (
               <Tally n={alreadyOnList.length} label="already here" tone="quiet" />
             ) : null}
             {repeatedInFile.length > 0 ? (
@@ -315,6 +323,19 @@ export default function ImportCustomersDialog({
                   </View>
                 ))}
               </ScrollView>
+            </View>
+          ) : null}
+
+          {fillingPins.length > 0 ? (
+            <View style={styles.block}>
+              <Text style={styles.heading}>
+                {done ? 'Given the pin they were missing' : 'Getting the pin they were missing'}
+              </Text>
+              <Text style={styles.note}>
+                Already on the list, with no location on record. This file has one, so it fills the blank — a pin
+                somebody placed by hand is never overwritten.
+              </Text>
+              <Text style={styles.names}>{fillingPins.map((r) => r.name).join(', ')}</Text>
             </View>
           ) : null}
 
@@ -371,10 +392,10 @@ export default function ImportCustomersDialog({
             ) : (
               <>
                 <Button
-                  title={preview.new === 0 ? 'Nothing to add' : `Add ${preview.new === 1 ? 'this one' : `these ${preview.new}`}`}
+                  title={commitLabel}
                   onPress={commit}
                   busy={busy}
-                  disabled={preview.new === 0}
+                  disabled={preview.new === 0 && fillingPins.length === 0}
                   style={styles.flexButton}
                 />
                 <Button title="Back" variant="secondary" onPress={() => setPreview(null)} style={styles.flexButton} />
