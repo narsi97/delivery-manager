@@ -607,6 +607,11 @@ const (
 	StatusSkipped DeliveryStatus = "skipped"
 )
 
+// PausedReason marks a delivery skipped because its customer was paused
+// after the day had already been generated. The mark is what lets a
+// resume put back exactly those, and never a skip an admin chose by hand.
+const PausedReason = "customer paused"
+
 func ValidDeliveryStatus(s DeliveryStatus) bool {
 	switch s {
 	case StatusPending, StatusDelivered, StatusFailed, StatusSkipped:

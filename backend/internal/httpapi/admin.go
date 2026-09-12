@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -276,6 +277,14 @@ func (s *Server) handleUpdateCustomer(w http.ResponseWriter, r *http.Request) {
 			log.Printf("detach today's stops after moving %s to another service route: %v", updated.ID, err)
 		}
 	}
+	// Likewise a pause: today's delivery is already generated and already
+	// counted into the driver's load, so pausing has to take it back now
+	// rather than from tomorrow.
+	if req.Active != nil || req.PausedFrom != nil || req.PausedUntil != nil {
+		if err := s.holdCustomerDeliveries(r, sess, updated); err != nil {
+			log.Printf("apply pause to already generated deliveries for %s: %v", updated.ID, err)
+		}
+	}
 	writeJSON(w, http.StatusOK, updated)
 }
 
@@ -346,6 +355,17 @@ func (s *Server) detachTodaysStops(r *http.Request, sess session, customerID str
 		}
 	}
 	return nil
+}
+
+// holdCustomerDeliveries applies one customer's pause to every delivery
+// of theirs already generated from today on — today's, and any later day
+// somebody has already opened.
+func (s *Server) holdCustomerDeliveries(r *http.Request, sess session, customer domain.Customer) error {
+	orders, err := s.store.ListCustomerDailyOrders(r.Context(), sess.Business.ID, customer.ID, sess.Business.Today(), "9999-12-31")
+	if err != nil {
+		return err
+	}
+	return s.holdPausedDeliveries(r.Context(), orders, map[string]domain.Customer{customer.ID: customer})
 }
 
 // text reads an optional string field, treating "not sent" as empty —
@@ -1207,6 +1227,51 @@ func (s *Server) generateDay(w http.ResponseWriter, r *http.Request, business do
 
 	if created > 0 {
 		log.Printf("generated %d deliveries for business %s on %s", created, business.ID, date)
+	}
+
+	// EnsureDailyOrder leaves existing rows alone, so a pause set after
+	// the day was generated would otherwise never reach it.
+	orders, err := s.store.ListDailyOrders(r.Context(), business.ID, date)
+	if err != nil {
+		writeStoreError(w, err, "deliveries")
+		return err
+	}
+	if err := s.holdPausedDeliveries(r.Context(), orders, customersByID); err != nil {
+		writeStoreError(w, err, "deliveries")
+		return err
+	}
+	return nil
+}
+
+// holdPausedDeliveries brings deliveries that already exist into line
+// with their customer's pause: a still-pending delivery for a day they
+// are paused on is skipped, and one skipped that way is put back once
+// they deliver on that day again. The quantity is left as it was, so
+// coming back restores the delivery exactly.
+//
+// Only subscription deliveries are touched, mirroring generation: a
+// one-off order is somebody's explicit decision about that door, and
+// anything already delivered or failed is a record, not a plan.
+func (s *Server) holdPausedDeliveries(ctx context.Context, orders []domain.DailyOrder, customersByID map[string]domain.Customer) error {
+	for _, o := range orders {
+		customer, known := customersByID[o.CustomerID]
+		if !known || o.RecurringOrderID == nil {
+			continue
+		}
+		delivers := customer.DeliversOn(o.DeliveryDate)
+		switch {
+		case !delivers && o.Status == domain.StatusPending:
+			o.Status = domain.StatusSkipped
+			o.OverrideReason = domain.PausedReason
+		case delivers && o.Status == domain.StatusSkipped && o.OverrideReason == domain.PausedReason:
+			o.Status = domain.StatusPending
+			o.OverrideReason = ""
+		default:
+			continue
+		}
+		if _, err := s.store.UpdateDailyOrder(ctx, o); err != nil {
+			return err
+		}
 	}
 	return nil
 }
