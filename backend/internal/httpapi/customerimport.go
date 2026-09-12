@@ -474,6 +474,34 @@ func matchProduct(text string, products []domain.Product) *domain.Product {
 			return &products[i]
 		}
 	}
+	// The same measurement, however the file spells it. A list that says
+	// "0.5 L" and a catalogue that says "Milk 500ml" are talking about
+	// one bottle, and so are "1000 ML" and "Milk 1L" — comparing the
+	// words could never see that, because the words are different in
+	// every character that matters.
+	//
+	// Ambiguity is refused here as it is everywhere else: with curd and
+	// milk both sold by the half litre, a bare "500ml" means neither.
+	if ml := millilitresOf(text); ml > 0 {
+		stem := stemOf(text)
+		var byVolume *domain.Product
+		for i := range products {
+			if math.Abs(millilitresOf(products[i].Name)-ml) > 0.001 {
+				continue
+			}
+			if stem != "" && stemOf(products[i].Name) != stem {
+				continue
+			}
+			if byVolume != nil {
+				return nil
+			}
+			byVolume = &products[i]
+		}
+		if byVolume != nil {
+			return byVolume
+		}
+	}
+
 	var hit *domain.Product
 	for i := range products {
 		name := normalizeSize(products[i].Name)

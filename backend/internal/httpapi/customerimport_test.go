@@ -678,3 +678,59 @@ func TestDryRunDoesNotFillPins(t *testing.T) {
 		}
 	}
 }
+
+// A litre is a litre however the file writes it. Lists say "0.5 L" where
+// the catalogue says "Milk 500ml", and "1000 ML" where it says "Milk 1L";
+// comparing the words can never see that, because the words differ in
+// every character that matters.
+func TestSizesMatchByVolumeNotSpelling(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+
+	for _, c := range []struct{ written, want string }{
+		{"0.5 L", "Milk 500ml"},
+		{"0.5L", "Milk 500ml"},
+		{"1000 ml", "Milk 1L"},
+		{"1000ML", "Milk 1L"},
+		{"0.75 Lit", "Milk 750ml"},
+		{"750 ML", "Milk 750ml"},
+	} {
+		body := admin.mustDo(http.MethodPost, "/api/v1/customers/import", map[string]any{
+			"dry_run": true,
+			"rows": importRows(map[string]any{
+				"name": "G Pavani", "lat": 17.0567, "lng": 79.2681,
+				"items": []any{map[string]any{"product": c.written, "quantity": 1}},
+			}),
+		}, http.StatusOK)
+
+		result := body["results"].([]any)[0].(map[string]any)
+		if str(result, "verdict") != "new" {
+			t.Errorf("%q: verdict %q (%s)", c.written, str(result, "verdict"), str(result, "problem"))
+			continue
+		}
+		matched, _ := result["matched"].([]any)
+		if len(matched) != 1 || matched[0].(string) != "1 × "+c.want {
+			t.Errorf("%q matched %v, want [1 × %s]", c.written, matched, c.want)
+		}
+	}
+}
+
+// And it stays as careful as it was: a volume two products share is
+// still nobody's, rather than a guess between them.
+func TestAVolumeTwoProductsShareIsStillRefused(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+	admin.mustDo(http.MethodPost, "/api/v1/products",
+		map[string]any{"name": "Curd 500ml", "unit": "packet"}, http.StatusCreated)
+
+	body := admin.mustDo(http.MethodPost, "/api/v1/customers/import", map[string]any{
+		"dry_run": true,
+		"rows": importRows(map[string]any{
+			"name": "G Pavani", "lat": 17.0567, "lng": 79.2681,
+			"items": []any{map[string]any{"product": "0.5 L", "quantity": 1}},
+		}),
+	}, http.StatusOK)
+	if got := verdicts(t, body); len(got) != 1 || got[0] != "error" {
+		t.Errorf("verdicts = %v, want [error] — half a litre of what?", got)
+	}
+}
