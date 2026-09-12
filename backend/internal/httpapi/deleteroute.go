@@ -3,8 +3,6 @@ package httpapi
 import (
 	"log"
 	"net/http"
-
-	"delivery-manager/internal/domain"
 )
 
 // handleDeleteRoute removes one route. Its deliveries are not deleted —
@@ -32,7 +30,7 @@ func (s *Server) handleDeleteRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, o := range orders {
-		if o.RouteID != nil && *o.RouteID == id && o.Status != domain.StatusPending {
+		if o.RouteID != nil && *o.RouteID == id && o.Done() {
 			writeError(w, http.StatusBadRequest,
 				"this route has deliveries that were already completed on it — those would lose their record. Move the remaining stops instead.",
 				"has_completed_work")
@@ -81,7 +79,7 @@ func (s *Server) handleResetRoutes(w http.ResponseWriter, r *http.Request) {
 
 	protected := map[string]bool{}
 	for _, o := range orders {
-		if o.RouteID != nil && o.Status != domain.StatusPending {
+		if o.RouteID != nil && o.Done() {
 			protected[*o.RouteID] = true
 		}
 	}

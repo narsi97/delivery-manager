@@ -665,6 +665,13 @@ func (d DailyOrder) IsOverridden() bool {
 // Open reports whether the stop still needs the driver to do something.
 func (d DailyOrder) Open() bool { return d.Status == StatusPending }
 
+// Done reports whether a driver has actually been to this door — the work
+// a route has to keep its record of. Skipped is not done: it was called
+// off in advance, nobody went, and a route holding only skips is still
+// just a plan. Treating skips as done froze any round with a paused
+// household on it, so changing its driver quietly did nothing.
+func (d DailyOrder) Done() bool { return d.Status == StatusDelivered || d.Status == StatusFailed }
+
 type RouteStatus string
 
 const (

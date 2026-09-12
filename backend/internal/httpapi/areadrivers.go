@@ -169,7 +169,7 @@ func (s *Server) handleSetAreaDrivers(w http.ResponseWriter, r *http.Request) {
 	// handlePlanRounds. Their stops are therefore not up for re-cutting.
 	completedOn := map[string]bool{}
 	for _, o := range orders {
-		if o.Status != domain.StatusPending && o.RouteID != nil {
+		if o.Done() && o.RouteID != nil {
 			completedOn[*o.RouteID] = true
 		}
 	}
@@ -203,6 +203,17 @@ func (s *Server) handleSetAreaDrivers(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		points = append(points, route.Point{ID: o.ID, Lat: customer.Lat, Lng: customer.Lng, Band: customer.RouteBand()})
+	}
+
+	// Skipped stops on the routes being rebuilt. Nobody drives to them, so
+	// they are not cut or ordered, but they ride along at the end of the
+	// new round: otherwise re-planning drops a paused household off the
+	// day's list, where the office looks to see who is off today.
+	var skipped []string
+	for _, o := range orders {
+		if o.Status == domain.StatusSkipped && o.RouteID != nil && mine[*o.RouteID] && !completedOn[*o.RouteID] {
+			skipped = append(skipped, o.ID)
+		}
 	}
 
 	start := route.Point{Lat: area.Lat, Lng: area.Lng}
@@ -316,6 +327,10 @@ func (s *Server) handleSetAreaDrivers(w http.ResponseWriter, r *http.Request) {
 				meters:     meters,
 			})
 		}
+	}
+
+	if len(plans) > 0 {
+		plans[0].orderedIDs = append(plans[0].orderedIDs, skipped...)
 	}
 
 	// Build the plan fully before touching the database, then swap: a

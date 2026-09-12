@@ -590,3 +590,44 @@ func TestACapAppliesToAHandArrangedRound(t *testing.T) {
 		t.Fatalf("on the second read a pinned round holds %d stops, want 2", routed)
 	}
 }
+
+// A paused household leaves a skipped stop on the round, and a skip is not
+// finished work. Counting it as finished froze the round in place, so
+// changing its driver kept the old one and added an empty "route (2)"
+// beside it — found in production the morning pauses first went live.
+func TestChangingDriversWorksWithAPausedHouseholdOnTheRound(t *testing.T) {
+	admin, areaID := areaSetup(t, 3)
+	ravi := driverWithHome(t, admin, "Ravi", "+91 90000 00001", 12.9700, 77.5500)
+	kumar := driverWithHome(t, admin, "Kumar", "+91 90000 00002", 12.9700, 77.6400)
+
+	admin.mustDo(http.MethodPost, "/api/v1/service-areas/"+areaID+"/drivers",
+		map[string]any{"driver_ids": []string{ravi}}, http.StatusOK)
+	admin.mustDo(http.MethodPatch, "/api/v1/customers/"+customerIDByName(t, admin, "West 0"),
+		map[string]any{"active": false}, http.StatusOK)
+
+	for _, tc := range []struct {
+		what    string
+		drivers []string
+		want    string
+	}{
+		{"handed to somebody else", []string{kumar}, kumar},
+		{"nobody driving", []string{}, ""},
+	} {
+		day := admin.mustDo(http.MethodPost, "/api/v1/service-areas/"+areaID+"/drivers",
+			map[string]any{"driver_ids": tc.drivers}, http.StatusOK)
+		routes := routesOf(t, day)
+		if len(routes) != 1 {
+			t.Fatalf("%s: %d routes, want 1", tc.what, len(routes))
+		}
+		if got := str(routes[0], "driver_id"); got != tc.want {
+			t.Fatalf("%s: route driver = %q, want %q", tc.what, got, tc.want)
+		}
+		// The paused stop stays on the round, so the day still shows who
+		// is off today.
+		for _, stop := range stopsOf(t, day) {
+			if str(stop, "customer_name") == "West 0" && str(stop, "route_id") != str(routes[0], "id") {
+				t.Fatalf("%s: the paused stop fell off the round", tc.what)
+			}
+		}
+	}
+}

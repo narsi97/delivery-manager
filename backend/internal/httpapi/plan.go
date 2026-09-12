@@ -132,7 +132,7 @@ func (s *Server) handlePlanRounds(w http.ResponseWriter, r *http.Request) {
 	// them exactly as they are and plan around them.
 	completedOn := map[string]bool{}
 	for _, o := range orders {
-		if o.Status != domain.StatusPending && o.RouteID != nil {
+		if o.Done() && o.RouteID != nil {
 			completedOn[*o.RouteID] = true
 		}
 	}
