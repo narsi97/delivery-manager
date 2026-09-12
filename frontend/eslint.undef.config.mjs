@@ -9,8 +9,11 @@
 //
 // Named so ESLint does not auto-discover it: this is a targeted sweep,
 // not the project's style config.
-// value references (round1(...)); it does NOT catch JSX element names, so
-// the second rule walks the scope chain for <Component> too.
+//
+// Two rules, because they catch different halves. no-undef catches value
+// references like round1(...); it does not see JSX element names, so the
+// second rule walks the scope chain for <Component> too — a missing
+// component import is the same bug and would otherwise slip through.
 let packaged = {};
 try { packaged = (await import('globals')).default; } catch {}
 const browserish = {
