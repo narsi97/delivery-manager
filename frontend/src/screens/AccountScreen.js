@@ -6,6 +6,7 @@ import { Banner, Button, Card, Field } from '../components';
 import { useLanguage } from '../i18n';
 import { labelsFor, lower } from '../labels';
 import LocationPicker from '../LocationPicker';
+import SelectedEntityEditor from '../SelectedEntityEditor';
 import { arm, describeUntil, disarm, useDeleteMode, WINDOWS } from '../deleteMode';
 import { usePageStyle } from '../layout';
 import { colors, radius, spacing } from '../theme';

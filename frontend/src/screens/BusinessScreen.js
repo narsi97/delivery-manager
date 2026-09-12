@@ -11,6 +11,7 @@ import ImportCustomersDialog from '../ImportCustomersDialog';
 import { customFieldsFor, labelsFor, lower } from '../labels';
 import { formatQuantity, groupProducts } from '../productGroups';
 import ProductTable from '../ProductTable';
+import SelectedEntityEditor from '../SelectedEntityEditor';
 import { serviceRouteFor } from '../serviceAreas';
 import { useDeleteMode } from '../deleteMode';
 import { usePageStyle } from '../layout';
@@ -287,49 +288,7 @@ export default function BusinessScreen({ token, business, user, currentUserId, o
   );
 }
 
-// What tapping a customer or driver on the business's own map opens. This
-// is the one map in the app where every kind of pin is manageable, so
-// unlike the muted, read-only markers everywhere else, this one edits the
-// actual record — same InlineLocationEditor the route map uses for a
-// stop's pin, wired to whichever entity was tapped.
-function SelectedEntityEditor({ token, selected, home, onClose, onChanged, onError }) {
-  const { kind, data } = selected;
 
-  const save = async (lat, lng) => {
-    try {
-      if (kind === 'customer') {
-        await api.updateCustomer(token, data.id, { lat, lng });
-      } else {
-        await api.setDriverHome(token, data.id, lat, lng);
-      }
-      await onChanged();
-    } catch (err) {
-      onError(err.message);
-    }
-  };
-
-  return (
-    <View style={styles.cardSection}>
-      <View style={styles.editHeader}>
-        <Text style={styles.readLabel}>{kind === 'customer' ? data.name : `${data.name} finishes at`}</Text>
-        <Pressable onPress={onClose} accessibilityRole="button">
-          <Text style={styles.doneLink}>Done</Text>
-        </Pressable>
-      </View>
-      {kind === 'customer' ? (
-        <Text style={styles.note}>{[data.address, data.phone].filter(Boolean).join(' · ') || 'No contact details yet'}</Text>
-      ) : (
-        <Text style={styles.note}>{data.phone || 'No phone on file'}</Text>
-      )}
-      <InlineLocationEditor
-        lat={kind === 'customer' ? data.lat : data.home_lat}
-        lng={kind === 'customer' ? data.lng : data.home_lng}
-        onSave={save}
-        home={home}
-      />
-    </View>
-  );
-}
 
 // Collapsed by default, same expand-on-tap shape as NewCustomerCard's
 // "Add a customer" — this is a create-a-new-record flow (unlike the two
