@@ -77,6 +77,9 @@ type importResult struct {
 	// "new", "duplicate" or "error".
 	Verdict string `json:"verdict"`
 	Problem string `json:"problem,omitempty"`
+	// Already on the list, but carrying the pin the record is missing —
+	// so this row completes somebody rather than being skipped.
+	FillsPin bool `json:"fills_pin,omitempty"`
 	// A duplicate of an earlier row in this same file, rather than of
 	// somebody already on the list. Both are skipped and both are
 	// right to skip, but they are different facts about the file and
@@ -138,7 +141,9 @@ func (s *Server) handleImportCustomers(w http.ResponseWriter, r *http.Request) {
 	// Kept apart from the keys this file contributes, so the preview can
 	// tell somebody which of the two it means. Against an empty roster,
 	// "already here" is not something anybody can act on.
-	onList := map[string]bool{}
+	// Holds the record rather than a yes/no: a row that matches somebody
+	// already here can still be carrying something they are missing.
+	onList := map[string]domain.Customer{}
 	inFile := map[string]bool{}
 	// The order this file arrives in is the order the business drives.
 	// A delivery list is numbered 1..N because somebody worked out that
@@ -149,14 +154,14 @@ func (s *Server) handleImportCustomers(w http.ResponseWriter, r *http.Request) {
 	// interleaved through it.
 	rank := 0
 	for _, c := range existing {
-		onList[customerKey(c.Name, c.Phone)] = true
+		onList[customerKey(c.Name, c.Phone)] = c
 		if c.Rank > rank {
 			rank = c.Rank
 		}
 	}
 
 	results := make([]importResult, 0, len(req.Rows))
-	created, skipped, failed := 0, 0, 0
+	created, skipped, failed, filled := 0, 0, 0, 0
 
 	for i, row := range req.Rows {
 		result := importResult{Row: i + 1, Name: strings.TrimSpace(row.Name)}
@@ -168,10 +173,26 @@ func (s *Server) handleImportCustomers(w http.ResponseWriter, r *http.Request) {
 			result.Verdict = "error"
 			result.Problem = problem
 			failed++
-		case onList[customerKey(row.Name, row.Phone)]:
+		case hasKey(onList, customerKey(row.Name, row.Phone)):
+			// Already here, and the file may still be worth reading: a
+			// list imported before the reader could see its coordinates
+			// left a roster of people with no pin, and re-importing it
+			// skipped every one of them. A pin the app does not have is
+			// not a duplicate of anything.
+			//
+			// Only ever filling a blank. A pin somebody placed by hand
+			// is the better one — they stood at the door — so a file
+			// never overwrites it.
 			result.Verdict = "duplicate"
-			result.Problem = "already on the list — this row will be skipped"
-			skipped++
+			already := onList[customerKey(row.Name, row.Phone)]
+			if already.Lat == 0 && already.Lng == 0 && (row.Lat != 0 || row.Lng != 0) {
+				result.FillsPin = true
+				result.Problem = "already on the list, and this row has the pin they are missing"
+				filled++
+			} else {
+				result.Problem = "already on the list — this row will be skipped"
+				skipped++
+			}
 		case inFile[customerKey(row.Name, row.Phone)]:
 			result.Verdict = "duplicate"
 			result.InFile = true
@@ -187,6 +208,22 @@ func (s *Server) handleImportCustomers(w http.ResponseWriter, r *http.Request) {
 			// thirty-seven — the one number the preview exists to get
 			// right.
 			inFile[customerKey(row.Name, row.Phone)] = true
+		}
+
+		if !req.DryRun && result.FillsPin {
+			already := onList[customerKey(row.Name, row.Phone)]
+			already.Lat, already.Lng = row.Lat, row.Lng
+			if _, err := s.store.UpdateCustomer(r.Context(), already); err != nil {
+				result.Verdict = "error"
+				result.Problem = fmt.Sprintf("could not give %s their pin: %v", already.Name, err)
+				result.FillsPin = false
+				filled--
+				failed++
+			} else {
+				// So a file listing the same household twice does not
+				// try to fill a pin that is now there.
+				onList[customerKey(row.Name, row.Phone)] = already
+			}
 		}
 
 		if !req.DryRun && result.Verdict == "new" {
@@ -212,6 +249,7 @@ func (s *Server) handleImportCustomers(w http.ResponseWriter, r *http.Request) {
 		"total":   len(req.Rows),
 		"new":     created,
 		"skipped": skipped,
+		"filled":  filled,
 		"failed":  failed,
 		"results": results,
 	})
@@ -522,6 +560,13 @@ func nonEmpty(s, fallback string) string {
 		return fallback
 	}
 	return s
+}
+
+// hasKey keeps the switch above readable now that the map holds records
+// rather than a yes/no.
+func hasKey(m map[string]domain.Customer, key string) bool {
+	_, ok := m[key]
+	return ok
 }
 
 func customerKey(name, phone string) string {

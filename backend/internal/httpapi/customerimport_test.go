@@ -579,3 +579,102 @@ func TestUnmakeableVolumeSaysSoRatherThanBlamingTheSpelling(t *testing.T) {
 		t.Errorf("problem = %q, want it to say the volume cannot be made", problem)
 	}
 }
+
+// A list imported before the reader could see its coordinates leaves a
+// roster of people with no pin. Re-importing the same file used to skip
+// every one of them as a duplicate, which left the pins on the floor a
+// second time. A pin the app does not have is not a duplicate of
+// anything.
+func TestImportFillsAMissingPinOnSomebodyAlreadyOnTheList(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+
+	admin.mustDo(http.MethodPost, "/api/v1/customers",
+		map[string]any{"name": "B . Ramu", "phone": "9959895510"}, http.StatusCreated)
+
+	body := admin.mustDo(http.MethodPost, "/api/v1/customers/import", map[string]any{
+		"rows": importRows(map[string]any{
+			"name": "B . Ramu", "phone": "9959895510", "lat": 17.0509, "lng": 79.2563,
+		}),
+	}, http.StatusOK)
+
+	if got := num(body, "filled"); got != 1 {
+		t.Fatalf("filled = %v, want 1", got)
+	}
+	if got := num(body, "new"); got != 0 {
+		t.Errorf("new = %v, want 0 — they were already here", got)
+	}
+
+	listed := admin.mustDo(http.MethodGet, "/api/v1/customers", nil, http.StatusOK)
+	found := false
+	for _, raw := range listed["customers"].([]any) {
+		c := raw.(map[string]any)
+		if str(c, "name") != "B . Ramu" {
+			continue
+		}
+		found = true
+		if num(c, "lat") != 17.0509 || num(c, "lng") != 79.2563 {
+			t.Errorf("pin = %v,%v — want the one the file carried", num(c, "lat"), num(c, "lng"))
+		}
+	}
+	if !found {
+		t.Fatal("the customer went missing")
+	}
+}
+
+// A pin somebody placed by hand is the better one — they stood at the
+// door. A file never overwrites it.
+func TestImportNeverOverwritesAPinThatIsAlreadyThere(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+	createCustomer(t, admin, "Anita", 17.05, 79.26)
+
+	body := admin.mustDo(http.MethodPost, "/api/v1/customers/import", map[string]any{
+		"rows": importRows(map[string]any{
+			"name": "Anita", "phone": "+919000000000", "lat": 17.9999, "lng": 79.9999,
+		}),
+	}, http.StatusOK)
+
+	if got := num(body, "filled"); got != 0 {
+		t.Errorf("filled = %v, want 0 — she already had a pin", got)
+	}
+	if got := num(body, "skipped"); got != 1 {
+		t.Errorf("skipped = %v, want 1", got)
+	}
+
+	listed := admin.mustDo(http.MethodGet, "/api/v1/customers", nil, http.StatusOK)
+	for _, raw := range listed["customers"].([]any) {
+		c := raw.(map[string]any)
+		if str(c, "name") == "Anita" && num(c, "lat") != 17.05 {
+			t.Errorf("lat = %v, want her own 17.05 kept", num(c, "lat"))
+		}
+	}
+}
+
+// The preview still changes nothing, including the pins it offers to fill.
+func TestDryRunDoesNotFillPins(t *testing.T) {
+	server := newTestServer(t)
+	admin := adminClient(t, server)
+	admin.mustDo(http.MethodPost, "/api/v1/customers",
+		map[string]any{"name": "B . Ramu", "phone": "9959895510"}, http.StatusCreated)
+
+	body := admin.mustDo(http.MethodPost, "/api/v1/customers/import", map[string]any{
+		"dry_run": true,
+		"rows": importRows(map[string]any{
+			"name": "B . Ramu", "phone": "9959895510", "lat": 17.0509, "lng": 79.2563,
+		}),
+	}, http.StatusOK)
+	if got := num(body, "filled"); got != 1 {
+		t.Errorf("filled = %v, want the preview to say 1", got)
+	}
+	if fills, _ := body["results"].([]any)[0].(map[string]any)["fills_pin"].(bool); !fills {
+		t.Error("the row does not say it would fill a pin")
+	}
+
+	listed := admin.mustDo(http.MethodGet, "/api/v1/customers", nil, http.StatusOK)
+	for _, raw := range listed["customers"].([]any) {
+		if c := raw.(map[string]any); str(c, "name") == "B . Ramu" && num(c, "lat") != 0 {
+			t.Errorf("the preview wrote a pin: %v", num(c, "lat"))
+		}
+	}
+}

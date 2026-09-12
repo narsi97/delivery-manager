@@ -150,7 +150,7 @@ function drawnStrings(content) {
 // is found by shape, the quantity by shape, the location by shape, and
 // whatever is left in between is the address. A name is whatever sits
 // before the phone.
-function toRows(lines) {
+export function toRows(lines) {
   const starts = [];
   lines.forEach((line, index) => {
     if (ROW_NUMBER.test(line)) {

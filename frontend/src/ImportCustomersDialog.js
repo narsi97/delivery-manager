@@ -180,7 +180,12 @@ export default function ImportCustomersDialog({
   // lists the household twice is not a row skipped because the household
   // is already a customer — and against an empty roster, only one of
   // those two sentences can be true. See customerimport.go.
-  const alreadyOnList = byVerdict('duplicate').filter((r) => !r.in_file);
+  // Three things wear the "duplicate" verdict now, and they ask
+  // different things of the reader: somebody already here with nothing
+  // to add, somebody already here whose missing pin this file carries,
+  // and a household the file lists twice.
+  const fillingPins = byVerdict('duplicate').filter((r) => r.fills_pin);
+  const alreadyOnList = byVerdict('duplicate').filter((r) => !r.in_file && !r.fills_pin);
   const repeatedInFile = byVerdict('duplicate').filter((r) => r.in_file);
   // Only the rows actually going in. Warning about a missing pin on a
   // customer who is already here — and already has one — is a warning
@@ -258,7 +263,23 @@ export default function ImportCustomersDialog({
               below is for the rows that need a person. */}
           <View style={styles.tallies}>
             <Tally n={preview.new} label={done ? 'added' : 'will be added'} tone="good" />
-            {alreadyOnList.length > 0 ? (
+            {fillingPins.length > 0 ? (
+              <Tally n={fillingPins.length} label={done ? 'given a pin' : 'will get a pin'} tone="good" />
+            ) : null}
+            {fillingPins.length > 0 ? (
+            <View style={styles.block}>
+              <Text style={styles.heading}>
+                {done ? 'Given the pin they were missing' : 'Getting the pin they were missing'}
+              </Text>
+              <Text style={styles.note}>
+                Already on the list, with no location on record. This file has one, so it fills the blank — a pin
+                somebody placed by hand is never overwritten.
+              </Text>
+              <Text style={styles.names}>{fillingPins.map((r) => r.name).join(', ')}</Text>
+            </View>
+          ) : null}
+
+          {alreadyOnList.length > 0 ? (
               <Tally n={alreadyOnList.length} label="already here" tone="quiet" />
             ) : null}
             {repeatedInFile.length > 0 ? (
