@@ -3,7 +3,7 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-nat
 
 import * as api from '../api';
 import AreaRoutesCard, { LooseRouteCard } from '../AreaRoutesCard';
-import CheckinQueue from '../CheckinQueue';
+import CheckinQueue, { LoadsSent } from '../CheckinQueue';
 import { Banner, Card, Empty, SectionTitle, ViewToggle } from '../components';
 import DateNav from '../DateNav';
 import DayRouteMapPanel from '../DayRouteMapPanel';
@@ -293,6 +293,8 @@ export default function TodayScreen({ token, business, onScroll }) {
         date={selectedDate}
         onChanged={refresh}
       />
+
+      <LoadsSent checkins={checkins} drivers={drivers} routes={routes} stops={allStops} />
 
       <Card>
         <DateNav date={day?.date} selectedDate={selectedDate} onSelect={setSelectedDate} />

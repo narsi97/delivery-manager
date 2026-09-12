@@ -41,6 +41,50 @@ export default function CheckinQueue({ token, checkins, drivers, date, onChanged
   );
 }
 
+// The counts drivers have sent and nobody needs to act on — every count,
+// once approval is off. Said beside what the driver's round actually
+// needs, because a count on its own is a number nobody can check: "59"
+// means something only next to "needs 59".
+export function LoadsSent({ checkins, drivers, routes = [], stops = [] }) {
+  const sent = (checkins || []).filter((c) => c.status !== 'pending');
+  if (sent.length === 0) {
+    return null;
+  }
+
+  return (
+    <Card>
+      <SectionTitle>Loads sent</SectionTitle>
+      {sent.map((checkin) => {
+        const driver = (drivers || []).find((d) => d.id === checkin.driver_id);
+        const theirRoutes = new Set(routes.filter((r) => r.driver_id === checkin.driver_id).map((r) => r.id));
+        // Skipped stops are not going on the van, so they are not part
+        // of what the count should come to.
+        const needed = stops
+          .filter((stop) => theirRoutes.has(stop.route_id) && stop.status !== 'skipped')
+          .reduce((sum, stop) => sum + (Number(stop.quantity) || 0), 0);
+        const gap = checkin.units - needed;
+        return (
+          <View key={checkin.id} style={styles.sentRow}>
+            <View style={styles.rowText}>
+              <Text style={styles.sentName}>{driver ? driver.name : 'A driver'}</Text>
+              <Text style={styles.meta}>
+                loaded {checkin.units}
+                {theirRoutes.size > 0 ? ` · round needs ${needed}` : ''}
+                {checkin.note ? ` · ${checkin.note}` : ''}
+              </Text>
+            </View>
+            {theirRoutes.size === 0 ? null : gap === 0 ? (
+              <Pill label="matches" tone="success" />
+            ) : (
+              <Pill label={gap < 0 ? `${-gap} short` : `${gap} over`} tone="warning" />
+            )}
+          </View>
+        );
+      })}
+    </Card>
+  );
+}
+
 function CheckinRow({ token, checkin, driver, date, onChanged }) {
   const [rejecting, setRejecting] = useState(false);
   const [note, setNote] = useState('');
@@ -130,4 +174,12 @@ const styles = StyleSheet.create({
   meta: { fontSize: 13, color: colors.subtitle, marginTop: 2 },
   buttons: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, flexWrap: 'wrap' },
   button: { flex: 1, minWidth: 130 },
+  sentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  sentName: { fontSize: 15, fontWeight: '700', color: colors.text },
 });
