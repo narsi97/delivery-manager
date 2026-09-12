@@ -16,7 +16,7 @@ import { colors, spacing } from './theme';
 // segments here are deliberately only the ones worth a color (pending
 // stops are the "nothing has happened yet" majority in a fresh day and
 // would otherwise dominate the chart with no useful signal).
-export default function DonutChart({ segments, total, size = 120, strokeWidth = 18 }) {
+export default function DonutChart({ segments, total, caption = 'Total', size = 120, strokeWidth = 18 }) {
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const center = size / 2;
@@ -54,7 +54,7 @@ export default function DonutChart({ segments, total, size = 120, strokeWidth = 
         </svg>
         <View style={styles.centerLabel} pointerEvents="none">
           <Text style={styles.centerValue}>{total}</Text>
-          <Text style={styles.centerCaption}>Total</Text>
+          <Text style={styles.centerCaption}>{caption}</Text>
         </View>
       </View>
       <View style={styles.legend}>

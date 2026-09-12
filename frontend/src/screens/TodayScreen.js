@@ -303,8 +303,12 @@ export default function TodayScreen({ token, business, onScroll }) {
               only on a day that had some. Pending always shows, because
               on an untouched morning it is the whole story. See
               Docs/DESIGN.md. */}
+          {/* Deliveries, not doors: a household taking two products is
+              two here and one row in the round's table, and "Total" left
+              56 and "55 doors" looking like a counting mistake. */}
           <DonutChart
             total={summary.total ?? 0}
+            caption={summary.total === 1 ? 'delivery' : 'deliveries'}
             segments={[
               { label: 'Pending', value: summary.pending ?? 0, color: colors.subtitle },
               { label: 'Delivered', value: summary.delivered ?? 0, color: colors.success },
