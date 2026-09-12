@@ -168,7 +168,18 @@ function toRows(lines) {
       continue; // not a customer row — a stray number in a heading
     }
     const after = body.slice(phoneAt + 1);
-    const location = after.find((line) => LOCATION.test(line)) || '';
+    // A PDF draws what it draws. One list put a whole coordinate in a
+    // single string; the next drew "17°03'03.3\"N" and "79°15'22.7\"E"
+    // as two, and reading only the first meant every pin in the file was
+    // half a location — a latitude with nothing to pair it with, and a
+    // longitude thrown away with the address. So the halves are put back
+    // together: a fragment ending N or S followed by one ending E or W
+    // is one location that happened to be drawn twice.
+    const found = after.filter((line) => LOCATION.test(line));
+    let location = found[0] || '';
+    if (/[NS]$/i.test(location) && found[1] && /[EW]$/i.test(found[1])) {
+      location = `${location}, ${found[1]}`;
+    }
     const rest = after.filter((line) => !LOCATION.test(line));
     const qtyAt = rest.findIndex((line) => QUANTITY.test(line));
     rows.push({

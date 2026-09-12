@@ -46,7 +46,10 @@ const MINUTE = String.raw`['′’]?`;
 const SECOND = String.raw`(?:["″”]|'')?`;
 const DMS_PART = String.raw`(\d{1,3})\s*${DEGREE}\s*(?:(\d{1,2})\s*${MINUTE}\s*(?:([\d.]+)\s*${SECOND})?)?`;
 const DMS = new RegExp(
-  String.raw`^\s*${DMS_PART}\s*([NS])\s*[, ]\s*${DMS_PART}\s*([EW])\s*$`,
+  // The separator between the halves is optional: "17°…N 79°…E",
+  // "17°…N, 79°…E" and "17°…N79°…E" are the same reading, and the N is
+  // an unambiguous boundary either way.
+  String.raw`^\s*${DMS_PART}\s*([NS])\s*,?\s*${DMS_PART}\s*([EW])\s*$`,
   'i',
 );
 
