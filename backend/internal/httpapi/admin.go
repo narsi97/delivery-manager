@@ -84,6 +84,11 @@ type customerRequest struct {
 	// distinguishable on PATCH: omitting the key leaves the stored bag
 	// alone, sending {} clears it.
 	CustomFields *domain.FieldValues `json:"custom_fields"`
+	// A holiday with dates, rather than a pause somebody has to remember
+	// to undo. Pointers so that clearing them — "they are back" — is
+	// distinguishable from not mentioning them.
+	PausedFrom  *string `json:"paused_from"`
+	PausedUntil *string `json:"paused_until"`
 }
 
 func (s *Server) handleListCustomers(w http.ResponseWriter, r *http.Request) {
@@ -158,6 +163,24 @@ func (s *Server) handleCreateCustomer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, created)
 }
 
+// checkPauseSpan keeps a holiday to real dates in a possible order. An
+// open end either way is fine — "away from the 14th" and "back on the
+// 28th" are both things people say.
+func checkPauseSpan(from, until string) string {
+	for _, date := range []string{from, until} {
+		if date == "" {
+			continue
+		}
+		if _, err := time.Parse(domain.DateLayout, date); err != nil {
+			return "a holiday needs its dates as YYYY-MM-DD"
+		}
+	}
+	if from != "" && until != "" && until < from {
+		return "the last day away cannot come before the first"
+	}
+	return ""
+}
+
 func (s *Server) handleUpdateCustomer(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r.Context())
 
@@ -186,6 +209,20 @@ func (s *Server) handleUpdateCustomer(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Notes != nil {
 		existing.Notes = strings.TrimSpace(*req.Notes)
+	}
+	if req.PausedFrom != nil || req.PausedUntil != nil {
+		from, until := existing.PausedFrom, existing.PausedUntil
+		if req.PausedFrom != nil {
+			from = strings.TrimSpace(*req.PausedFrom)
+		}
+		if req.PausedUntil != nil {
+			until = strings.TrimSpace(*req.PausedUntil)
+		}
+		if problem := checkPauseSpan(from, until); problem != "" {
+			writeError(w, http.StatusBadRequest, problem, "invalid_pause")
+			return
+		}
+		existing.PausedFrom, existing.PausedUntil = from, until
 	}
 	if req.Lat != 0 || req.Lng != 0 {
 		if !validCoordinates(req.Lat, req.Lng) {
@@ -1121,7 +1158,7 @@ func (s *Server) generateDay(w http.ResponseWriter, r *http.Request, business do
 		// decided by the core, always, for every business. Extensions run
 		// afterwards and can only narrow this — see the ordering note on
 		// everyndays.AdjustGeneratedOrder.
-		if !sub.RunsOn(date) || !known || !customer.Active {
+		if !sub.RunsOn(date) || !known || !customer.DeliversOn(date) {
 			continue
 		}
 

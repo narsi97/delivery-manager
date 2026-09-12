@@ -282,10 +282,10 @@ func (s *PostgresStore) CreateCustomer(ctx context.Context, c domain.Customer) (
 	}
 	_, err = s.pool.Exec(ctx,
 		`insert into customers (`+customerColumns+`)
-		 values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+		 values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
 		c.ID, c.BusinessID, c.Name, c.Phone, c.Address, c.Lat, c.Lng, c.Notes,
 		string(domain.NormalizePriority(c.Priority)), c.Rank, c.ServiceAreaID, c.AccountID, c.Active,
-		c.CreatedAt, fieldsJSON)
+		c.CreatedAt, fieldsJSON, c.PausedFrom, c.PausedUntil)
 	if err != nil {
 		return domain.Customer{}, err
 	}
@@ -299,11 +299,12 @@ func (s *PostgresStore) UpdateCustomer(ctx context.Context, c domain.Customer) (
 	}
 	row := s.pool.QueryRow(ctx,
 		`update customers set name=$3, phone=$4, address=$5, lat=$6, lng=$7, notes=$8, active=$9,
-		        custom_fields=$10, priority=$11, sort_rank=$12, service_area_id=$13
+		        custom_fields=$10, priority=$11, sort_rank=$12, service_area_id=$13,
+		        paused_from=$14, paused_until=$15
 		 where id=$1 and business_id=$2
 		 returning `+customerColumns,
 		c.ID, c.BusinessID, c.Name, c.Phone, c.Address, c.Lat, c.Lng, c.Notes, c.Active, fieldsJSON,
-		string(domain.NormalizePriority(c.Priority)), c.Rank, c.ServiceAreaID)
+		string(domain.NormalizePriority(c.Priority)), c.Rank, c.ServiceAreaID, c.PausedFrom, c.PausedUntil)
 	return scanCustomer(row)
 }
 
@@ -508,7 +509,7 @@ func (s *PostgresStore) SetRecurringOrderActive(ctx context.Context, businessID 
 const businessColumns = `id, name, business_type, timezone, created_at, config, home_lat, home_lng`
 
 const customerColumns = `id, business_id, name, phone, address, lat, lng, notes, priority, sort_rank,
-	service_area_id, account_id, active, created_at, custom_fields`
+	service_area_id, account_id, active, created_at, custom_fields, paused_from, paused_until`
 
 const serviceAreaColumns = `id, business_id, name, lat, lng, radius_meters, active, created_at`
 
@@ -851,7 +852,8 @@ func scanCustomer(row scanner) (domain.Customer, error) {
 	var fieldsJSON []byte
 	var priority string
 	if err := row.Scan(&c.ID, &c.BusinessID, &c.Name, &c.Phone, &c.Address, &c.Lat, &c.Lng, &c.Notes,
-		&priority, &c.Rank, &c.ServiceAreaID, &c.AccountID, &c.Active, &c.CreatedAt, &fieldsJSON); err != nil {
+		&priority, &c.Rank, &c.ServiceAreaID, &c.AccountID, &c.Active, &c.CreatedAt, &fieldsJSON,
+		&c.PausedFrom, &c.PausedUntil); err != nil {
 		return domain.Customer{}, noRows(err)
 	}
 	c.Priority = domain.NormalizePriority(domain.PriorityTier(priority))

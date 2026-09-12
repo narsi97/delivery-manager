@@ -125,7 +125,7 @@ export default function CustomersScreen({ token, business, user, onScroll }) {
   // exceptions show: a roster where everyone is pinned and routed says
   // so by having nothing else to say. See Docs/DESIGN.md.
   const noPin = customers.filter((c) => !(c.lat || c.lng)).length;
-  const paused = customers.filter((c) => c.active === false).length;
+  const paused = customers.filter((c) => c.active === false || isAway(c)).length;
   const offRoute = customers.filter((c) => c.active !== false && !serviceRouteFor(c, areas)).length;
 
   return (
@@ -454,7 +454,7 @@ function groupCustomers(groupBy, customers, areas, labels) {
     case 'nopin':
       return only((c) => !c.lat && !c.lng, 'Missing a pin', 'Everyone has a pin.');
     case 'paused':
-      return only((c) => c.active === false, 'Paused', 'Nobody is paused.');
+      return only((c) => c.active === false || isAway(c), 'Paused', 'Nobody is paused.');
     case 'city':
     default: {
       const groups = new Map();
@@ -904,6 +904,166 @@ const STATUS_TONE = { pending: 'neutral', delivered: 'success', failed: 'error',
 // and PriorityBadge, which has always done this for the default tier.
 const worthShowing = (status) => !!status && status !== 'pending';
 
+// The same question domain.Customer.AwayOn answers on the server: is this
+// date inside the holiday. Kept in step with it deliberately — a roster
+// that counts somebody as away while the day still generates their
+// delivery is two answers to one question.
+function todayLocal() {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+function isAway(customer, date = todayLocal()) {
+  const from = customer.paused_from || '';
+  const until = customer.paused_until || '';
+  if (!from && !until) {
+    return false;
+  }
+  if (from && date < from) {
+    return false;
+  }
+  if (until && date > until) {
+    return false;
+  }
+  return true;
+}
+
+function awayLabel(customer) {
+  const say = (iso) => {
+    const at = new Date(`${iso}T00:00:00`);
+    return Number.isNaN(at.getTime()) ? iso : at.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  };
+  const from = customer.paused_from || '';
+  const until = customer.paused_until || '';
+  if (from && until) {
+    return `${say(from)} – ${say(until)}`;
+  }
+  return from ? `from ${say(from)}` : `until ${say(until)}`;
+}
+
+// Pausing, in the two shapes a dairy actually needs.
+//
+// "They have gone away until the 28th" is the common one, and it used to
+// be a pause somebody had to remember to undo — which meant either an
+// alarm in somebody's head or a household quietly getting no milk for a
+// month after they came back. Given the dates, coming back needs nobody
+// to do anything.
+//
+// The open-ended pause stays, because "stop, I will say when" is a real
+// thing to mean, and it is the honest answer when nobody knows the date.
+function AwayControls({ customer, labels, save }) {
+  const [open, setOpen] = useState(false);
+  const [from, setFrom] = useState(customer.paused_from || '');
+  const [until, setUntil] = useState(customer.paused_until || '');
+
+  if (!customer.active) {
+    return (
+      <View style={styles.buttonRow}>
+        <Button
+          title={`Resume ${lower(labels.customer)}`}
+          variant="secondary"
+          onPress={() => save({ active: true }, { active: false }, `${customer.name}: resumed`)}
+          style={styles.flexButton}
+        />
+      </View>
+    );
+  }
+
+  if (customer.paused_from || customer.paused_until) {
+    return (
+      <View style={styles.buttonRow}>
+        <Text style={styles.awayNow}>Away {awayLabel(customer)}</Text>
+        <Button
+          title="Back now"
+          variant="secondary"
+          onPress={() =>
+            save(
+              { paused_from: '', paused_until: '' },
+              { paused_from: customer.paused_from || '', paused_until: customer.paused_until || '' },
+              `${customer.name}: back on the round`,
+            )
+          }
+        />
+      </View>
+    );
+  }
+
+  return (
+    <View>
+      <View style={styles.buttonRow}>
+        {/* Hidden while the dates are being filled in: "Pause" next to a
+            half-typed holiday is two different instructions sitting side
+            by side, and the one that stops milk indefinitely is the
+            wrong one to press by accident. */}
+        {open ? null : (
+          <Button
+            title={`Pause ${lower(labels.customer)}`}
+            variant="secondary"
+            onPress={() => save({ active: false }, { active: true }, `${customer.name}: paused`)}
+            style={styles.flexButton}
+          />
+        )}
+        <Button
+          title={open ? 'Cancel' : 'Away for a while'}
+          variant="secondary"
+          onPress={() => {
+            setFrom(customer.paused_from || '');
+            setUntil(customer.paused_until || '');
+            setOpen((prev) => !prev);
+          }}
+          style={styles.flexButton}
+        />
+      </View>
+      {open ? (
+        <View style={styles.awayForm}>
+          {/* Raw date inputs, same reasoning as DateNav's: the browser's
+              own picker is one every admin already knows, and it
+              validates the format for free. Either end may be left
+              empty — "away from Friday, no idea when they are back" is
+              a real thing to mean. */}
+          <View style={styles.awayFields}>
+            <View>
+              <Text style={styles.label}>First day away</Text>
+              <input
+                type="date"
+                value={from}
+                aria-label="First day away"
+                onChange={(event) => setFrom(event.target.value)}
+                style={awayDateStyle}
+              />
+            </View>
+            <View>
+              <Text style={styles.label}>Last day away</Text>
+              <input
+                type="date"
+                value={until}
+                min={from || undefined}
+                aria-label="Last day away"
+                onChange={(event) => setUntil(event.target.value)}
+                style={awayDateStyle}
+              />
+            </View>
+          </View>
+          <Button
+            title="Save"
+            onPress={async () => {
+              await save(
+                { paused_from: from, paused_until: until },
+                { paused_from: customer.paused_from || '', paused_until: customer.paused_until || '' },
+                `${customer.name}: away`,
+              );
+              setOpen(false);
+            }}
+            disabled={!from && !until}
+          />
+          <Text style={styles.note}>Deliveries stop on those days and start again on their own.</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 function CustomerCard({
   customer,
   products,
@@ -1238,20 +1398,7 @@ function CustomerCard({
               />
             ) : null}
           </View>
-          <View style={styles.buttonRow}>
-            <Button
-              title={customer.active ? `Pause ${lower(labels.customer)}` : `Resume ${lower(labels.customer)}`}
-              variant="secondary"
-              onPress={() =>
-                save(
-                  { active: !customer.active },
-                  { active: customer.active },
-                  `${customer.name}: ${customer.active ? 'paused' : 'resumed'}`,
-                )
-              }
-              style={styles.flexButton}
-            />
-          </View>
+          <AwayControls customer={customer} labels={labels} save={save} />
 
           {/* Pausing keeps the customer and stops the deliveries, which
               is what "they've gone away for a month" means. Deleting is
@@ -1546,6 +1693,10 @@ const dateInputStyle = {
   marginBottom: spacing.md,
 };
 
+// The same input the one-off order uses, narrower because two of them sit
+// side by side inside a customer's card.
+const awayDateStyle = { ...dateInputStyle, width: 150, marginBottom: 0 };
+
 function productName(products, id) {
   return products.find((product) => product.id === id)?.name || 'item';
 }
@@ -1724,6 +1875,9 @@ const styles = StyleSheet.create({
   orderSummaryBlock: { marginTop: spacing.lg },
   expanded: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md },
   buttonRow: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
+  awayNow: { flex: 1, fontSize: 13, fontWeight: '600', color: colors.subtitle, alignSelf: 'center' },
+  awayForm: { marginTop: spacing.sm },
+  awayFields: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm },
   flexButton: { flex: 1, minWidth: 140 },
   subForm: { marginTop: spacing.lg },
   label: { fontSize: 13, fontWeight: '600', color: colors.label, marginBottom: spacing.xs, marginTop: spacing.sm },

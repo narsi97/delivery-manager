@@ -277,10 +277,24 @@ type Customer struct {
 	// their pin *and* accepts them by name, and two routes are allowed
 	// to cover exactly the same ground. See areaForCustomer in httpapi,
 	// which is where that resolution happens.
-	ServiceAreaID *string   `json:"service_area_id"`
-	AccountID     *string   `json:"account_id"`
-	Active        bool      `json:"active"`
-	CreatedAt     time.Time `json:"created_at"`
+	ServiceAreaID *string `json:"service_area_id"`
+	AccountID     *string `json:"account_id"`
+	Active        bool    `json:"active"`
+	// PausedFrom/PausedUntil are a holiday rather than a decision. A
+	// household away for a fortnight is still a customer, still on the
+	// round, and comes back on a date everybody already knows — so the
+	// dates are stored and the pause is *derived* from them.
+	//
+	// Nothing has to run at midnight to end it. A nightly job that
+	// resumes people is a job that can fail, run twice, or run in the
+	// wrong timezone, and the day it fails somebody gets no milk with no
+	// explanation. Asking "is this date inside the span" cannot drift.
+	//
+	// Active stays what it always was: paused until somebody says
+	// otherwise, with no end in mind.
+	PausedFrom  string    `json:"paused_from"`
+	PausedUntil string    `json:"paused_until"`
+	CreatedAt   time.Time `json:"created_at"`
 	// CustomFields holds whatever extra information this business
 	// declared it keeps about a customer — a student's class and
 	// guardian, a gate code. Validated against the declared specs on the
@@ -514,6 +528,27 @@ type RecurringOrder struct {
 	EndDate   string    `json:"end_date,omitempty"`
 	Active    bool      `json:"active"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// AwayOn reports whether this customer is on a holiday that covers the
+// given date. An open end in either direction is honoured: "away from
+// the 14th" with no return date, or "back on the 28th" with no start.
+func (c Customer) AwayOn(date string) bool {
+	if c.PausedFrom == "" && c.PausedUntil == "" {
+		return false
+	}
+	if c.PausedFrom != "" && date < c.PausedFrom {
+		return false
+	}
+	if c.PausedUntil != "" && date > c.PausedUntil {
+		return false
+	}
+	return true
+}
+
+// DeliversOn is the whole question a day's generation has to ask.
+func (c Customer) DeliversOn(date string) bool {
+	return c.Active && !c.AwayOn(date)
 }
 
 // RunsOn reports whether this subscription should produce a delivery on

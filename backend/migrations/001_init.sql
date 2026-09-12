@@ -109,6 +109,9 @@ create table if not exists products (
 alter table products add column if not exists stock_quantity double precision not null default 0;
 create index if not exists products_business_idx on products(business_id);
 
+alter table customers add column if not exists paused_from text not null default '';
+alter table customers add column if not exists paused_until text not null default '';
+
 create table if not exists product_stock (
 		business_id text not null references businesses(id) on delete cascade,
 		product_id text not null references products(id) on delete cascade,

@@ -115,6 +115,11 @@ var schemaStatements = []string{
 	`alter table products add column if not exists stock_quantity double precision not null default 0`,
 	`create index if not exists products_business_idx on products(business_id)`,
 
+	// A holiday, not a decision — see domain.Customer.PausedFrom. Added
+	// after customers shipped, so an alter rather than a column above.
+	`alter table customers add column if not exists paused_from text not null default ''`,
+	`alter table customers add column if not exists paused_until text not null default ''`,
+
 	// What is in the cold room on one day.
 	//
 	// Stock used to be a single number on the product, which meant it was
